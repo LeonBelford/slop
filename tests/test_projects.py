@@ -37,5 +37,52 @@ class ReadIdeasTest(unittest.TestCase):
         self.assertIn("PDF Export", sa.read_ideas(p))
 
 
+class TryVersionTest(unittest.TestCase):
+    def test_try_and_say(self):
+        import tempfile
+        from pathlib import Path
+        import saas_agent as sa
+        ws = Path(tempfile.mkdtemp()) / "demo"
+        (ws / "agent").mkdir(parents=True)
+        sa.write_json(ws / "agent" / "config.json", {"preset": "minimal"})
+        a = sa.Agent(ws)
+        a.git.ensure()
+        a.git.run("commit", "-q", "--allow-empty", "-m", "x")
+        report = a.try_version()
+        self.assertIn("Testversion", report)
+        self.assertTrue((ws / "TESTEN.md").exists())
+        a.add_feedback("Button kaputt")
+        self.assertIn("Button kaputt", sa.read_ideas(ws / "IDEAS.md"))
+
+
+class MasterAndUiTest(unittest.TestCase):
+    def test_master_template_ignored(self):
+        import tempfile
+        from pathlib import Path
+        import saas_agent as sa
+        p = Path(tempfile.mkdtemp()) / "MASTER.md"
+        p.write_text(sa.MASTER_TEMPLATE, "utf-8")
+        self.assertEqual(sa.read_master(p), "")
+        p.write_text(sa.MASTER_TEMPLATE + "\n- Immer Tests schreiben\n", "utf-8")
+        self.assertIn("Immer Tests", sa.read_master(p))
+
+    def test_ui_service_lists_and_validates(self):
+        import tempfile
+        from pathlib import Path
+        import saas_agent as sa
+        import webui
+        root = Path(tempfile.mkdtemp())
+        ws = root / "demo"
+        sa.write_text(ws / "agent" / "GOAL.md", "g")
+        sa.write_text(ws / "IDEAS.md", "Startidee: X\n")
+        svc = webui.Service(root)
+        self.assertEqual(svc.list()["projects"][0]["name"], "demo")
+        self.assertEqual(svc.detail("demo")["idea"], "X")
+        with self.assertRaises(webui.UiError):
+            svc.detail("../etc")
+        svc.act("demo", "say", {"msg": "hallo"})
+        self.assertIn("hallo", (ws / "IDEAS.md").read_text("utf-8"))
+
+
 if __name__ == "__main__":
     unittest.main()

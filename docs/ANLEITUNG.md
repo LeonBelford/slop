@@ -92,6 +92,24 @@ Alles Folgende **nur bei gestopptem Agenten**:
   `status` auf `pending` und `attempts` auf `0` setzen.
 - **Lessons korrigieren:** falsche Zeilen in `agent/memory/lessons.jsonl` löschen.
 
+## 6a. Zwischendurch testen (`make try`) und Feedback geben (`make say`)
+1. `make try P=<name>`: setzt STOP, wartet bis die aktuelle Aufgabe fertig ist, baut den letzten funktionierenden Stand von `main`
+   und schreibt `projects/<name>/TESTEN.md` mit dem Startbefehl (z. B. `dotnet run`, `cargo run --release`, `go run .`, `npm start`,
+   FastAPI: `.venv/bin/uvicorn app.main:app --reload`) und dem Ort der fertigen Binary (`dist/`, `target/release/`).
+2. Ausprobieren im Ordner `projects/<name>/repo`.
+3. Gefundene Fehler oder Wünsche: `make say P=<name> MSG="..."` (landet unter "Feedback aus Tests" in `IDEAS.md`; der Agent plant neu).
+   Das geht auch während der Agent läuft.
+4. `make tmux P=<name>` setzt die Arbeit fort.
+
+## 6b. Master-Prompt und Web-Oberfläche
+- **Master-Prompt:** `MASTER.md` im Hauptordner (neben dem Makefile). Gilt für alle Projekte, z. B. Sprache, Stilregeln, "immer Tests".
+  Er wird beim Start jeder Session (`make tmux` bzw. `run`) in `agent/master_session.md` übernommen und fließt in Planung, Ideenfindung,
+  Neuplanung und jeden Änderungskontext ein. Änderungen wirken erst ab dem nächsten Start. Die Vorlage selbst (nur Kommentare) wird ignoriert.
+- **Web-UI:** `make ui`, dann `http://127.0.0.1:8765`. Links die Projekte (grüner Punkt = läuft), rechts Status, Backlog, fertige Features,
+  Ideen/Feedback, Testversion, Live-Log und Ziel. Oben Starten/Stoppen und "Jetzt testen". "+ Neue Idee" legt ein Projekt an
+  (dauert einige Minuten, Fortschritt oben links). Das UI nutzt dieselben Dateien und Befehle wie die CLI, beides lässt sich mischen.
+  Es hört nur auf 127.0.0.1 und prüft Host und Herkunft der Anfragen; nicht ins Netz weiterleiten.
+
 ## 7. Einstellungen
 Datei `projects/<name>/agent/config.json` (Vorlage: `config.example.json`, Wirkung ab dem nächsten Start). Wichtige Werte:
 ```json
