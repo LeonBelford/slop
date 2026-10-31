@@ -24,7 +24,7 @@ make selftest                                # Mechanik ohne Modell prüfen
 make init IDEA="Rechnungs-Tool für Freelancer" NAME=rechnungen   # legt projects/rechnungen/ an (dauert einige Minuten)
 make tmux P=rechnungen                                           # läuft im Hintergrund
 ```
-Vor dem Start `projects/rechnungen/agent/GOAL.md` lesen und bei Bedarf anpassen.
+Eigene Wünsche, Umsetzungshinweise und Umbauten schreibst du jederzeit (auch während des Laufs) in `projects/rechnungen/IDEAS.md`. Der Agent liest die Datei jede Iteration, plant bei Änderungen neu und gleicht sie alle 5 Merges mit dem Produkt ab.
 
 **3. Bei Bedarf, einzeln**
 ```bash
@@ -46,6 +46,7 @@ slop/
 ├─ tests/, .github/     Selftest und CI
 └─ projects/            pro Idee ein Ordner (nicht im Git)
    └─ <name>/
+      ├─ IDEAS.md       deine Wünsche und Vorgaben (optional, vom Agenten laufend gelesen)
       ├─ repo/          das Produkt als eigenes Git-Repo inkl. docs/, CHANGELOG, README
       └─ agent/         Zustand und Gedächtnis dieses Projekts (außerhalb von repo/)
          ├─ GOAL.md, backlog.json, state.json, config.json, agent.log, metrics.jsonl

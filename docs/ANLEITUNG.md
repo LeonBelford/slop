@@ -26,7 +26,7 @@ make init IDEA="Rechnungs-Tool für Freelancer mit Mahnwesen" NAME=rechnungen
 - Ohne `NAME=` wird der Ordnername aus der Idee abgeleitet. `make list` zeigt alle Projekte.
 - Je konkreter die Idee (Zielgruppe, Kernproblem, Muss-Features), desto besser das Ergebnis.
 
-**Vor dem Start lesen:** `projects/rechnungen/agent/GOAL.md` und `backlog.json`. Falsche Richtung? `GOAL.md` und Backlog jetzt anpassen,
+**Vor dem Start lesen:** `projects/rechnungen/agent/GOAL.md` und `backlog.json`. Falsche Richtung? `IDEAS.md`, `GOAL.md` und Backlog jetzt anpassen,
 das ist die billigste Stelle zum Korrigieren.
 
 ## 3. Laufen lassen
@@ -45,6 +45,7 @@ Pro Aufgabe siehst du im Log: Plan, Aider-Arbeit, Build/Test, Debug-Runden, Revi
 |---|---|
 | `repo/` | das Produkt (eigenes Git-Repo): Code, Tests, `README.md`, `CHANGELOG.md`, `docs/` |
 | `repo/docs/` | `ARCHITECTURE.md`, `CODEMAP.md`, `FEATURES.md`, `DECISIONS.md`, `modules/*.md` |
+| `IDEAS.md` | deine Wünsche und Vorgaben, vom Agenten laufend gelesen |
 | `agent/GOAL.md` | Vision und Qualitätsmaßstab |
 | `agent/backlog.json` | alle Aufgaben mit Status `pending`, `in_progress`, `done`, `blocked` |
 | `agent/memory/` | Codemap, Features, Entscheidungen, Lessons (das Gedächtnis) |
@@ -70,6 +71,14 @@ Er endet auch selbst bei `max_hours`/`max_iterations` (Config), nach 5 Fehlschl�
 mehr einfällt. Bei Abbruch oder Absturz werden angefangene Aufgaben beim nächsten Start wieder aufgenommen.
 
 ## 6. Eingreifen
+**Per `IDEAS.md` (empfohlen, auch während des Laufs):** `projects/<name>/IDEAS.md` wurde bei `make init` angelegt. Schreibe dort Wünsche,
+Umsetzungshinweise ("wie"), Umbau-Wünsche und "Nicht tun" hinein. Der Agent prüft die Datei in jeder Iteration. Bei einer Änderung
+plant er neu: neue Aufgaben (mit Vorrang vor selbst erfundenen Ideen), geänderte Prioritäten, Streichen widersprüchlicher offener Aufgaben,
+Umbauten als kleine Refactor-Schritte. Die Vorgaben landen in `GOAL.md` und im Kontext jeder Änderung. Alle `limits.ideas_review_every`
+Merges (Standard 5) gleicht er das Produkt auch ohne Änderung mit der Datei ab. Ein gesättigtes, gestopptes Projekt macht nach einer
+Änderung beim nächsten `make tmux` weiter. Die Vorlage selbst (nur Überschriften/Kommentare) wird ignoriert.
+
+Alles Folgende **nur bei gestopptem Agenten**:
 **Nur bei gestopptem Agenten**, sonst überschreibt er deine Änderungen (er hält den Backlog im Speicher).
 - **Richtung ändern:** `agent/GOAL.md` bearbeiten.
 - **Aufgabe hinzufügen:** in `agent/backlog.json` einen Eintrag anfügen:

@@ -72,6 +72,7 @@ DEFAULT_CONFIG = {
         "product_review_every": 6,
         "architecture_refresh_every": 3,
         "health_every": 5,
+        "ideas_review_every": 5,
         "min_review_score": 7,
         "max_files_per_task": 8,
     },
@@ -180,6 +181,43 @@ def sh(cmd, cwd: Path, timeout: int = 900, shell: bool = False, env: dict | None
 
 def words(text: str) -> set[str]:
     return {w for w in re.findall(r"[a-zA-Z_]{4,}", text.lower())}
+
+
+IDEAS_TEMPLATE = """# Ideen und Vorgaben für dieses Projekt
+
+<!-- Der Agent liest diese Datei in jeder Iteration. Wenn du etwas änderst, plant er neu: Er ergänzt Aufgaben, ändert
+Prioritäten, streicht überholte offene Aufgaben und baut bestehenden Code bei Bedarf um. Zusätzlich gleicht er alle paar
+Merges ab, ob das Produkt zu deinen Vorgaben passt. Alles hier ist verbindlich, solange es nicht gelöscht wird.
+Kommentare wie dieser und leere Abschnitte werden ignoriert. Jederzeit editierbar, auch während der Agent läuft. -->
+
+Startidee: {idea}
+
+## Wünsche und neue Features
+<!-- z. B. - Rechnungen als PDF exportieren, mit eigenem Logo -->
+
+## Wie es umgesetzt werden soll
+<!-- z. B. - Server-seitig rendern mit Jinja, kein JavaScript-Framework
+     - Jede Route bekommt einen Test; Geldbeträge immer als Integer in Cent -->
+
+## Umbau-Wünsche
+<!-- z. B. - Datenbankzugriff in ein eigenes Modul auslagern
+     - Auth von Session-Cookies auf Tokens umstellen -->
+
+## Nicht tun
+<!-- z. B. - keine externen Bezahldienste anbinden -->
+"""
+
+
+def read_ideas(path: Path) -> str:
+    """Liest IDEAS.md ohne Kommentare. Leer, wenn nur Überschriften und Startidee drinstehen."""
+    try:
+        text = re.sub(r"<!--.*?-->", "", path.read_text("utf-8"), flags=re.S)
+    except OSError:
+        return ""
+    lines = [l.rstrip() for l in text.splitlines() if l.strip()]
+    if not [l for l in lines if not l.lstrip().startswith("#") and not l.startswith("Startidee:")]:
+        return ""
+    return "\n".join(lines)
 
 
 # --------------------------------------------------------------------------- LLM
@@ -511,6 +549,9 @@ class Memory:
         goal = self.dir.parent / "GOAL.md"
         if goal.exists():
             parts.append("## Produktziel\n" + clip(goal.read_text("utf-8"), 2500))
+        wishes = read_ideas(self.dir.parent.parent / "IDEAS.md")
+        if wishes:
+            parts.append("## Vorgaben des Nutzers (verbindlich, auch Umsetzungshinweise und 'Nicht tun')\n" + clip(wishes, 3000))
         arch = self.dir / "ARCHITECTURE.md"
         if arch.exists():
             parts.append("## Architektur\n" + clip(arch.read_text("utf-8"), 5000))
@@ -675,6 +716,7 @@ class Agent:
             "req_hash": "", "ideation_min_score": self.lim["ideation_min_score"], "last_review_at": 0,
             "last_refactor_at": 0, "last_coverage_at": 0, "last_arch_at": 0})
         self.run_dir = self.dir
+        self.ideas_path = self.ws / "IDEAS.md"
         self.coder_mock = None
 
     # ---- Konfiguration/Logging
@@ -718,6 +760,8 @@ class Agent:
         if not (self.dir / "config.json").exists():
             write_json(self.dir / "config.json", {k: self.cfg[k] for k in ("preset", "doc_language", "models", "coder_model")})
         self.git.ensure()
+        if not self.ideas_path.exists():
+            write_text(self.ideas_path, IDEAS_TEMPLATE.format(idea=idea))
         for rel, content in SCAFFOLDS[self.cfg["preset"]].items():
             write_text(self.repo / rel, content)
         write_text(self.repo / ".gitignore", ".venv/\n__pycache__/\n.pytest_cache/\n.aider*\nnode_modules/\n*.db\n.env\n")
@@ -1052,6 +1096,68 @@ class Agent:
             self.backlog.add("Repair main build/tests", f"Der Build/Test auf main ist rot. Behebe die Ursache:\n{report}",
                              "bug", 2000, ["Build und Tests grün"], "health", "health")
 
+    # ---- Nutzer-Vorgaben (IDEAS.md)
+    def sync_ideas(self) -> None:
+        """Liest IDEAS.md. Bei Änderung (oder periodisch zum Abgleich) wird neu geplant."""
+        text = read_ideas(self.ideas_path)
+        h = sha(text)
+        due = self.state["merged"] - self.state.get("ideas_review_at", 0) >= self.lim["ideas_review_every"]
+        changed = h != self.state.get("ideas_hash", "")
+        if not text:
+            self.state["ideas_hash"] = h
+            return
+        if not changed and not due:
+            return
+        self.log("IDEAS.md geändert, plane neu." if changed else "Periodischer Abgleich mit IDEAS.md.")
+        seen_p = self.dir / "ideas_seen.md"
+        seen = seen_p.read_text("utf-8") if seen_p.exists() else ""
+        open_items = [{"id": i["id"], "title": i["title"], "type": i["type"], "priority": i["priority"], "status": i["status"]}
+                      for i in self.backlog.items if i["status"] in ("pending", "blocked")]
+        try:
+            d = self.llm.json(
+                "replan", "planner",
+                "Du bist Produktplaner. Der Nutzer pflegt Wünsche und Vorgaben; du gleichst sie mit dem Stand des Produkts ab. "
+                "Ergänze nur, was fehlt. Größere Umbauten zerlegst du in kleine, geordnete Schritte (type refactor, frühere "
+                "Schritte höhere Priorität). Offene Aufgaben, die den Vorgaben widersprechen, werden gestrichen.",
+                f"Vorgaben des Nutzers (aktuell):\n{clip(text, 5000)}\n\nZuletzt verarbeitete Fassung:\n{clip(seen, 3000) or '(keine)'}\n\n"
+                f"Produktziel:\n{clip(self.goal, 1500)}\nBereits gebaut: {[f['title'] for f in self.mem.features.values()]}\n"
+                f"Offene Aufgaben: {json.dumps(open_items)}\nArchitektur:\n"
+                f"{clip((self.mem.dir / 'ARCHITECTURE.md').read_text('utf-8') if (self.mem.dir / 'ARCHITECTURE.md').exists() else '', 3000)}\n\n"
+                "Schema: "
+                '{"summary": "was hat sich geändert", "new_items": [{"title": "", "description": "", '
+                '"type": "feature|refactor|bug|docs|test", "acceptance": ["testbar"], "priority": 1-10}], '
+                '"reprioritize": [{"id": "T0001", "priority": 1-10}], "cancel": ["T0001"]}')
+        except Exception as e:
+            self.log(f"Neuplanung fehlgeschlagen, versuche es später erneut: {e}")
+            return
+        added = 0
+        for i in d.get("new_items", []):
+            # Nutzerwünsche haben Vorrang vor selbst erfundenen Ideen (Priorität > 20)
+            if self.backlog.add(i["title"], i.get("description", ""), i.get("type", "feature"),
+                                20 + float(i.get("priority", 5)), i.get("acceptance", []), "Nutzervorgabe (IDEAS.md)", "ideas"):
+                added += 1
+        by_id = {i["id"]: i for i in self.backlog.items}
+        for r in d.get("reprioritize", []):
+            it = by_id.get(r.get("id"))
+            if it and it["status"] == "pending":
+                self.backlog.set(it, priority=20 + float(r.get("priority", 5)))
+        cancelled = 0
+        for cid in d.get("cancel", []):
+            it = by_id.get(cid)
+            if it and it["status"] in ("pending", "blocked"):
+                self.backlog.set(it, status="cancelled", notes=it.get("notes", []) + ["gestrichen wegen IDEAS.md"])
+                cancelled += 1
+        marker = "\n\n## Nutzer-Vorgaben (aus IDEAS.md)\n"
+        write_text(self.dir / "GOAL.md", self.goal.split(marker)[0].rstrip() + marker + clip(text, 3000) + "\n")
+        write_text(seen_p, text)
+        write_text(self.repo / "docs" / "PRODUCT.md", self.goal)
+        self.git.commit_all("docs: update product goals from IDEAS.md")
+        self.state["ideas_hash"], self.state["ideas_review_at"] = h, self.state["merged"]
+        self.state["empty_refills"] = 0
+        self.save_state()
+        self.metric(kind="replan", added=added, cancelled=cancelled, summary=d.get("summary", ""))
+        self.log(f"Neuplanung: {added} neue Aufgaben, {cancelled} gestrichen. {d.get('summary', '')}")
+
     # ---- Hauptschleife
     def should_stop(self, started: float) -> str | None:
         if (self.dir / "STOP").exists():
@@ -1086,6 +1192,7 @@ class Agent:
             if it["status"] == "in_progress":
                 it["status"] = "pending"
         self.backlog.save()
+        self.state["empty_refills"] = 0  # neuer Start: nach `stop`/Sättigung erneut Ideen versuchen
         started = time.time()
         self.git.hard_reset()
         self.health_check()
@@ -1098,6 +1205,7 @@ class Agent:
             self.state["iteration"] += 1
             if self.state["iteration"] % self.lim["health_every"] == 0:
                 self.health_check()
+            self.sync_ideas()
             self.schedule_hygiene()
             item = self.backlog.next()
             if not item:
@@ -1141,6 +1249,9 @@ def selftest() -> None:
         if tag == "impact":
             return json.dumps({"understanding": "u", "files_to_change": ["app/main.py"], "new_files": [], "steps": ["s"],
                                "invariants": ["health stays ok"], "tests_to_add": ["t"]})
+        if tag == "replan":
+            return json.dumps({"summary": "neue Wuensche", "new_items": [{"title": "Dark mode toggle", "description": "d",
+                               "type": "feature", "acceptance": ["x"], "priority": 7}], "reprioritize": [], "cancel": []})
         if tag == "plan_critique":
             return json.dumps({"ok": True, "missing_files": [], "concerns": []})
         if tag == "review":
@@ -1179,7 +1290,11 @@ def selftest() -> None:
     a = Agent(ws, cfg)
     a.coder_mock = fake_coder
     a.init("demo idea")
+    with open(ws / "IDEAS.md", "a", encoding="utf-8") as f:
+        f.write("\n- Dark mode umschaltbar machen\n")
     a.run()
+    assert any(i["source"] == "ideas" for i in a.backlog.items), "IDEAS.md muss zu Backlog-Eintraegen fuehren"
+    assert "Nutzer-Vorgaben (aus IDEAS.md)" in a.goal
     print(a.status())
     assert a.state["merged"] >= 3, "es sollten mehrere Features gemerged worden sein"
     assert a.git.out("status", "--porcelain") == "", "Arbeitsverzeichnis muss sauber sein"

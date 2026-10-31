@@ -32,6 +32,13 @@ Es entsteht automatisch beim `init` und gehört immer genau einem Projekt.
 3. Plan als JSON: Verständnis, zu ändernde/neue Dateien, betroffene Aufrufer, Invarianten, Risiken, Schritte, Tests.
 4. Plan-Kritik prüft per Graph auf übersehene Aufrufer und ergänzt Dateien.
 
+## Nutzer-Vorgaben (`projects/<name>/IDEAS.md`)
+`Agent.sync_ideas()` läuft nach dem Health-Check jeder Iteration. Der Hash des kommentarbereinigten Texts (`read_ideas`) wird mit
+`state.ideas_hash` verglichen; zusätzlich erzwingt `limits.ideas_review_every` Merges einen Abgleich. Das Modell (Tag `replan`) bekommt
+Vorgaben, zuletzt verarbeitete Fassung (`agent/ideas_seen.md`), Ziel, Features, offene Aufgaben und Architektur und liefert neue Aufgaben,
+Prioritäten und Streichungen (Status `cancelled`). Neue Aufgaben erhalten Priorität 20+p (vor Ideation), Quelle `ideas`. Der Text wird in
+`GOAL.md`, `repo/docs/PRODUCT.md` und den Kontextpack jeder Änderung übernommen. Schlägt die Neuplanung fehl, wird sie erneut versucht.
+
 ## Robustheit
 - Das Skript entscheidet über Weitermachen und Ende, nie das Modell.
 - Der Zustand liegt außerhalb des Repos; `git reset --hard` zerstört ihn nicht, ein Lauf ist nach Absturz fortsetzbar.
