@@ -47,7 +47,7 @@ X-UI: 1; host and origin are checked.
 
 ## Self-improvement
 - `Agent.reflect()` (in `saas_agent.py`) runs every `reflect_every` merges or after 3 failed tasks. Inputs: `metrics.jsonl` (including `attempt_failed` rows), recent lessons, the current playbook. Outputs: `agent/playbook.md` (injected via `Agent.directive` and `context_pack`), `agent/tuning.json` (only keys in `TUNABLE`, clamped to hard bounds), `agent/tool_ideas.jsonl`.
-- `selfimprove.py` (`make improve`) reads that evidence from all projects, asks the planner for at most 3 proposals, implements each with Aider in a separate git worktree and keeps a proposal only if `selftest` and the unit tests pass and no protected file (`PROTECTED`, existing tests) was touched. `_docs_pass` then lets the coder update README/docs and append to `docs/SELF_IMPROVEMENTS.md` (docs-only diff enforced, else reverted). Result: a branch `self-improve/<timestamp>` for manual review; proposals are logged in `self_improve/` (git-ignored).
+- `selfimprove.py` (`make self-improve`) reads that evidence from all projects, asks the planner for at most 3 proposals, implements each with Aider in a separate git worktree and keeps a proposal only if `selftest` and the unit tests pass and no protected file (`PROTECTED`, existing tests) was touched. `_docs_pass` then lets the coder update README/docs and append to `docs/SELF_IMPROVEMENTS.md` (docs-only diff enforced, else reverted). Result: a branch `self-improve/<timestamp>` for manual review; proposals are logged in `self_improve/` (git-ignored).
 
 ## Robustness
 - The script decides whether to continue or end, never the model.

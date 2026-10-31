@@ -13,6 +13,7 @@ import re
 import subprocess
 import sys
 import threading
+import urllib.parse
 import webbrowser
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
@@ -23,6 +24,9 @@ ROOT = Path(__file__).resolve().parent
 INDEX = ROOT / "web" / "index.html"
 MAX_BODY = 1_000_000
 NAME_RE = re.compile(r"^[a-z0-9][a-z0-9-]{0,60}$")
+SHA_RE = re.compile(r"^[0-9a-f]{4,40}$")
+BRANCH_RE = re.compile(r"^self-improve/[0-9]{8}-[0-9]{6}$")
+MAX_DIFF = 200_000
 
 PROCS: dict[str, subprocess.Popen] = {}  # started agents, init and try jobs: "<kind>:<project>"
 LOCK = threading.Lock()
@@ -64,6 +68,20 @@ def spawn(key: str, args: list[str], out: Path, env: dict | None = None) -> None
     f = open(out, "a", encoding="utf-8")
     PROCS[key] = subprocess.Popen(["bash", "scripts/run.sh", *args], cwd=str(ROOT), stdin=subprocess.DEVNULL, stdout=f,
                                   stderr=subprocess.STDOUT, start_new_session=True, env={**os.environ, **(env or {})})
+
+
+def git(repo: Path, *args: str, limit: int = MAX_DIFF) -> str:
+    try:
+        p = subprocess.run(["git", *args], cwd=str(repo), capture_output=True, timeout=60)
+    except (OSError, subprocess.SubprocessError):
+        return ""
+    out = p.stdout.decode("utf-8", "replace")
+    return out[:limit] + ("\n... (truncated)" if len(out) > limit else "")
+
+
+def read_live(path: Path, running: bool) -> dict | None:
+    data = sa.read_json(path, None)
+    return data if data and running else None
 
 
 class Service:
@@ -108,11 +126,96 @@ class Service:
         backlog = sorted(sa.read_json(a / "backlog.json", []), key=lambda i: -i["priority"])
         read = lambda p: p.read_text("utf-8") if p.exists() else ""
         return {**self.summary(ws), "ideas": read(ws / "IDEAS.md"), "goal": read(a / "GOAL.md"), "testing": read(ws / "TESTING.md"), "sources": read(ws / "SOURCES.md"), "web_mode": sa.read_json(a / "config.json", {}).get("web", {}).get("mode", "sources"),
-                "log": tail(a / "agent.log"), "run_out": tail(a / "run.out", 15), "try_out": tail(a / "try.out", 15),
+                "activity": self.activity(ws), "log": tail(a / "agent.log"), "run_out": tail(a / "run.out", 15), "do_out": tail(a / "do.out", 15), "try_out": tail(a / "try.out", 15),
                 "features": [{"id": k, "title": v.get("title", k)} if isinstance(v, dict) else {"id": k, "title": str(v)}
                              for k, v in feats.items()],
                 "backlog_items": [{k: i.get(k) for k in ("id", "title", "type", "priority", "status", "source", "attempts")}
                                   for i in backlog]}
+
+    def activity(self, ws: Path) -> dict:
+        """What the agent is doing right now: phase, task, current model/Aider call and the recent event timeline."""
+        a = ws / "agent"
+        running = pid_alive(a / "agent.pid") or alive(f"run:{ws.name}") or alive(f"do:{ws.name}")
+        events = []
+        ep = a / "events.jsonl"
+        if ep.exists():
+            for line in ep.read_text("utf-8").splitlines()[-40:]:
+                try:
+                    events.append(json.loads(line))
+                except ValueError:
+                    pass
+        return {"running": running, "now": sa.read_json(a / "activity.json", None) if running else None,
+                "llm": read_live(a / "llm_now.json", running), "coder": read_live(a / "coder_now.json", running),
+                "events": events, "queued_user_tasks": [i["title"] for i in sa.read_json(a / "backlog.json", [])
+                                                          if i.get("source") == "user" and i["status"] in ("pending", "in_progress")]}
+
+    def llm_log(self, name: str) -> dict:
+        text = tail(self.ws(name) / "agent" / "llm.log", 4000, 400_000)
+        entries = []
+        for chunk in text.split("\n===== ")[1:][-25:]:
+            head, _, rest = chunk.partition(" =====\n")
+            prompt, _, answer = rest.partition("\n-- answer --\n")
+            entries.append({"head": head, "prompt": prompt.replace("-- prompt (end) --\n", "", 1), "answer": answer.strip()})
+        return {"entries": entries[::-1]}
+
+    def changes(self, name: str) -> dict:
+        repo = self.ws(name) / "repo"
+        if not (repo / ".git").exists():
+            return {"commits": [], "files": [], "uncommitted": []}
+        raw = git(repo, "log", "-n", "80", "--numstat", "--format=%x1e%h%x1f%s%x1f%cI")
+        commits, totals = [], {}
+        for block in raw.split("\x1e")[1:]:
+            head, _, stats = block.partition("\n")
+            sha, subject, date = (head.split("\x1f") + ["", ""])[:3]
+            files = []
+            for line in stats.splitlines():
+                parts = line.split("\t")
+                if len(parts) == 3:
+                    add = int(parts[0]) if parts[0].isdigit() else 0
+                    rem = int(parts[1]) if parts[1].isdigit() else 0
+                    files.append({"path": parts[2], "add": add, "del": rem})
+                    t = totals.setdefault(parts[2], {"path": parts[2], "add": 0, "del": 0, "commits": 0})
+                    t["add"] += add
+                    t["del"] += rem
+                    t["commits"] += 1
+            commits.append({"sha": sha, "subject": subject, "date": date, "files": files})
+        status = [l for l in git(repo, "status", "--porcelain").splitlines() if l.strip()]
+        return {"commits": commits, "files": sorted(totals.values(), key=lambda t: -(t["add"] + t["del"])),
+                "uncommitted": status[:100]}
+
+    def diff(self, name: str, sha: str, path: str) -> dict:
+        repo = self.ws(name) / "repo"
+        if not SHA_RE.match(sha or "") or path.startswith("-") or ".." in Path(path).parts:
+            raise UiError("Invalid commit or path")
+        args = ["show", "--format=%h %s%n%cI", "--patch", sha]
+        return {"diff": git(repo, *args, *(["--", path] if path else []))}
+
+    def tool(self) -> dict:
+        """Tasks for the tool itself (loop, UI, Makefile ...), executed on review branches, never merged automatically."""
+        branches = []
+        for line in git(ROOT, "for-each-ref", "refs/heads/self-improve/", "--sort=-creatordate",
+                        "--format=%(refname:short)\x1f%(creatordate:iso8601)\x1f%(subject)").splitlines()[:15]:
+            name, date, subject = (line.split("\x1f") + ["", ""])[:3]
+            stat = git(ROOT, "diff", "--stat", f"HEAD...{name}").strip().splitlines()
+            branches.append({"name": name, "date": date, "subject": subject, "stat": stat[-12:]})
+        return {"running": alive("tool"), "log": tail(ROOT / "self_improve" / "ui.log", 60), "branches": branches}
+
+    def tool_diff(self, branch: str) -> dict:
+        if not BRANCH_RE.match(branch or ""):
+            raise UiError("Invalid branch")
+        return {"diff": git(ROOT, "diff", f"HEAD...{branch}")}
+
+    def tool_task(self, body: dict) -> dict:
+        task = str(body.get("task", "")).strip()
+        if len(task) < 10:
+            raise UiError("Describe what the tool should do in a sentence or two")
+        if alive("tool"):
+            raise UiError("A tool task is already running", 409)
+        out = ROOT / "self_improve" / "ui.log"
+        out.parent.mkdir(exist_ok=True)
+        out.write_text("", "utf-8")
+        spawn("tool", ["improve", "--task", task], out)
+        return {"ok": True}
 
     def act(self, name: str, action: str, body: dict) -> dict:
         ws = self.ws(name)
@@ -128,6 +231,15 @@ class Service:
                 raise UiError("A test version is already being built", 409)
             (a / "try.out").write_text("", "utf-8")
             spawn(f"try:{name}", ["try", name], a / "try.out")
+        elif action == "do":
+            task = str(body.get("task", "")).strip()
+            if len(task) < 5:
+                raise UiError("Describe the task")
+            if self.summary(ws)["running"]:
+                sa.Agent(ws).add_user_task(task)  # the running agent takes it next, before anything else
+                return {"ok": True, "queued": True}
+            spawn(f"do:{name}", ["do", name, task], a / "do.out")
+            return {"ok": True, "queued": False}
         elif action == "say":
             msg = str(body.get("msg", "")).strip()
             if not msg:
@@ -201,7 +313,9 @@ def make_handler(svc: Service, port: int):
         def handle_any(self, method: str) -> None:
             if not self.guard(method == "POST"):
                 return
-            path = self.path.split("?", 1)[0].rstrip("/") or "/"
+            parsed = urllib.parse.urlsplit(self.path)
+            path = parsed.path.rstrip("/") or "/"
+            q = {k: v[0] for k, v in urllib.parse.parse_qs(parsed.query).items()}
             try:
                 body = {}
                 if method == "POST":
@@ -210,7 +324,7 @@ def make_handler(svc: Service, port: int):
                         raise UiError("Request too large", 413)
                     body = json.loads(self.rfile.read(n) or b"{}")
                 with LOCK:
-                    self.send(200, self.route(method, path, body))
+                    self.send(200, self.route(method, path, body, q))
             except UiError as e:
                 self.send(e.code, {"error": str(e)})
             except (ValueError, KeyError) as e:
@@ -218,7 +332,7 @@ def make_handler(svc: Service, port: int):
             except Exception as e:  # noqa: BLE001
                 self.send(500, {"error": f"{type(e).__name__}: {e}"})
 
-        def route(self, method: str, path: str, body: dict):
+        def route(self, method: str, path: str, body: dict, q: dict):
             if method == "GET":
                 if path == "/":
                     return INDEX.read_bytes()
@@ -228,14 +342,27 @@ def make_handler(svc: Service, port: int):
                     return svc.get_master()
                 if path == "/api/languages":
                     return svc.languages()
+                if path == "/api/tool":
+                    return svc.tool()
+                if path == "/api/tool/diff":
+                    return svc.tool_diff(q.get("branch", ""))
                 m = re.fullmatch(r"/api/project/([^/]+)", path)
                 if m:
                     return svc.detail(m.group(1))
+                m = re.fullmatch(r"/api/project/([^/]+)/(llm|changes|diff)", path)
+                if m:
+                    if m.group(2) == "llm":
+                        return svc.llm_log(m.group(1))
+                    if m.group(2) == "changes":
+                        return svc.changes(m.group(1))
+                    return svc.diff(m.group(1), q.get("sha", ""), q.get("path", ""))
             else:
                 if path == "/api/projects":
                     return svc.create(body)
                 if path == "/api/master":
                     return svc.set_master(body)
+                if path == "/api/tool/task":
+                    return svc.tool_task(body)
                 m = re.fullmatch(r"/api/project/([^/]+)/([a-z]+)", path)
                 if m:
                     return svc.act(m.group(1), m.group(2), body)

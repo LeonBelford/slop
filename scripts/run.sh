@@ -3,7 +3,8 @@
 #   scripts/run.sh init "<idea>" [project name]
 #   scripts/run.sh run|status|stop|try [project name]
 #   scripts/run.sh say <project name> "<feedback>"
-#   scripts/run.sh tmux|watch|logs [project name]
+#   scripts/run.sh start|tmux|watch|logs [project name]
+#   scripts/run.sh do <project name> "<task>"
 #   scripts/run.sh list
 #   scripts/run.sh ui [--port 8765]
 set -euo pipefail
@@ -22,6 +23,8 @@ case "$cmd" in
     python3 saas_agent.py say ${1:+--project "$1"} --msg "${2:?message}" ;;
   run|status|stop)
     python3 saas_agent.py "$cmd" ${1:+--project "$1"} ;;
+  do)
+    python3 saas_agent.py do ${1:+--project "$1"} --task "${2:?task}" ;;
   list) python3 saas_agent.py list ;;
   tmux)
     command -v tmux >/dev/null || { echo "tmux is not installed: sudo apt install tmux (or run it in the foreground: make run P=...)"; exit 1; }
@@ -31,8 +34,20 @@ case "$cmd" in
     # the pane stays open after the agent exits, so errors remain visible
     tmux new -d -s "$sess" "bash scripts/run.sh run '$name'; echo; echo '[agent exited, press Enter to close]'; read _"
     sleep 1
-    tmux has-session -t "$sess" 2>/dev/null && echo "started. Watch it: make watch P=$name  (or: tmux attach -t $sess; detach with Ctrl+B, then D)" \
+    tmux has-session -t "$sess" 2>/dev/null && echo "started. Watch it: make attach P=$name  (or: tmux attach -t $sess; detach with Ctrl+B, then D)" \
       || echo "session ended immediately, run it in the foreground to see the error: make run P=$name" ;;
+  start)
+    # Works with or without tmux: background process, output in projects/<name>/agent/run.out
+    name="$(python3 saas_agent.py name ${1:+--project "$1"})" || exit 1
+    pidf="projects/$name/agent/agent.pid"
+    if [ -f "$pidf" ] && kill -0 "$(cat "$pidf")" 2>/dev/null; then echo "$name is already running. Follow it: make attach P=$name"; exit 0; fi
+    mkdir -p "projects/$name/agent"
+    if command -v tmux >/dev/null; then
+      bash scripts/run.sh tmux "$name" && exit 0
+    fi
+    nohup python3 saas_agent.py run --project "$name" > "projects/$name/agent/run.out" 2>&1 < /dev/null &
+    sleep 3
+    echo "started in the background (no tmux). Follow it: make attach P=$name   Stop: make stop P=$name" ;;
   watch)
     name="$(python3 saas_agent.py name ${1:+--project "$1"})" || exit 1
     if tmux has-session -t "agent-$name" 2>/dev/null; then exec tmux attach -t "agent-$name"; fi

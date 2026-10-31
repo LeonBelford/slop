@@ -31,9 +31,9 @@ this is the cheapest point to correct course.
 
 ## 3. Let it run
 ```bash
-make tmux P=invoices               # starts in the background (tmux session agent-invoices)
-make watch P=invoices            # attach to the live session; Ctrl+B, then D to detach (falls back to following agent.log)
-make logs  P=invoices            # the model's prompts and answers, i.e. what it "thinks" (agent/llm.log)
+make start-tmux P=invoices               # starts in the background (tmux session agent-invoices)
+make attach P=invoices            # attach to the live session; Ctrl+B, then D to detach (falls back to following agent.log)
+make thinking  P=invoices            # the model's prompts and answers, i.e. what it "thinks" (agent/llm.log)
 make status P=invoices             # one line: iteration, merges, backlog, consecutive failures
 tail -f projects/invoices/agent/agent.log
 ```
@@ -66,7 +66,7 @@ The agent creates `repo/.venv` itself on the first build. While the agent is run
 ## 5. Stop and resume
 ```bash
 make stop P=invoices               # ends after the current task
-make tmux P=invoices               # resumes from the saved state
+make start-tmux P=invoices               # resumes from the saved state
 ```
 It also ends by itself at `max_hours`/`max_iterations` (config), after 5 consecutive failures, or when it can no longer think of anything
 useful. After an abort or crash, tasks in progress are resumed on the next start.
@@ -77,7 +77,7 @@ implementation hints ("how"), restructuring requests and "Do not" items there. T
 it replans: new tasks (with priority over self-invented ideas), changed priorities, cancelling conflicting open tasks,
 restructurings as small refactoring steps. The directives end up in `GOAL.md` and in the context of every change. Every `limits.ideas_review_every`
 merges (default 5) it also reconciles the product with the file, even without a change. A saturated, stopped project continues after a
-change on the next `make tmux`. The template itself (headings/comments only) is ignored.
+change on the next `make start-tmux`. The template itself (headings/comments only) is ignored.
 
 Everything below **only while the agent is stopped**:
 **Only while the agent is stopped**, otherwise it overwrites your changes (it keeps the backlog in memory).
@@ -93,18 +93,18 @@ Everything below **only while the agent is stopped**:
   set `status` to `pending` and `attempts` to `0`.
 - **Correct lessons:** delete wrong lines in `agent/memory/lessons.jsonl`.
 
-## 6a. Test in between (`make try`) and give feedback (`make say`)
-1. `make try P=<name>`: sets STOP, waits until the current task is done, builds the last working state of `main`
+## 6a. Test in between (`make test-build`) and give feedback (`make feedback`)
+1. `make test-build P=<name>`: sets STOP, waits until the current task is done, builds the last working state of `main`
    and writes `projects/<name>/TESTING.md` with the start command (e.g. `dotnet run`, `cargo run --release`, `go run .`, `npm start`,
    FastAPI: `.venv/bin/uvicorn app.main:app --reload`) and the location of the finished binary (`dist/`, `target/release/`).
 2. Try it out in the folder `projects/<name>/repo`.
-3. Bugs or wishes you found: `make say P=<name> MSG="..."` (lands under "Feedback from testing" in `IDEAS.md`; the agent replans).
+3. Bugs or wishes you found: `make feedback P=<name> MSG="..."` (lands under "Feedback from testing" in `IDEAS.md`; the agent replans).
    This also works while the agent is running.
-4. `make tmux P=<name>` resumes the work.
+4. `make start-tmux P=<name>` resumes the work.
 
 ## 6b. Master prompt and web interface
 - **Master prompt:** `MASTER.md` in the main folder (next to the Makefile). Applies to all projects, e.g. language, style rules, "always tests".
-  It is copied to `agent/master_session.md` at the start of each session (`make tmux` or `run`) and feeds into planning, ideation,
+  It is copied to `agent/master_session.md` at the start of each session (`make start-tmux` or `run`) and feeds into planning, ideation,
   replanning and every change context. Changes only take effect from the next start. The template itself (comments only) is ignored.
 - **Web UI:** `make ui`, then `http://127.0.0.1:8765`. Projects on the left (green dot = running), on the right status, backlog, finished features,
   ideas/feedback, test build, live log and goal. At the top: start/stop and "Test now". "+ New idea" creates a project
@@ -115,7 +115,7 @@ Everything below **only while the agent is stopped**:
 - **Automatic, per project:** nothing to do. Every few merges (`limits.reflect_every`, default 6) or after 3 failed tasks the agent writes
   `projects/<name>/agent/playbook.md` (rules learned from its own failures, used in every prompt) and may adjust a few limits within fixed bounds
   (`agent/tuning.json`). You can read or edit the playbook; delete it to reset.
-- **The tool itself, on demand:** after a few projects have run for a while, run `make improve ARGS=--dry-run` to see proposals, or `make improve`
+- **The tool itself, on demand:** after a few projects have run for a while, run `make self-improve ARGS=--dry-run` to see proposals, or `make self-improve`
   to let the agent implement them on a branch `self-improve/<timestamp>` (needs Ollama + Aider running). Only changes that keep `selftest`
   and the unit tests green survive; each one gets a follow-up commit that updates README/docs and `docs/SELF_IMPROVEMENTS.md`. Review with `git diff main...self-improve/<timestamp>`, merge with `git merge self-improve/<timestamp>`
   or ignore it. Nothing changes in the code you are running unless you merge.
