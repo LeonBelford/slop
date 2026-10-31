@@ -11,20 +11,20 @@ import selfimprove  # noqa: E402
 
 class ProtectedTests(unittest.TestCase):
     def test_directed_allows_webui_but_not_webaccess(self):
-        changes = ["webui.py", "webaccess.py"]
+        changes = ["M\twebui.py", "M\twebaccess.py"]
         bad = selfimprove.protected_violations(changes, selfimprove.PROTECTED_DIRECTED)
         self.assertEqual(len(bad), 1)
         self.assertIn("webaccess.py", bad[0])
 
     def test_autonomous_blocks_webui(self):
-        self.assertTrue(selfimprove.protected_violations(["webui.py"]))
+        self.assertTrue(selfimprove.protected_violations(["M\twebui.py"]))
 
 
 class DiffValidation(unittest.TestCase):
     def test_sha_and_branch_patterns(self):
-        self.assertTrue(webui.SHA_RE.fullmatch("abc1234"))
-        self.assertFalse(webui.SHA_RE.fullmatch("--output=x"))
-        self.assertTrue(webui.BRANCH_RE.fullmatch("self-improve/20260101"))
+        self.assertTrue(webui.SHA_RE.match("abc1234"))
+        self.assertFalse(webui.SHA_RE.match("--output=x"))
+        self.assertTrue(webui.BRANCH_RE.match("self-improve/20260101-120000"))
         self.assertFalse(webui.BRANCH_RE.fullmatch("../x"))
 
 

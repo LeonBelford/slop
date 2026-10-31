@@ -31,22 +31,22 @@ Runs locally only (127.0.0.1); agents keep running when you close the UI.
 **2. Start per idea**
 ```bash
 make init IDEA="Invoicing tool for freelancers" NAME=invoices   # creates projects/invoices/ (takes a few minutes)
-make tmux P=invoices                                            # runs in the background
+make start-tmux P=invoices                                            # runs in the background
 ```
 Write your own wishes, implementation hints and restructuring requests to `projects/invoices/IDEAS.md` at any time (also while it runs). The agent reads the file every iteration, replans when it changes and reconciles it with the product every 5 merges.
 
 **Test it yourself without stalling the agent**
 ```bash
-make try P=invoices                        # waits until the current task is done, builds the current state, writes projects/invoices/TESTING.md
-make say P=invoices MSG="The button does not work"   # feedback goes into IDEAS.md, the agent replans
-make tmux P=invoices                       # then let it continue
+make test-build P=invoices                        # waits until the current task is done, builds the current state, writes projects/invoices/TESTING.md
+make feedback P=invoices MSG="The button does not work"   # feedback goes into IDEAS.md, the agent replans
+make start-tmux P=invoices                       # then let it continue
 ```
-`make try` detects .NET (`dotnet publish` → `dist/`), Rust, Go, Node and FastAPI and tells you the start command.
+`make test-build` detects .NET (`dotnet publish` → `dist/`), Rust, Go, Node and FastAPI and tells you the start command.
 
 **3. Individually, as needed**
 ```bash
-make watch P=invoices                        # attach to the live session; Ctrl+B, then D to detach
-make logs  P=invoices                        # follow what the model is asked and answers (agent/llm.log)
+make attach P=invoices                        # attach to the live session; Ctrl+B, then D to detach
+make thinking  P=invoices                        # follow what the model is asked and answers (agent/llm.log)
 make status P=invoices                       # progress
 make stop P=invoices                         # clean stop after the current task
 make list                                    # all projects
@@ -82,11 +82,11 @@ Fetching only allows http/https, refuses local and private addresses (also via r
 ## Self-improvement
 Two levels, both bounded:
 1. **Per project (automatic):** every `reflect_every` merges (or after 3 failed tasks) the agent reviews its metrics and failures, rewrites `agent/playbook.md` (working rules that are fed into every prompt), tunes a few whitelisted limits within hard bounds (`agent/tuning.json`) and notes ideas about the tool itself in `agent/tool_ideas.jsonl`.
-2. **The tool itself (on demand):** `make improve` turns that evidence from all projects into up to 3 code changes, implements them in a git worktree on a branch `self-improve/<timestamp>` and keeps only changes where `selftest` and the unit tests stay green. Nothing is merged automatically: review with `git diff main...self-improve/<timestamp>` and merge yourself. `make improve ARGS=--dry-run` only writes proposals to `self_improve/`. After each kept change the agent also updates `README.md` and `docs/` (and logs it in `docs/SELF_IMPROVEMENTS.md`) in a separate commit. Safety guards (web fetch, UI, this module, existing tests, CI) are off limits.
+2. **The tool itself (on demand):** `make self-improve` turns that evidence from all projects into up to 3 code changes, implements them in a git worktree on a branch `self-improve/<timestamp>` and keeps only changes where `selftest` and the unit tests stay green. Nothing is merged automatically: review with `git diff main...self-improve/<timestamp>` and merge yourself. `make self-improve ARGS=--dry-run` only writes proposals to `self_improve/`. After each kept change the agent also updates `README.md` and `docs/` (and logs it in `docs/SELF_IMPROVEMENTS.md`) in a separate commit. Safety guards (web fetch, UI, this module, existing tests, CI) are off limits.
 
 ## Directed tasks, transparency and file changes (Web UI)
-- **Do a task** tab: write what you want ("add a pricing page"); the agent does exactly that and nothing else, ahead of its own backlog. If the agent is running it is queued, otherwise it starts, finishes and stops. CLI: `make do P=<project> TASK="..."` or `python3 saas_agent.py do --project P --task "..."`.
-- **Change the tool itself** (sidebar): describe a change to the tool (Makefile, UI, ...). It runs `improve --task` on a branch `self-improve/<timestamp>`, never merges, and keeps `webaccess.py`, `selfimprove.py`, `.github/`, `.env` off limits. Review with `git diff HEAD...<branch>` and merge yourself. Autonomous `make improve` stays CLI-only.
+- **Do a task** tab: write what you want ("add a pricing page"); the agent does exactly that and nothing else, ahead of its own backlog. If the agent is running it is queued, otherwise it starts, finishes and stops. CLI: `make task P=<project> TASK="..."` or `python3 saas_agent.py do --project P --task "..."`.
+- **Change the tool itself** (sidebar): describe a change to the tool (Makefile, UI, ...). It runs `improve --task` on a branch `self-improve/<timestamp>`, never merges, and keeps `webaccess.py`, `selfimprove.py`, `.github/`, `.env` off limits. Review with `git diff HEAD...<branch>` and merge yourself. Autonomous `make self-improve` stays CLI-only.
 - **Live "Now" panel:** current step (plan, implement, build, review, cleanup, docs, merge), task, attempt, whether the agent waits for the model or Aider is editing, and recent events. Backed by `agent/activity.json`, `events.jsonl`, `llm_now.json`, `coder_now.json`.
 - **AI activity** tab shows every prompt and answer (`agent/llm.log`); **File changes** shows uncommitted files, files by churn and per-commit diffs.
 
@@ -102,7 +102,7 @@ slop/
 ├─ tests/, .github/     selftest and CI
 └─ projects/            one folder per idea (not in Git)
    └─ <name>/
-      ├─ TESTING.md     start instructions for the latest test build (from `make try`)
+      ├─ TESTING.md     start instructions for the latest test build (from `make test-build`)
       ├─ IDEAS.md       your wishes and directives (optional, read continuously by the agent)
       ├─ repo/          the product as its own Git repo incl. docs/, CHANGELOG, README
       └─ agent/         state and memory of this project (outside repo/)

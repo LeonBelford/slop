@@ -1677,15 +1677,15 @@ class Agent:
         lines = [f"# Test version of {self.ws.name}", "", f"State: commit {sha_}, type: {plan['kind']}",
                  f"Folder: {self.repo}", ""]
         if failed:
-            lines += ["## Build failed", "```", *log, "```", "Install missing tools or report it to the agent via `make say`."]
+            lines += ["## Build failed", "```", *log, "```", "Install missing tools or report it to the agent via `make feedback`."]
         else:
             lines += ["## How to start it", "```", f"cd {self.repo}", plan["run"], "```"]
             if plan.get("url"):
                 lines.append(f"Then open in your browser: {plan['url']}")
             if plan["binary"]:
                 lines.append(f"Built binary: {plan['binary']}")
-        lines += ["", "## Afterwards", "- Send feedback to the agent: `make say P=<name> MSG=\"The button does not work\"`",
-                  "- Let it continue working: `make tmux P=<name>`", ""]
+        lines += ["", "## Afterwards", "- Send feedback to the agent: `make feedback P=<name> MSG=\"The button does not work\"`",
+                  "- Let it continue working: `make start-tmux P=<name>`", ""]
         report = "\n".join(lines)
         write_text(self.ws / "TESTING.md", report)
         return report

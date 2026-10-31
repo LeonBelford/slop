@@ -289,7 +289,7 @@ function renderTool(){
   $("#tabs").innerHTML="";
   const x=extra&&extra.kind==="tool"?extra:{running:false,log:"",branches:[]};
   const body=`<div class="panel"><h3>What should change?</h3>
-  <p class="hint">Examples: "Add a make target that prints the status of all projects", "Make the UI log tab show the last 500 lines", "Change the Makefile so make tmux also opens make logs". Tests must stay green and docs are updated; guards for web fetching, CI and this feature itself cannot be changed.</p>
+  <p class="hint">Examples: "Add a make target that prints the status of all projects", "Make the UI log tab show the last 500 lines", "Change the Makefile so make start-tmux also opens make thinking". Tests must stay green and docs are updated; guards for web fetching, CI and this feature itself cannot be changed.</p>
   <textarea id="tool" rows="6" oninput="dirty=true" ${x.running?"disabled":""}></textarea>
   <div class="row" style="justify-content:flex-end;margin-top:10px"><button class="primary" onclick="runTool()" ${x.running?"disabled":""}>${x.running?"Working…":"Do this"}</button></div>
   ${x.log?`<h4>Progress</h4><pre>${esc(x.log)}</pre>`:""}</div>

@@ -1,4 +1,4 @@
-"""Self-improvement of the agent tool itself (`python3 saas_agent.py improve`, `make improve`).
+"""Self-improvement of the agent tool itself (`python3 saas_agent.py improve`, `make self-improve`).
 
 Evidence from all projects (tool ideas from reflection, playbooks, success/failure statistics) is turned into a few
 concrete code improvements. They are implemented in a separate git worktree on a branch `self-improve/<timestamp>`:
