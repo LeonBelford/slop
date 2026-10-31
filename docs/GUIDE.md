@@ -149,7 +149,7 @@ Delete a project: `rm -rf projects/<name>`. Everything else is in the `slop` rep
 | `LLM not reachable` | `systemctl status ollama`, `curl localhost:11434/api/tags`; otherwise `ollama serve` |
 | Model returns no JSON | occurs occasionally (the agent tries 3×); if frequent → another model in `models.*` |
 | Agent seems forgetful | `num_ctx` too small: check `ollama show qwen2.5-coder-agent` |
-| Unknown Aider option | `.venv/bin/pip install -U aider-chat`, adjust flags in `Agent.code` (`saas_agent.py`) |
+| Unknown Aider option | `.venv/bin/pip install -U aider-chat`, adjust flags in `Agent.code` (`codefactory.py`) |
 | Task `blocked` | see section 6 |
 | "main is red" in the log | the agent creates a repair task itself; otherwise run the build command from the config in `repo/` |
 | Abort after 5 failures | read `agent.log` and `agent/runs/`, fix the cause, restart |

@@ -1,4 +1,4 @@
-"""Self-improvement of the agent tool itself (`python3 saas_agent.py improve`, `make self-improve`).
+"""Self-improvement of the agent tool itself (`python3 codefactory.py improve`, `make self-improve`).
 
 Evidence from all projects (tool ideas from reflection, playbooks, success/failure statistics) is turned into a few
 concrete code improvements. They are implemented in a separate git worktree on a branch `self-improve/<timestamp>`:
@@ -18,7 +18,7 @@ import shutil
 import time
 from pathlib import Path
 
-import saas_agent as sa
+import codefactory as sa
 
 PROTECTED = ("webaccess.py", "webui.py", "selfimprove.py", ".github/", ".env", "scripts/quick-setup-popos.sh")
 # Directed tasks (user-written instruction) may also change the web UI server; the guards for fetching and this module stay locked.
@@ -65,7 +65,7 @@ def _git(repo: Path, *args: str) -> tuple[int, str]:
 
 
 def _tests_green(work: Path, timeout: int) -> tuple[bool, str]:
-    for cmd in (["python3", "saas_agent.py", "selftest"], ["python3", "-m", "unittest", "discover", "-s", "tests"]):
+    for cmd in (["python3", "codefactory.py", "selftest"], ["python3", "-m", "unittest", "discover", "-s", "tests"]):
         rc, out = sa.sh(cmd, work, timeout)
         if rc != 0:
             return False, sa.tail(out, 1500)
@@ -101,7 +101,7 @@ def _docs_pass(work: Path, proposal: dict, coder, log) -> None:
     changes = [l for l in _git(work, "diff", "--cached", "--name-status")[1].splitlines() if l.strip()]
     only_docs = all(l.split("\t")[-1] in ("README.md",) or l.split("\t")[-1].startswith("docs/") for l in changes)
     if changes and only_docs:
-        _git(work, "-c", "user.name=saas-agent", "-c", "user.email=agent@localhost", "commit", "-q", "-m",
+        _git(work, "-c", "user.name=codefactory", "-c", "user.email=agent@localhost", "commit", "-q", "-m",
              f"self-improve: docs for {proposal['title']}")
         log("  docs updated")
     else:
@@ -165,7 +165,7 @@ def _implement(repo: Path, proposals: list[dict], coder, stamp: str, out_dir: Pa
             bad = protected_violations(changes, protected)
             ok, report = (False, f"touches protected files: {bad}") if bad else (_tests_green(work, 900) if changes else (False, "no changes"))
             if ok:
-                _git(work, "-c", "user.name=saas-agent", "-c", "user.email=agent@localhost", "commit", "-q", "-m",
+                _git(work, "-c", "user.name=codefactory", "-c", "user.email=agent@localhost", "commit", "-q", "-m",
                      f"self-improve: {p['title']}\n\n{p.get('rationale', '')}")
                 kept.append(p["title"])
                 log("  kept (tests green)")

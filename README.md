@@ -1,6 +1,6 @@
-# slop — autonomous local SaaS agent
+# CodeFactory — local autonomous agent team for open-source software
 
-You provide **one idea**. The agent designs the product, builds it in small steps, then invents new features on its own,
+You provide **one idea**. CodeFactory aims for the best, fastest and cleanest open-source project it can build — quality for everyone, no monetization. It designs the project, builds it in small steps, then invents new features on its own,
 tests, debugs, cleans up and documents until you stop it or a limit is reached. Everything runs locally with Ollama + Aider.
 
 > The loop mechanics are tested with a stub model (`make selftest`, also in CI). They have not yet been run with a real model.
@@ -85,15 +85,15 @@ Two levels, both bounded:
 2. **The tool itself (on demand):** `make self-improve` turns that evidence from all projects into up to 3 code changes, implements them in a git worktree on a branch `self-improve/<timestamp>` and keeps only changes where `selftest` and the unit tests stay green. Nothing is merged automatically: review with `git diff main...self-improve/<timestamp>` and merge yourself. `make self-improve ARGS=--dry-run` only writes proposals to `self_improve/`. After each kept change the agent also updates `README.md` and `docs/` (and logs it in `docs/SELF_IMPROVEMENTS.md`) in a separate commit. Safety guards (web fetch, UI, this module, existing tests, CI) are off limits.
 
 ## Directed tasks, transparency and file changes (Web UI)
-- **Do a task** tab: write what you want ("add a pricing page"); the agent does exactly that and nothing else, ahead of its own backlog. If the agent is running it is queued, otherwise it starts, finishes and stops. CLI: `make task P=<project> TASK="..."` or `python3 saas_agent.py do --project P --task "..."`.
+- **Do a task** tab: write what you want ("add a dark mode toggle"); the agent does exactly that and nothing else, ahead of its own backlog. If the agent is running it is queued, otherwise it starts, finishes and stops. CLI: `make task P=<project> TASK="..."` or `python3 codefactory.py do --project P --task "..."`.
 - **Change the tool itself** (sidebar): describe a change to the tool (Makefile, UI, ...). It runs `improve --task` on a branch `self-improve/<timestamp>`, never merges, and keeps `webaccess.py`, `selfimprove.py`, `.github/`, `.env` off limits. Review with `git diff HEAD...<branch>` and merge yourself. Autonomous `make self-improve` stays CLI-only.
 - **Live "Now" panel:** current step (plan, implement, build, review, cleanup, docs, merge), task, attempt, whether the agent waits for the model or Aider is editing, and recent events. Backed by `agent/activity.json`, `events.jsonl`, `llm_now.json`, `coder_now.json`.
 - **AI activity** tab shows every prompt and answer (`agent/llm.log`); **File changes** shows uncommitted files, files by churn and per-commit diffs.
 
 ## Structure
 ```
-slop/
-├─ saas_agent.py        the complete loop (standard library only)
+codefactory/
+├─ codefactory.py        the complete loop (standard library only)
 ├─ webui.py, web/       local web interface (make ui)
 ├─ MASTER.md            global directives for all projects (picked up per session)
 ├─ Makefile, scripts/   quick-setup-popos.sh · setup.sh (venv + model only) · run.sh · Modelfile
@@ -114,7 +114,7 @@ Each project thus has its own codebase and its own memory; nothing is shared bet
 
 ## Flow per task
 1. Is `main` green? If not, repair it first.
-2. Backlog empty → product review and ideation (rotating lenses, SaaS checklist, critic, duplicate filter).
+2. Backlog empty → product review and ideation (rotating lenses, quality checklist, critic, duplicate filter).
 3. **Impact analysis** with memory (codemap, dependencies in both directions, ADRs, lessons) → plan → plan critique.
 4. Implementation with Aider on its own branch → **build + tests**, up to 3 debug rounds; features without tests are rejected.
 5. Review (score < 7 → rework), cleanup pass (discarded if the build turns red).

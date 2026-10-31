@@ -8,14 +8,14 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT))
-import saas_agent as sa  # noqa: E402
+import codefactory as sa  # noqa: E402
 import selfimprove  # noqa: E402
 
 
 class SelfImproveTest(unittest.TestCase):
     def test_protected_paths(self):
         self.assertEqual(selfimprove.protected_violations(["M\twebaccess.py", "M\ttests/test_x.py", "A\ttests/test_new.py",
-                                                           "M\tsaas_agent.py"]), ["webaccess.py", "tests/test_x.py"])
+                                                           "M\tcodefactory.py"]), ["webaccess.py", "tests/test_x.py"])
 
     def test_branch_keeps_green_changes_and_reverts_protected(self):
         tmp = Path(tempfile.mkdtemp())
@@ -39,8 +39,8 @@ class SelfImproveTest(unittest.TestCase):
 
             def llm_json(tag, role, system, user):
                 return json.dumps({"proposals": [
-                    {"title": "Good", "rationale": "r", "files": ["saas_agent.py"], "change": "add comment"},
-                    {"title": "Evil", "rationale": "r", "files": ["saas_agent.py"], "change": "weaken guard"}]})
+                    {"title": "Good", "rationale": "r", "files": ["codefactory.py"], "change": "add comment"},
+                    {"title": "Evil", "rationale": "r", "files": ["codefactory.py"], "change": "weaken guard"}]})
 
             def coder(work, files, prompt):
                 if prompt.startswith("Documentation update"):
@@ -50,7 +50,7 @@ class SelfImproveTest(unittest.TestCase):
                 if "weaken" in prompt:
                     (work / "webaccess.py").write_text("# weakened\n")
                 else:
-                    with open(work / "saas_agent.py", "a") as f:
+                    with open(work / "codefactory.py", "a") as f:
                         f.write("\n# improved\n")
 
             sa.LLM.mock = llm_json
@@ -60,7 +60,7 @@ class SelfImproveTest(unittest.TestCase):
                 sa.LLM.mock = None
             self.assertEqual(res["kept"], ["Good"])
             diff = subprocess.run(["git", "diff", "--name-only", f"HEAD...{res['branch']}"], cwd=repo, capture_output=True, text=True).stdout
-            self.assertEqual(sorted(diff.split()), ["README.md", "docs/SELF_IMPROVEMENTS.md", "saas_agent.py"])
+            self.assertEqual(sorted(diff.split()), ["README.md", "codefactory.py", "docs/SELF_IMPROVEMENTS.md"])
             self.assertTrue((repo / "self_improve").glob("proposals-*.md"))
         finally:
             shutil.rmtree(tmp, ignore_errors=True)

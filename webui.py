@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Local web UI for the SaaS agent (standard library only, 127.0.0.1 only).
+"""Local web UI for CodeFactory (standard library only, 127.0.0.1 only).
 
 Start: `make ui` or `python3 webui.py [--port 8765] [--projects-dir projects]`.
 The CLI stays fully usable; the UI calls the same commands (scripts/run.sh) and reads/writes the same files.
@@ -18,7 +18,7 @@ import webbrowser
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 
-import saas_agent as sa
+import codefactory as sa
 
 ROOT = Path(__file__).resolve().parent
 INDEX = ROOT / "web" / "index.html"
@@ -284,7 +284,7 @@ def make_handler(svc: Service, port: int):
     hosts = {f"127.0.0.1:{port}", f"localhost:{port}", f"[::1]:{port}"}
 
     class H(BaseHTTPRequestHandler):
-        server_version = "SaasAgentUI"
+        server_version = "CodeFactoryUI"
 
         def log_message(self, *a):
             pass

@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Autonomous SaaS agent: invents features, builds, tests, debugs, cleans up and documents.
+"""CodeFactory: local autonomous agent team that builds, tests, debugs, cleans up and documents open-source software.
 
 Only the start idea comes from you. After that an outer loop runs and decides on its own
 (the model does NOT decide when to finish):
@@ -16,12 +16,12 @@ Layout (one folder per idea under projects/<name>/):
             config.json state.json backlog.json GOAL.md memory/ runs/ agent.log metrics.jsonl STOP
 
 Usage:
-  python saas_agent.py init   --idea "Invoicing tool for freelancers"   # creates projects/<name>/
-  python saas_agent.py run    --project <name>
-  python saas_agent.py status --project <name>
-  python saas_agent.py list
-  python saas_agent.py stop   --project <name>     # clean stop after the current task
-  python saas_agent.py selftest                    # mechanics test with a stub LLM, no Ollama needed
+  python codefactory.py init   --idea "Invoicing tool for freelancers"   # creates projects/<name>/
+  python codefactory.py run    --project <name>
+  python codefactory.py status --project <name>
+  python codefactory.py list
+  python codefactory.py stop   --project <name>     # clean stop after the current task
+  python codefactory.py selftest                    # mechanics test with a stub LLM, no Ollama needed
 
 Standard library only. Requires: git, aider (pip install aider-chat), an OpenAI-compatible
 LLM endpoint (Ollama by default). Details: README.md and docs/.
@@ -102,18 +102,18 @@ TUNABLE = {"max_attempts_per_task": (2, 5), "max_debug_rounds": (2, 6), "max_fil
 
 PRESETS = stacks.STACKS  # one entry per language/framework, see stacks.py
 
-SAAS_CHECKLIST = [
-    "authentication & sessions", "multi-tenancy / workspaces & roles", "billing/plans/usage limits (stub ok)",
-    "onboarding & activation flow", "settings & profile", "audit log", "notifications / email (stub ok)",
-    "public API + API keys", "input validation & error handling", "structured logging & health endpoint",
-    "rate limiting & security headers", "DB migrations / schema versioning", "data export/import",
-    "analytics dashboard", "admin area", "accessibility & UX polish", "performance & caching",
-    "test coverage & CI config", "Dockerfile & deployment docs", "documentation",
+QUALITY_CHECKLIST = [
+    "clear architecture & module boundaries", "input validation & error handling", "performance & profiling hot paths",
+    "caching & efficient data access", "memory and resource usage", "test coverage (unit + integration)",
+    "CI config & reproducible builds", "structured logging & health checks", "security hardening & dependency hygiene",
+    "accessibility & UX polish", "first-run experience & setup docs", "public API / CLI ergonomics",
+    "configuration & sane defaults", "DB migrations / schema versioning", "Dockerfile & deployment docs",
+    "documentation & examples", "contributor guide & license", "internationalisation where useful",
 ]
 LENSES = [
-    "activation & onboarding", "retention & habit loops", "monetization & plans", "collaboration & teams",
-    "insight & analytics", "integrations & API", "security & admin", "reliability & performance",
-    "UX polish & accessibility", "automation & time saving",
+    "performance & efficiency", "code quality & clean architecture", "first-run experience for everyone",
+    "reliability & error handling", "security & privacy", "accessibility & UX polish",
+    "testing & CI", "documentation & examples", "extensibility & integrations", "simplicity & removing complexity",
 ]
 
 # --------------------------------------------------------------------------- Helpers
@@ -366,7 +366,7 @@ class LLM:
 class Git:
     def __init__(self, repo: Path):
         self.repo = repo
-        self.id = ["-c", "user.name=saas-agent", "-c", "user.email=agent@local"]
+        self.id = ["-c", "user.name=codefactory", "-c", "user.email=agent@local"]
 
     def run(self, *args, timeout: int = 120):
         return sh(["git", *self.id, *args], self.repo, timeout)
@@ -881,8 +881,8 @@ class Agent:
         if len(avail) > 1:
             try:
                 d = self.llm.json("stack", "planner",
-                                  "You choose the technology stack for a new SaaS product. Prefer the stack that fits the idea best and "
-                                  "that a small team can maintain. Only choose from the given options.",
+                                  "You choose the technology stack for a new open-source project. Prefer the stack that fits the idea best, performs well and "
+                                  "is easy for contributors to maintain. Only choose from the given options.",
                                   f"Idea: {idea}\nOptions: {json.dumps({k: PRESETS[k]['stack'] for k in avail})}\n"
                                   '{"stack": "<one option key>", "reason": "<one sentence>"}')
                 if d.get("stack") in avail:
@@ -917,15 +917,15 @@ class Agent:
         write_text(self.repo / ".gitignore", stacks.gitignore(self.cfg["preset"]))
         self.git.commit_all("scaffold")
         brief = self.llm.json(
-            "brief", "planner", "You are a product strategist for SaaS products. Realistic, focused, start small.",
+            "brief", "planner", "You are a senior engineer and product designer building the best open-source project in its category: fast, cleanly written, great experience for everyone. Realistic, focused, start small. No monetization.",
             f"Idea: {idea}\nStack: {self.cfg['stack']}\nSchema: "
             '{"name": "", "vision": "", "target_users": ["..."], "problems": ["..."], "mvp_features": '
             '[{"title": "", "description": "", "acceptance": ["testable"], "value": 1-10, "effort": 1-10}], '
-            '"non_goals": ["..."], "monetization": "", "quality_bar": ["..."]}')
+            '"non_goals": ["..."], "performance_goals": ["measurable"], "quality_bar": ["..."]}')
         goal = (f"# {brief.get('name', 'Product')}\n\nIdea: {idea}\n\n## Vision\n{brief.get('vision', '')}\n\n"
                 f"## Target audience\n" + "".join(f"- {x}\n" for x in brief.get("target_users", [])) +
                 "\n## Problems\n" + "".join(f"- {x}\n" for x in brief.get("problems", [])) +
-                f"\n## Monetization\n{brief.get('monetization', '')}\n\n## Non-goals\n" +
+                "\n## Performance goals\n" + "".join(f"- {x}\n" for x in brief.get("performance_goals", [])) + "\n## Non-goals\n" +
                 "".join(f"- {x}\n" for x in brief.get("non_goals", [])) + "\n## Quality bar\n" +
                 "".join(f"- {x}\n" for x in brief.get("quality_bar", [])) + f"\n## Stack\n{self.cfg['stack']}\n")
         write_text(self.dir / "GOAL.md", goal)
@@ -1185,10 +1185,10 @@ class Agent:
         if lp.exists():
             lessons = "\n".join(json.loads(l)["lesson"] for l in lp.read_text("utf-8").splitlines()[-8:] if l.strip())
         ideas = self.llm.json(
-            "ideate", "planner", "You are the product manager of a growing SaaS. Propose improvements that deliver user value, "
+            "ideate", "planner", "You are the maintainer of an open-source project that aims to be the best in its category: performant, cleanly written, excellent for everyone. Never propose monetization, billing or growth hacks. Propose improvements that deliver user value, "
             "are small enough for one iteration and fit the product goal. No duplicates.",
             f"Product goal:\n{clip(self.goal, 2500)}{self.directive}{self.web_digest()}\n\nAlready built: {feats}\nIn backlog: {self.backlog.titles()[-30:]}\n"
-            f"Focus lens: {lens}\nSaaS checklist (fill the gaps): {SAAS_CHECKLIST}\nLessons: {lessons}\n"
+            f"Focus lens: {lens}\nQuality checklist (fill the gaps): {QUALITY_CHECKLIST}\nLessons: {lessons}\n"
             f"Give {self.lim['ideation_batch'] * 2} ideas. Schema: "
             '{"ideas": [{"title": "", "description": "", "type": "feature|refactor|bug|docs|test", "rationale": "", '
             '"acceptance": ["testable"], "value": 1-10, "effort": 1-10, "risk": 1-10}]}')
@@ -1224,7 +1224,7 @@ class Agent:
         data = self.llm.json(
             "product_review", "reviewer", "You are an independent product auditor. Find concrete gaps in quality and completeness.",
             f"Goal:\n{clip(self.goal, 2000)}{self.directive}\nCodemap:\n{clip(self.mem.render_codemap(), 9000)}\nBuild/Test: {report[:500]}\n"
-            f"Checklist: {SAAS_CHECKLIST}\nSchema: "
+            f"Checklist: {QUALITY_CHECKLIST}\nSchema: "
             '{"scores": {"completeness": 1-10, "code_quality": 1-10, "test_coverage": 1-10, "docs": 1-10, "ux": 1-10}, '
             '"items": [{"title": "", "description": "", "type": "feature|bug|refactor|docs|test", "acceptance": [], "priority": 1-10}]}')
         self.metric(kind="product_review", scores=data.get("scores"))
@@ -1712,7 +1712,7 @@ class Agent:
 
 def selftest() -> None:
     """Checks the loop mechanics with a stub LLM and stub coder (no Ollama/Aider needed)."""
-    ws = Path(tempfile.mkdtemp(prefix="saas-selftest-"))
+    ws = Path(tempfile.mkdtemp(prefix="codefactory-selftest-"))
     counter = {"n": 0}
 
     def fake_llm(tag, role, system, user):

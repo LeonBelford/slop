@@ -17,7 +17,7 @@ setup:
 	bash scripts/setup.sh
 
 selftest:
-	python3 saas_agent.py selftest
+	python3 codefactory.py selftest
 
 # make init IDEA="Invoicing tool for freelancers" [NAME=invoices]
 init:

@@ -4,7 +4,7 @@ import unittest
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
-import saas_agent as sa  # noqa: E402
+import codefactory as sa  # noqa: E402
 
 
 class ProjectFolderTest(unittest.TestCase):
@@ -29,7 +29,7 @@ class ReadIdeasTest(unittest.TestCase):
     def test_template_is_ignored_and_content_counts(self):
         import tempfile
         from pathlib import Path
-        import saas_agent as sa
+        import codefactory as sa
         p = Path(tempfile.mkdtemp()) / "IDEAS.md"
         p.write_text(sa.IDEAS_TEMPLATE.format(idea="x"), "utf-8")
         self.assertEqual(sa.read_ideas(p), "")
@@ -41,7 +41,7 @@ class TryVersionTest(unittest.TestCase):
     def test_try_and_say(self):
         import tempfile
         from pathlib import Path
-        import saas_agent as sa
+        import codefactory as sa
         ws = Path(tempfile.mkdtemp()) / "demo"
         (ws / "agent").mkdir(parents=True)
         sa.write_json(ws / "agent" / "config.json", {"preset": "minimal"})
@@ -59,7 +59,7 @@ class MasterAndUiTest(unittest.TestCase):
     def test_master_template_ignored(self):
         import tempfile
         from pathlib import Path
-        import saas_agent as sa
+        import codefactory as sa
         p = Path(tempfile.mkdtemp()) / "MASTER.md"
         p.write_text(sa.MASTER_TEMPLATE, "utf-8")
         self.assertEqual(sa.read_master(p), "")
@@ -69,7 +69,7 @@ class MasterAndUiTest(unittest.TestCase):
     def test_ui_service_lists_and_validates(self):
         import tempfile
         from pathlib import Path
-        import saas_agent as sa
+        import codefactory as sa
         import webui
         root = Path(tempfile.mkdtemp())
         ws = root / "demo"

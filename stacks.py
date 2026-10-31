@@ -49,7 +49,7 @@ STACKS: dict[str, dict] = {
         "scaffold": {
             "requirements.txt": "fastapi\nuvicorn\njinja2\nhttpx\npytest\npython-multipart\n",
             "app/__init__.py": "",
-            "app/main.py": ('"""Application entry point."""\nfrom fastapi import FastAPI\n\napp = FastAPI(title="SaaS")\n\n\n'
+            "app/main.py": ('"""Application entry point."""\nfrom fastapi import FastAPI\n\napp = FastAPI(title="App")\n\n\n'
                             '@app.get("/health")\ndef health() -> dict:\n    """Liveness check."""\n    return {"status": "ok"}\n'),
             "tests/__init__.py": "",
             "tests/test_health.py": ('from fastapi.testclient import TestClient\n\nfrom app.main import app\n\n\n'

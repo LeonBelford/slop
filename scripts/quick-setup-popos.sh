@@ -73,7 +73,7 @@ else
 fi
 
 step "Mechanics test (without model)"
-python3 saas_agent.py selftest | tail -2
+python3 codefactory.py selftest | tail -2
 
 printf '\n\033[1;32mDone.\033[0m Get started with:\n'
 echo '  make init IDEA="Your product idea"'

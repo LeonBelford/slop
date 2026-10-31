@@ -14,7 +14,7 @@ import urllib.parse
 import urllib.request
 from html.parser import HTMLParser
 
-UA = "Mozilla/5.0 (compatible; saas-agent/1.0; +local research)"
+UA = "Mozilla/5.0 (compatible; codefactory/1.0; +local research)"
 MAX_BYTES = 1_500_000
 TEXT_TYPES = ("text/html", "text/plain", "text/markdown", "application/json", "application/xml", "text/xml",
               "application/xhtml+xml", "application/rss+xml", "application/atom+xml")
