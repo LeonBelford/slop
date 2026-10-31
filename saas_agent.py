@@ -274,10 +274,17 @@ class LLM:
 
     def __init__(self, cfg: dict, log):
         self.cfg, self.log = cfg, log
+        self.trace: Path | None = None  # set by Agent: every model call is appended here so you can watch the "thinking"
+
+    def _traced(self, tag: str, role: str, user: str, answer: str) -> str:
+        if self.trace:
+            with open(self.trace, "a", encoding="utf-8") as f:
+                f.write(f"\n===== {now()} [{role}/{tag}] =====\n-- prompt (end) --\n{tail(user, 600)}\n-- answer --\n{clip(answer, 3000)}\n")
+        return answer
 
     def chat(self, tag: str, role: str, system: str, user: str, temperature: float = 0.2) -> str:
         if LLM.mock:
-            return LLM.mock(tag, role, system, user)
+            return self._traced(tag, role, user, LLM.mock(tag, role, system, user))
         body = json.dumps({
             "model": self.cfg["models"][role],
             "messages": [{"role": "system", "content": system}, {"role": "user", "content": user}],
@@ -290,7 +297,7 @@ class LLM:
                     self.cfg["llm_api"], data=body,
                     headers={"Content-Type": "application/json", "Authorization": "Bearer " + self.cfg["api_key"]})
                 with urllib.request.urlopen(req, timeout=self.cfg["limits"]["llm_timeout"]) as r:
-                    return json.loads(r.read())["choices"][0]["message"]["content"]
+                    return self._traced(tag, role, user, json.loads(r.read())["choices"][0]["message"]["content"])
             except Exception as e:  # network/model briefly unavailable: wait and retry
                 last = e
                 self.log(f"LLM error ({tag}), attempt {attempt + 1}: {e}")
@@ -745,6 +752,7 @@ class Agent:
             if k in TUNABLE:
                 self.lim[k] = max(TUNABLE[k][0], min(TUNABLE[k][1], int(v)))
         self.llm = LLM(self.cfg, self.log)
+        self.llm.trace = self.dir / "llm.log"
         self.git = Git(self.repo)
         self.backlog = Backlog(self.dir / "backlog.json")
         self.mem = Memory(self.dir, self.repo, self.cfg, self.llm, self.log)
@@ -1736,6 +1744,9 @@ def main() -> None:
         q.add_argument("--projects-dir", default="projects")
         q.add_argument("--project")
     p_say.add_argument("--msg", required=True)
+    p_name = sub.add_parser("name", help="Print the resolved project name")
+    p_name.add_argument("--projects-dir", default="projects")
+    p_name.add_argument("--project")
     p_list = sub.add_parser("list")
     p_list.add_argument("--projects-dir", default="projects")
     sub.add_parser("selftest")
@@ -1763,6 +1774,9 @@ def main() -> None:
         print(f"Project: {ws}")
         return Agent(ws).init(a.idea)
     ws = pick_project(root, a.project)
+    if a.cmd == "name":
+        print(ws.name)
+        return
     if a.cmd == "try":
         print(Agent(ws).try_version())
         return

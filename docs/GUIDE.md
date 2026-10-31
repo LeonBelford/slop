@@ -32,7 +32,8 @@ this is the cheapest point to correct course.
 ## 3. Let it run
 ```bash
 make tmux P=invoices               # starts in the background (tmux session agent-invoices)
-tmux attach -t agent-invoices      # watch; Ctrl+B, then D to detach
+make watch P=invoices            # attach to the live session; Ctrl+B, then D to detach (falls back to following agent.log)
+make logs  P=invoices            # the model's prompts and answers, i.e. what it "thinks" (agent/llm.log)
 make status P=invoices             # one line: iteration, merges, backlog, consecutive failures
 tail -f projects/invoices/agent/agent.log
 ```

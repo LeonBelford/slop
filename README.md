@@ -45,7 +45,8 @@ make tmux P=invoices                       # then let it continue
 
 **3. Individually, as needed**
 ```bash
-tmux attach -t agent-invoices                # watch; Ctrl+B, then D to detach
+make watch P=invoices                        # attach to the live session; Ctrl+B, then D to detach
+make logs  P=invoices                        # follow what the model is asked and answers (agent/llm.log)
 make status P=invoices                       # progress
 make stop P=invoices                         # clean stop after the current task
 make list                                    # all projects
