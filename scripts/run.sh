@@ -23,5 +23,6 @@ case "$cmd" in
     python3 saas_agent.py "$cmd" ${1:+--project "$1"} ;;
   list) python3 saas_agent.py list ;;
   ui) python3 webui.py "$@" ;;
+  improve) python3 saas_agent.py improve "$@" ;;
   *) echo "unknown: $cmd"; exit 1 ;;
 esac

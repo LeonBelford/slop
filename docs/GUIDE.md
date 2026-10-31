@@ -110,6 +110,15 @@ Everything below **only while the agent is stopped**:
   (takes a few minutes, progress at the top left). The UI uses the same files and commands as the CLI; you can mix both.
   It listens only on 127.0.0.1 and checks the host and origin of requests; do not forward it to the network.
 
+## 6c. Self-improvement
+- **Automatic, per project:** nothing to do. Every few merges (`limits.reflect_every`, default 6) or after 3 failed tasks the agent writes
+  `projects/<name>/agent/playbook.md` (rules learned from its own failures, used in every prompt) and may adjust a few limits within fixed bounds
+  (`agent/tuning.json`). You can read or edit the playbook; delete it to reset.
+- **The tool itself, on demand:** after a few projects have run for a while, run `make improve ARGS=--dry-run` to see proposals, or `make improve`
+  to let the agent implement them on a branch `self-improve/<timestamp>` (needs Ollama + Aider running). Only changes that keep `selftest`
+  and the unit tests green survive. Review with `git diff main...self-improve/<timestamp>`, merge with `git merge self-improve/<timestamp>`
+  or ignore it. Nothing changes in the code you are running unless you merge.
+
 ## 7. Settings
 File `projects/<name>/agent/config.json` (template: `config.example.json`, takes effect from the next start). Key values:
 ```json

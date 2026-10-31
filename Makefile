@@ -1,6 +1,6 @@
 P ?=
 
-.PHONY: setup selftest init run status stop list tmux try say ui
+.PHONY: setup selftest init run status stop list tmux try say ui improve
 
 setup:
 	bash scripts/setup.sh
@@ -32,3 +32,7 @@ say:
 # Web UI at http://127.0.0.1:8765
 ui:
 	bash scripts/run.sh ui
+
+# Let the agent improve its own code on a review branch (never auto-merged): make improve [ARGS=--dry-run]
+improve:
+	bash scripts/run.sh improve $(ARGS)
