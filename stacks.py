@@ -406,6 +406,8 @@ def public_stacks() -> list[str]:
 
 def missing_tools(key: str) -> list[dict]:
     """Tools required by the stack that are not on PATH, each with install help."""
+    if key not in STACKS:  # "auto" before the stack was chosen
+        return []
     return [{"tool": t, **TOOLS[t]} for t in STACKS[key]["tools"] if shutil.which(t) is None]
 
 

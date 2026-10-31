@@ -27,6 +27,7 @@ class SelfImproveTest(unittest.TestCase):
             shutil.copytree(ROOT / "tests", repo / "tests", ignore=shutil.ignore_patterns("test_selfimprove.py", "__pycache__"))
             shutil.copytree(ROOT / "scripts", repo / "scripts")
             shutil.copy(ROOT / "MASTER.md", repo / "MASTER.md")
+            shutil.copy(ROOT / ".gitignore", repo / ".gitignore")
             (repo / "web").mkdir()
             shutil.copy(ROOT / "web" / "index.html", repo / "web" / "index.html")
             for cmd in (["init", "-q"], ["add", "-A"], ["-c", "user.name=t", "-c", "user.email=t@t", "commit", "-qm", "base"]):
@@ -42,6 +43,10 @@ class SelfImproveTest(unittest.TestCase):
                     {"title": "Evil", "rationale": "r", "files": ["saas_agent.py"], "change": "weaken guard"}]})
 
             def coder(work, files, prompt):
+                if prompt.startswith("Documentation update"):
+                    with open(work / "README.md", "a") as f:
+                        f.write("\nSelf-improved.\n")
+                    return
                 if "weaken" in prompt:
                     (work / "webaccess.py").write_text("# weakened\n")
                 else:
@@ -55,7 +60,7 @@ class SelfImproveTest(unittest.TestCase):
                 sa.LLM.mock = None
             self.assertEqual(res["kept"], ["Good"])
             diff = subprocess.run(["git", "diff", "--name-only", f"HEAD...{res['branch']}"], cwd=repo, capture_output=True, text=True).stdout
-            self.assertEqual(diff.split(), ["saas_agent.py"])
+            self.assertEqual(sorted(diff.split()), ["README.md", "docs/SELF_IMPROVEMENTS.md", "saas_agent.py"])
             self.assertTrue((repo / "self_improve").glob("proposals-*.md"))
         finally:
             shutil.rmtree(tmp, ignore_errors=True)

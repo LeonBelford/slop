@@ -32,7 +32,8 @@ this is the cheapest point to correct course.
 ## 3. Let it run
 ```bash
 make tmux P=invoices               # starts in the background (tmux session agent-invoices)
-tmux attach -t agent-invoices      # watch; Ctrl+B, then D to detach
+make watch P=invoices            # attach to the live session; Ctrl+B, then D to detach (falls back to following agent.log)
+make logs  P=invoices            # the model's prompts and answers, i.e. what it "thinks" (agent/llm.log)
 make status P=invoices             # one line: iteration, merges, backlog, consecutive failures
 tail -f projects/invoices/agent/agent.log
 ```
@@ -116,7 +117,7 @@ Everything below **only while the agent is stopped**:
   (`agent/tuning.json`). You can read or edit the playbook; delete it to reset.
 - **The tool itself, on demand:** after a few projects have run for a while, run `make improve ARGS=--dry-run` to see proposals, or `make improve`
   to let the agent implement them on a branch `self-improve/<timestamp>` (needs Ollama + Aider running). Only changes that keep `selftest`
-  and the unit tests green survive. Review with `git diff main...self-improve/<timestamp>`, merge with `git merge self-improve/<timestamp>`
+  and the unit tests green survive; each one gets a follow-up commit that updates README/docs and `docs/SELF_IMPROVEMENTS.md`. Review with `git diff main...self-improve/<timestamp>`, merge with `git merge self-improve/<timestamp>`
   or ignore it. Nothing changes in the code you are running unless you merge.
 
 ## 7. Settings

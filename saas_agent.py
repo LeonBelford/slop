@@ -40,7 +40,10 @@ import shutil
 import subprocess
 import sys
 import tempfile
+import threading
 import time
+import urllib.error
+import urllib.parse
 import urllib.request
 from pathlib import Path
 
@@ -274,27 +277,68 @@ class LLM:
 
     def __init__(self, cfg: dict, log):
         self.cfg, self.log = cfg, log
+        self.trace: Path | None = None  # set by Agent: every model call is appended here so you can watch the "thinking"
+
+    def _traced(self, tag: str, role: str, user: str, answer: str) -> str:
+        if self.trace:
+            with open(self.trace, "a", encoding="utf-8") as f:
+                f.write(f"\n===== {now()} [{role}/{tag}] =====\n-- prompt (end) --\n{tail(user, 600)}\n-- answer --\n{clip(answer, 3000)}\n")
+        return answer
+
+    def preflight(self) -> None:
+        """Fails early with a clear message if the model server is unreachable or a configured model is not installed."""
+        if LLM.mock:
+            return
+        u = urllib.parse.urlparse(self.cfg["llm_api"])
+        try:
+            with urllib.request.urlopen(f"{u.scheme}://{u.netloc}/api/tags", timeout=10) as r:
+                have = {m["name"] for m in json.loads(r.read()).get("models", [])}
+        except urllib.error.HTTPError:
+            return  # not Ollama (no /api/tags): cannot check, let the real call decide
+        except Exception as e:  # noqa: BLE001
+            sys.exit(f"Cannot reach the model server at {u.scheme}://{u.netloc} ({e}).\n"
+                     "Start Ollama (`ollama serve`, or `systemctl start ollama`) and check LLM_API in .env.")
+        have |= {n.removesuffix(":latest") for n in have}
+        need = set(self.cfg["models"].values())
+        missing = sorted(n for n in need if n not in have and n.removesuffix(":latest") not in have)
+        if missing:
+            sys.exit(f"Model(s) not installed in Ollama: {', '.join(missing)}\nInstalled: {', '.join(sorted(have)) or 'none'}\n"
+                     "Fix the names in .env (PLANNER_MODEL etc.) to match `ollama list`, or pull/create the model "
+                     "(`ollama pull <name>`; scripts/setup.sh creates qwen2.5-coder-agent).")
+        self.log(f"Model server OK, models available: {', '.join(sorted(need))}. "
+                 "The first answer can take several minutes while the model loads (see `ollama ps`).")
 
     def chat(self, tag: str, role: str, system: str, user: str, temperature: float = 0.2) -> str:
         if LLM.mock:
-            return LLM.mock(tag, role, system, user)
+            return self._traced(tag, role, user, LLM.mock(tag, role, system, user))
         body = json.dumps({
             "model": self.cfg["models"][role],
             "messages": [{"role": "system", "content": system}, {"role": "user", "content": user}],
             "temperature": temperature,
         }).encode()
         last = None
+        done = threading.Event()
+
+        def heartbeat():
+            t0 = time.time()
+            while not done.wait(30):
+                self.log(f"... still waiting for the model ({role}/{tag}, {int(time.time() - t0)}s). Normal for big models; see `ollama ps`.")
+
+        threading.Thread(target=heartbeat, daemon=True).start()
         for attempt in range(4):
             try:
                 req = urllib.request.Request(
                     self.cfg["llm_api"], data=body,
                     headers={"Content-Type": "application/json", "Authorization": "Bearer " + self.cfg["api_key"]})
                 with urllib.request.urlopen(req, timeout=self.cfg["limits"]["llm_timeout"]) as r:
-                    return json.loads(r.read())["choices"][0]["message"]["content"]
+                    answer = json.loads(r.read())["choices"][0]["message"]["content"]
+                done.set()
+                return self._traced(tag, role, user, answer)
             except Exception as e:  # network/model briefly unavailable: wait and retry
                 last = e
                 self.log(f"LLM error ({tag}), attempt {attempt + 1}: {e}")
                 time.sleep(5 * (attempt + 1))
+        done.set()
         raise RuntimeError(f"LLM unreachable: {last}")
 
     def json(self, tag: str, role: str, system: str, user: str):
@@ -745,6 +789,7 @@ class Agent:
             if k in TUNABLE:
                 self.lim[k] = max(TUNABLE[k][0], min(TUNABLE[k][1], int(v)))
         self.llm = LLM(self.cfg, self.log)
+        self.llm.trace = self.dir / "llm.log"
         self.git = Git(self.repo)
         self.backlog = Backlog(self.dir / "backlog.json")
         self.mem = Memory(self.dir, self.repo, self.cfg, self.llm, self.log)
@@ -837,6 +882,7 @@ class Agent:
         if (self.dir / "GOAL.md").exists():
             self.log("Workspace already initialized.")
             return
+        self.llm.preflight()
         if not (self.dir / "config.json").exists():
             write_json(self.dir / "config.json", {k: self.cfg[k] for k in ("preset", "doc_language", "models", "coder_model")})
         if self.cfg["preset"] == "auto":
@@ -1467,6 +1513,7 @@ class Agent:
         miss = stacks.install_help(self.cfg["preset"])
         if miss:
             sys.exit(miss)
+        self.llm.preflight()
         (self.dir / "STOP").unlink(missing_ok=True)
         master = read_master(self.master_path)
         if master:
@@ -1736,6 +1783,9 @@ def main() -> None:
         q.add_argument("--projects-dir", default="projects")
         q.add_argument("--project")
     p_say.add_argument("--msg", required=True)
+    p_name = sub.add_parser("name", help="Print the resolved project name")
+    p_name.add_argument("--projects-dir", default="projects")
+    p_name.add_argument("--project")
     p_list = sub.add_parser("list")
     p_list.add_argument("--projects-dir", default="projects")
     sub.add_parser("selftest")
@@ -1763,6 +1813,9 @@ def main() -> None:
         print(f"Project: {ws}")
         return Agent(ws).init(a.idea)
     ws = pick_project(root, a.project)
+    if a.cmd == "name":
+        print(ws.name)
+        return
     if a.cmd == "try":
         print(Agent(ws).try_version())
         return

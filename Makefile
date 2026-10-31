@@ -1,6 +1,6 @@
 P ?=
 
-.PHONY: setup selftest init run status stop list tmux try say ui improve
+.PHONY: setup selftest init run status stop list tmux try say ui improve watch logs
 
 setup:
 	bash scripts/setup.sh
@@ -19,7 +19,15 @@ list:
 	bash scripts/run.sh list
 
 tmux:
-	tmux new -d -s agent-$(P) "bash scripts/run.sh run $(P)" && echo "running: tmux attach -t agent-$(P)"
+	bash scripts/run.sh tmux $(P)
+
+# Attach to the running agent (or follow its log): make watch P=invoices
+watch:
+	bash scripts/run.sh watch $(P)
+
+# Follow what the model is asked and answers (planning, review, ...): make logs P=invoices
+logs:
+	bash scripts/run.sh logs $(P)
 
 # Pause the agent and build a test version: make try P=invoices
 try:

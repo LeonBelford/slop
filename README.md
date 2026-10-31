@@ -45,7 +45,8 @@ make tmux P=invoices                       # then let it continue
 
 **3. Individually, as needed**
 ```bash
-tmux attach -t agent-invoices                # watch; Ctrl+B, then D to detach
+make watch P=invoices                        # attach to the live session; Ctrl+B, then D to detach
+make logs  P=invoices                        # follow what the model is asked and answers (agent/llm.log)
 make status P=invoices                       # progress
 make stop P=invoices                         # clean stop after the current task
 make list                                    # all projects
@@ -81,7 +82,7 @@ Fetching only allows http/https, refuses local and private addresses (also via r
 ## Self-improvement
 Two levels, both bounded:
 1. **Per project (automatic):** every `reflect_every` merges (or after 3 failed tasks) the agent reviews its metrics and failures, rewrites `agent/playbook.md` (working rules that are fed into every prompt), tunes a few whitelisted limits within hard bounds (`agent/tuning.json`) and notes ideas about the tool itself in `agent/tool_ideas.jsonl`.
-2. **The tool itself (on demand):** `make improve` turns that evidence from all projects into up to 3 code changes, implements them in a git worktree on a branch `self-improve/<timestamp>` and keeps only changes where `selftest` and the unit tests stay green. Nothing is merged automatically: review with `git diff main...self-improve/<timestamp>` and merge yourself. `make improve ARGS=--dry-run` only writes proposals to `self_improve/`. Safety guards (web fetch, UI, this module, existing tests, CI) are off limits.
+2. **The tool itself (on demand):** `make improve` turns that evidence from all projects into up to 3 code changes, implements them in a git worktree on a branch `self-improve/<timestamp>` and keeps only changes where `selftest` and the unit tests stay green. Nothing is merged automatically: review with `git diff main...self-improve/<timestamp>` and merge yourself. `make improve ARGS=--dry-run` only writes proposals to `self_improve/`. After each kept change the agent also updates `README.md` and `docs/` (and logs it in `docs/SELF_IMPROVEMENTS.md`) in a separate commit. Safety guards (web fetch, UI, this module, existing tests, CI) are off limits.
 
 ## Structure
 ```
@@ -138,6 +139,9 @@ any OpenAI-compatible server (`LLM_API`, for Aider `CODER_MODEL=openai/<name>` +
 
 ## Troubleshooting
 See [docs/GUIDE.md](docs/GUIDE.md#10-troubleshooting).
+
+- **`make init` seems stuck:** the first model answer can take several minutes (the model has to load into VRAM, and a 14B model on 12 GB VRAM / 16 GB RAM is slow). The agent prints `... still waiting for the model` every 30 s. Check `ollama ps` and `nvtop`/`nvidia-smi` in a second terminal; use a smaller model (e.g. `qwen2.5-coder:7b`) in `.env` if it is too slow. Do not press Ctrl+C: an interrupted init leaves no project behind.
+- **"Cannot reach the model server" / "Model(s) not installed":** the agent now checks Ollama and the model names from `.env` before starting; follow the printed hint (`ollama serve`, `ollama list`).
 
 ## Security
 The agent works only in `projects/<name>/repo/`, but runs build and test commands there without a sandbox. Use a container or VM
