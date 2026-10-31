@@ -5,21 +5,24 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>SaaS Agent</title>
 <style>
-:root{--bg:#121212;--panel:#1b1b1b;--panel2:#242424;--line:#333;--text:#e4e4e4;--mute:#8e8e8e;--accent:#d0d0d0;--ok:#5fb36b;--warn:#d6a23c;--bad:#d9605a}
+:root{--bg:#121212;--panel:#1b1b1b;--panel2:#242424;--line:#333;--text:#e4e4e4;--mute:#8e8e8e;--ok:#5fb36b;--warn:#d6a23c;--bad:#d9605a;--info:#6fa3d8}
 *{box-sizing:border-box}
 body{margin:0;font:14px/1.5 system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;background:var(--bg);color:var(--text);height:100vh;display:flex}
 button{font:inherit;cursor:pointer;border:1px solid var(--line);background:var(--panel2);color:var(--text);padding:6px 12px;border-radius:4px}
 button:hover{border-color:#666}
 button.primary{background:#e4e4e4;border-color:#e4e4e4;color:#111;font-weight:600}
 button.danger{border-color:var(--bad);color:var(--bad)}
+button.small{padding:2px 8px;font-size:12px}
 button:disabled{opacity:.45;cursor:not-allowed}
 input,textarea,select{font:inherit;width:100%;background:#0e0e0e;color:var(--text);border:1px solid var(--line);border-radius:4px;padding:7px 9px}
 input:focus,textarea:focus,select:focus{outline:none;border-color:#777}
 textarea{resize:vertical;font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:13px}
-aside{width:270px;background:var(--panel);border-right:1px solid var(--line);display:flex;flex-direction:column}
+aside{width:270px;background:var(--panel);border-right:1px solid var(--line);display:flex;flex-direction:column;flex:none}
 aside header{padding:16px;font-weight:600;font-size:15px;letter-spacing:.04em;text-transform:uppercase;border-bottom:1px solid var(--line)}
 .side-actions{padding:12px;display:flex;gap:8px}
 .side-actions button{flex:1}
+.side-foot{padding:12px;border-top:1px solid var(--line)}
+.side-foot button{width:100%}
 #plist{flex:1;overflow:auto;padding:0 8px 12px}
 .card{padding:9px 10px;border-left:2px solid transparent;cursor:pointer}
 .card:hover{background:var(--panel2)}
@@ -28,7 +31,7 @@ aside header{padding:16px;font-weight:600;font-size:15px;letter-spacing:.04em;te
 .card .s{color:var(--mute);font-size:12px;margin-top:2px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .dot{width:8px;height:8px;border-radius:50%;background:#555;flex:none}
 .dot.run{background:var(--ok)}.dot.stop{background:var(--warn)}
-main{flex:1;overflow:auto;padding:24px 32px 50px}
+main{flex:1;overflow:auto;padding:24px 32px 50px;min-width:0}
 .empty{color:var(--mute);margin-top:15vh;text-align:center}
 .empty h2{color:var(--text);font-weight:600}
 .top{display:flex;justify-content:space-between;gap:20px;align-items:flex-start;flex-wrap:wrap}
@@ -36,11 +39,11 @@ main{flex:1;overflow:auto;padding:24px 32px 50px}
 .idea{color:var(--mute);margin-top:4px;max-width:640px}
 .btns{display:flex;gap:8px;flex-wrap:wrap}
 .pill{display:inline-block;padding:1px 8px;border-radius:3px;font-size:11.5px;border:1px solid var(--line);color:var(--mute);vertical-align:middle;font-weight:400}
-.pill.ok{color:var(--ok);border-color:var(--ok)}.pill.warn{color:var(--warn);border-color:var(--warn)}.pill.bad{color:var(--bad);border-color:var(--bad)}
-.stats{display:grid;grid-template-columns:repeat(auto-fit,minmax(120px,1fr));gap:10px;margin:20px 0}
-.stat{background:var(--panel);border:1px solid var(--line);border-radius:4px;padding:10px 14px}
-.stat b{display:block;font-size:20px;font-weight:600}.stat span{color:var(--mute);font-size:12px}
-.tabs{display:flex;gap:2px;border-bottom:1px solid var(--line);margin-bottom:16px}
+.pill.ok{color:var(--ok);border-color:var(--ok)}.pill.warn{color:var(--warn);border-color:var(--warn)}.pill.bad{color:var(--bad);border-color:var(--bad)}.pill.info{color:var(--info);border-color:var(--info)}
+.stats{display:grid;grid-template-columns:repeat(auto-fit,minmax(110px,1fr));gap:10px;margin:16px 0}
+.stat{background:var(--panel);border:1px solid var(--line);border-radius:4px;padding:8px 14px}
+.stat b{display:block;font-size:19px;font-weight:600}.stat span{color:var(--mute);font-size:12px}
+.tabs{display:flex;gap:2px;border-bottom:1px solid var(--line);margin:16px 0;flex-wrap:wrap}
 .tab{padding:8px 14px;cursor:pointer;color:var(--mute);border-bottom:2px solid transparent}
 .tab.on{color:var(--text);border-color:var(--text)}
 .panel{background:var(--panel);border:1px solid var(--line);border-radius:4px;padding:16px}
@@ -57,10 +60,29 @@ dialog{background:var(--panel);color:var(--text);border:1px solid #555;border-ra
 dialog::backdrop{background:rgba(0,0,0,.7)}
 dialog h3{margin:0 0 12px}
 label{display:block;color:var(--mute);font-size:12.5px;margin:12px 0 4px}
-.toast{position:fixed;right:20px;bottom:20px;background:var(--panel2);border:1px solid var(--line);padding:10px 16px;border-radius:4px;opacity:0;transition:.2s;pointer-events:none;max-width:480px;white-space:pre-wrap}
+.toast{position:fixed;right:20px;bottom:20px;background:var(--panel2);border:1px solid var(--line);padding:10px 16px;border-radius:4px;opacity:0;transition:.2s;pointer-events:none;max-width:480px;white-space:pre-wrap;z-index:9}
 .toast.on{opacity:1}.toast.err{border-color:var(--bad)}
 .job{font-size:12.5px;color:var(--mute);padding:8px 10px;border:1px dashed var(--line);margin-bottom:6px}
 .warnbox{border:1px solid var(--warn);color:var(--warn);padding:8px 10px;border-radius:4px;font-size:12.5px;margin-top:8px;white-space:pre-wrap}
+/* live status */
+.now{background:var(--panel);border:1px solid var(--line);border-left:3px solid #555;border-radius:4px;padding:14px 16px;margin-top:16px}
+.now.live{border-left-color:var(--ok)}
+.now .what{font-size:15px;font-weight:600}
+.now .sub{color:var(--mute);font-size:12.5px;margin-top:2px}
+.steps{display:flex;gap:4px;margin:12px 0 4px;flex-wrap:wrap}
+.step{flex:1;min-width:80px;text-align:center;font-size:12px;padding:5px 4px;border:1px solid var(--line);border-radius:3px;color:var(--mute)}
+.step.done{color:var(--text);border-color:#555}
+.step.cur{background:#e4e4e4;color:#111;border-color:#e4e4e4;font-weight:600}
+.call{margin-top:8px;font-size:12.5px;padding:6px 10px;background:#0e0e0e;border:1px solid var(--line);border-radius:3px}
+.timeline{margin-top:10px;font-size:12.5px;color:var(--mute)}
+.timeline div{padding:2px 0;border-top:1px solid #262626;display:flex;gap:10px}
+.timeline .t{flex:none;width:62px;font-family:ui-monospace,monospace}
+details{border:1px solid var(--line);border-radius:4px;margin-bottom:8px;background:var(--panel)}
+summary{cursor:pointer;padding:8px 12px;display:flex;gap:10px;align-items:center}
+details .inner{padding:0 12px 12px}
+.add{color:var(--ok)}.del{color:var(--bad)}.hunk{color:var(--info)}.meta{color:var(--mute)}
+.fl{font-family:ui-monospace,monospace;font-size:12.5px;display:flex;gap:10px;align-items:center;padding:2px 0}
+.fl a{color:var(--text);cursor:pointer;text-decoration:underline;text-decoration-color:#555}
 </style>
 </head>
 <body>
@@ -71,8 +93,11 @@ label{display:block;color:var(--mute);font-size:12.5px;margin:12px 0 4px}
     <button onclick="openMaster()" title="Global instructions for all projects">Master prompt</button>
   </div>
   <div id="plist"></div>
+  <div class="side-foot"><button onclick="showTool()" title="Tell the tool itself what to change (Makefile, UI, loop ...)">Change the tool itself</button></div>
 </aside>
-<main id="main"></main>
+<main id="main">
+  <div id="head"></div><div id="now"></div><div id="tabs"></div><div id="body"></div>
+</main>
 
 <dialog id="dNew">
   <h3>New idea, new project</h3>
@@ -83,7 +108,7 @@ label{display:block;color:var(--mute);font-size:12.5px;margin:12px 0 4px}
     <div><label>Language / framework</label><select id="nPreset" onchange="showHelp()"></select></div>
   </div>
   <div id="nHelp"></div>
-  <p class="hint">The agent first writes the goal and initial tasks (a few minutes). Start it afterwards with the Start button.</p>
+  <p class="hint">The agent first writes the goal and initial tasks (a few minutes: the model has to load). Start it afterwards with the Start button.</p>
   <div class="row" style="justify-content:flex-end"><button onclick="dNew.close()">Cancel</button><button class="primary" onclick="createProject()">Create</button></div>
 </dialog>
 
@@ -99,8 +124,10 @@ label{display:block;color:var(--mute);font-size:12.5px;margin:12px 0 4px}
 <script>
 const $=s=>document.querySelector(s);
 const esc=s=>String(s??"").replace(/[&<>"]/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c]));
-let sel=localStorage.getItem("sel")||null, tab="overview", list={projects:[],init_jobs:[]}, detail=null, dirty=false, langs=[];
-const EDITABLE=["ideas","sources"];
+let sel=localStorage.getItem("sel")||null, view="project", tab="overview", list={projects:[],init_jobs:[]}, detail=null, extra=null, dirty=false, langs=[];
+let diffView=null, lastBody="", lastHead="", lastTabs="", openKeys=new Set();
+const EDITABLE=["ideas","sources","task","tool"];
+const STEPS=[["plan","Plan"],["implement","Implement"],["build","Build & test"],["review","Review"],["cleanup","Cleanup"],["docs","Docs & memory"],["merge","Merge"]];
 
 async function api(path,body){
   const opt=body===undefined?{}:{method:"POST",headers:{"X-UI":"1","Content-Type":"application/json"},body:JSON.stringify(body)};
@@ -114,24 +141,44 @@ async function api(path,body){
   if(!r.ok) throw new Error(j.error||r.statusText); return j;
 }
 function toast(msg,err){const t=$("#toast");t.textContent=msg;t.className="toast on"+(err?" err":"");clearTimeout(t._h);t._h=setTimeout(()=>t.className="toast",err?7000:3000)}
-async function act(a,body,ok){try{await api(`/api/project/${sel}/${a}`,body||{});if(ok)toast(ok);await refresh(true)}catch(e){toast(e.message,true)}}
+async function act(a,body,ok){try{const r=await api(`/api/project/${sel}/${a}`,body||{});if(ok)toast(ok);await refresh();return r}catch(e){toast(e.message,true)}}
+const fmtDur=s=>{s=Math.max(0,Math.round(s));return s<60?s+"s":Math.floor(s/60)+"m "+(s%60)+"s"};
+const fmtDiff=t=>esc(t).split("\n").map(l=>{const c=l.startsWith("+++")||l.startsWith("---")||l.startsWith("diff ")||l.startsWith("index ")?"meta":l.startsWith("+")?"add":l.startsWith("-")?"del":l.startsWith("@@")?"hunk":"";return c?`<span class="${c}">${l}</span>`:l}).join("\n");
 
 function statusOf(p){return p.running?(p.stopping?["stop","stopping after task"]:["run","running"]):["","stopped"]}
 function renderList(){
   const jobs=list.init_jobs.map(j=>`<div class="job">${j.running?"Creating":"Failed"}: <b>${esc(j.name)}</b><br><code>${esc((j.log||"").split("\n").slice(-3).join(" "))}</code></div>`).join("");
   $("#plist").innerHTML=jobs+(list.projects.map(p=>{const[c,t]=statusOf(p);
-    return `<div class="card ${p.name===sel?"sel":""}" onclick="select('${esc(p.name)}')"><div class="n"><span class="dot ${c}"></span>${esc(p.name)}</div><div class="s">${t} · ${p.merged} features · ${p.backlog.pending||0} open</div></div>`}).join("")||(jobs?"":'<div class="hint" style="padding:10px">No projects yet.</div>'));
+    return `<div class="card ${view==="project"&&p.name===sel?"sel":""}" onclick="select('${esc(p.name)}')"><div class="n"><span class="dot ${c}"></span>${esc(p.name)}</div><div class="s">${t} · ${p.merged} features · ${p.backlog.pending||0} open</div></div>`}).join("")||(jobs?"":'<div class="hint" style="padding:10px">No projects yet.</div>'));
 }
-function select(n){sel=n;localStorage.setItem("sel",n);tab="overview";dirty=false;detail=null;$("#main").dataset.tab="";renderList();refresh(true)}
+function select(n){view="project";sel=n;localStorage.setItem("sel",n);tab="overview";dirty=false;detail=null;extra=null;diffView=null;lastBody=lastHead=lastTabs="";renderList();refresh()}
+function showTool(){view="tool";tab="tool";dirty=false;extra=null;diffView=null;lastBody=lastHead=lastTabs="";renderList();refresh()}
 
-function renderMain(){
-  const m=$("#main");
-  if(!sel){m.innerHTML=`<div class="empty"><h2>No project selected</h2><p>Pick a project on the left or create one with <b>+ New idea</b>.</p></div>`;return}
+/* ---- live status panel (re-rendered every second from the last data) ---- */
+function renderNow(){
+  const box=$("#now");
+  if(view!=="project"||!detail){box.innerHTML="";return}
+  const a=detail.activity||{},n=a.now,t=Date.now()/1000;
+  if(!a.running){box.className="now";box.innerHTML=`<div class="what">Agent is not running</div><div class="sub">Press Start for autonomous work, or give it one concrete job on the "Do a task" tab.</div>${a.queued_user_tasks&&a.queued_user_tasks.length?`<div class="sub">Queued for you: ${a.queued_user_tasks.map(esc).join("; ")}</div>`:""}${timeline(a.events)}`;return}
+  box.className="now live";
+  const idx=n?STEPS.findIndex(s=>s[0]===n.step):-1;
+  const stepper=idx>=0||(n&&n.task)?`<div class="steps">${STEPS.map(([k,l],i)=>`<div class="step ${i<idx?"done":i===idx?"cur":""}">${l}</div>`).join("")}</div>`:"";
+  const call=a.coder?`<div class="call">Aider (code model <code>${esc(a.coder.model)}</code>) is editing ${a.coder.files.length?esc(a.coder.files.join(", ")):"files"} for <b>${esc(a.coder.tag)}</b>, ${fmtDur(t-a.coder.since)}</div>`
+    :a.llm?`<div class="call">Waiting for the <b>${esc(a.llm.role)}</b> model (<code>${esc(a.llm.model)}</code>) on <b>${esc(a.llm.tag)}</b>, ${fmtDur(t-a.llm.since)}. Open "AI activity" to see the prompt once it answers.</div>`:"";
+  box.innerHTML=`<div class="what">${n?esc(n.phase):"Starting…"}</div>
+  <div class="sub">${n&&n.task?`Task: ${esc(n.task)} · attempt ${n.attempt}/3 · `:""}${n?`in this step for ${fmtDur(t-n.since)}`:""}${n&&n.detail?`<br>${esc(n.detail)}`:""}</div>
+  ${stepper}${call}${a.queued_user_tasks&&a.queued_user_tasks.length?`<div class="sub" style="margin-top:8px">Your queued tasks: ${a.queued_user_tasks.map(esc).join("; ")}</div>`:""}${timeline(a.events)}`;
+}
+function timeline(ev){
+  if(!ev||!ev.length)return "";
+  return `<div class="timeline">${ev.slice(-8).reverse().map(e=>`<div><span class="t">${esc((e.time||"").slice(11,19))}</span><span>${esc(e.phase)}${e.task?` <span class="meta">· ${esc(e.task.slice(0,60))}</span>`:""}${e.detail?` <span class="meta">· ${esc(e.detail.slice(0,100))}</span>`:""}</span></div>`).join("")}</div>`;
+}
+
+/* ---- project view ---- */
+function renderProject(){
+  if(!sel){$("#head").innerHTML=`<div class="empty"><h2>No project selected</h2><p>Pick a project on the left or create one with <b>+ New idea</b>.</p></div>`;$("#tabs").innerHTML=$("#body").innerHTML="";return}
   if(!detail)return;
   const d=detail,[c,t]=statusOf(d);
-  const el=document.activeElement, typing=el&&["INPUT","TEXTAREA","SELECT"].includes(el.tagName)&&m.contains(el);
-  if(EDITABLE.includes(tab)&&m.dataset.name===sel&&m.dataset.tab===tab&&(typing||dirty))return;
-  m.dataset.name=sel;m.dataset.tab=tab;
   const pillF=d.failures?`<span class="pill bad">${d.failures} consecutive failures</span>`:"";
   const head=`<div class="top"><div><h1>${esc(d.name)} <span class="pill ${c==="run"?"ok":c==="stop"?"warn":""}">${t}</span> ${pillF}</h1><div class="idea">${esc(d.idea)}</div></div>
   <div class="btns">
@@ -145,42 +192,119 @@ function renderMain(){
     <div class="stat"><b>${d.backlog.blocked||0}</b><span>blocked</span></div>
     <div class="stat"><b>${d.iteration}</b><span>iterations</span></div>
     <div class="stat"><b>${d.hours} h</b><span>runtime</span></div>
-  </div>
-  <div class="tabs">${[["overview","Overview"],["ideas","Ideas & feedback"],["sources","Web sources"],["testing","Test version"],["log","Live log"],["goal","Goal"]].map(([k,l])=>`<div class="tab ${tab===k?"on":""}" onclick="setTab('${k}')">${l}</div>`).join("")}</div>`;
-  let body="";
+  </div>`;
+  if(head!==lastHead){$("#head").innerHTML=head;lastHead=head}
+  const tabs=[["overview","Overview"],["task","Do a task"],["llm","AI activity"],["changes","File changes"],["ideas","Ideas & feedback"],["sources","Web sources"],["testing","Test version"],["log","Live log"],["goal","Goal"]];
+  const tb=`<div class="tabs">${tabs.map(([k,l])=>`<div class="tab ${tab===k?"on":""}" onclick="setTab('${k}')">${l}</div>`).join("")}</div>`;
+  if(tb!==lastTabs){$("#tabs").innerHTML=tb;lastTabs=tb}
+  const body=projectBody(d);
+  if(body!==null)setBody(body);
+}
+function setBody(html){
+  const b=$("#body"),el=document.activeElement;
+  if(EDITABLE.includes(tab)&&(dirty||(el&&["INPUT","TEXTAREA"].includes(el.tagName)&&b.contains(el)))&&b.dataset.tab===tab)return;
+  if(html===lastBody&&b.dataset.tab===tab)return;
+  const keep=$("#main").scrollTop,lb=$("#logbox"),stick=lb&&lb.scrollHeight-lb.scrollTop-lb.clientHeight<40;
+  b.innerHTML=html;b.dataset.tab=tab;lastBody=html;
+  b.querySelectorAll("details[data-k]").forEach(x=>{if(openKeys.has(x.dataset.k))x.open=true;x.addEventListener("toggle",()=>{x.open?openKeys.add(x.dataset.k):openKeys.delete(x.dataset.k)})});
+  $("#main").scrollTop=keep;
+  const nb=$("#logbox");if(nb&&(stick||!lb))nb.scrollTop=nb.scrollHeight;
+}
+function projectBody(d){
   if(tab==="overview"){
-    const rows=d.backlog_items.map(i=>`<tr><td>${esc(i.id)}</td><td>${esc(i.title)}${i.source==="ideas"?' <span class="pill ok">from you</span>':""}</td><td>${esc(i.type)}</td><td>${Math.round(i.priority*10)/10}</td><td><span class="pill ${i.status==="done"?"ok":i.status==="blocked"?"bad":""}">${esc(i.status)}</span></td></tr>`).join("");
-    body=`<div class="grid2"><div class="panel"><h3>Backlog</h3><table><tr><th>ID</th><th>Task</th><th>Type</th><th>Prio</th><th>Status</th></tr>${rows||'<tr><td colspan=5 class="hint">empty</td></tr>'}</table></div>
+    const rows=d.backlog_items.map(i=>`<tr><td>${esc(i.id)}</td><td>${esc(i.title)}${i.source==="ideas"?' <span class="pill ok">from you</span>':i.source==="user"?' <span class="pill info">your task</span>':""}</td><td>${esc(i.type)}</td><td>${Math.round(i.priority*10)/10}</td><td><span class="pill ${i.status==="done"?"ok":i.status==="blocked"?"bad":""}">${esc(i.status)}</span></td></tr>`).join("");
+    return `<div class="grid2"><div class="panel"><h3>Backlog</h3><table><tr><th>ID</th><th>Task</th><th>Type</th><th>Prio</th><th>Status</th></tr>${rows||'<tr><td colspan=5 class="hint">empty</td></tr>'}</table></div>
     <div class="panel"><h3>Finished features</h3>${d.features.length?d.features.map(f=>`<div style="padding:5px 0;border-top:1px solid var(--line)">${esc(f.title)}</div>`).join(""):'<div class="hint">None yet.</div>'}</div></div>`;
-  }else if(tab==="ideas"){
-    body=`<div class="panel"><h3>Quick feedback</h3><p class="hint">A bug or wish in one sentence. The agent re-plans on its next pass.</p>
+  }
+  if(tab==="task"){
+    const mine=d.backlog_items.filter(i=>i.source==="user");
+    return `<div class="panel"><h3>Give the agent a concrete job</h3>
+    <p class="hint">The agent does <b>exactly this</b> in the product, with the full pipeline (plan, implement, build, tests, review, merge), and nothing else: no new ideas. If it is idle it runs just this job and stops; if it is already running it does your job next.</p>
+    <textarea id="task" rows="6" oninput="dirty=true" placeholder="e.g. Extend the website with a pricing page with three plans, linked from the header"></textarea>
+    <div class="row" style="justify-content:flex-end;margin-top:10px"><button class="primary" onclick="runTask()">Run this task</button></div></div>
+    <div class="panel" style="margin-top:16px"><h3>Your tasks</h3>${mine.length?`<table>${mine.map(i=>`<tr><td>${esc(i.id)}</td><td>${esc(i.title)}</td><td><span class="pill ${i.status==="done"?"ok":i.status==="blocked"?"bad":""}">${esc(i.status)}</span></td></tr>`).join("")}</table>`:'<div class="hint">None yet.</div>'}</div>`;
+  }
+  if(tab==="llm"){
+    if(!extra||extra.kind!=="llm")return `<div class="hint">Loading…</div>`;
+    return `<p class="hint">Everything the model was asked and what it answered, newest first (the end of each prompt is shown). Roles: planner = plans and ideas, reviewer = reviews, summarizer = notes and docs.</p>`+
+      (extra.entries.length?extra.entries.map((e,i)=>`<details data-k="llm-${esc(e.head)}"><summary><span class="pill info">${esc(e.head.replace(/^.*?\[/,"").replace(/\].*$/,""))}</span><span class="meta">${esc(e.head.replace(/\[.*$/,""))}</span></summary><div class="inner"><div class="hint">Prompt (end)</div><pre>${esc(e.prompt)}</pre><div class="hint" style="margin-top:10px">Answer</div><pre>${esc(e.answer)}</pre></div></details>`).join(""):'<div class="hint">No model calls recorded yet.</div>');
+  }
+  if(tab==="changes"){
+    if(!extra||extra.kind!=="changes")return `<div class="hint">Loading…</div>`;
+    const x=extra;
+    const un=x.uncommitted.length?`<div class="panel" style="margin-bottom:16px"><h3>Uncommitted right now (work in progress)</h3><pre>${esc(x.uncommitted.join("\n"))}</pre></div>`:"";
+    const files=`<div class="panel"><h3>Files by amount of change</h3>${x.files.length?`<table><tr><th>File</th><th>Commits</th><th>Added</th><th>Removed</th></tr>${x.files.slice(0,60).map(f=>`<tr><td><a style="cursor:pointer;text-decoration:underline" onclick="showFileHistory('${esc(f.path).replace(/'/g,"")}')">${esc(f.path)}</a></td><td>${f.commits}</td><td class="add">+${f.add}</td><td class="del">-${f.del}</td></tr>`).join("")}</table>`:'<div class="hint">No files yet.</div>'}</div>`;
+    const commits=`<div class="panel"><h3>Commits (newest first)</h3>${x.commits.map(c=>`<details data-k="c-${esc(c.sha)}"><summary><code>${esc(c.sha)}</code> ${esc(c.subject)} <span class="meta">${esc((c.date||"").slice(0,16).replace("T"," "))} · ${c.files.length} files</span></summary><div class="inner">${c.files.map(f=>`<div class="fl"><a onclick="showDiff('${esc(c.sha)}','${esc(f.path).replace(/'/g,"")}')">${esc(f.path)}</a><span class="add">+${f.add}</span><span class="del">-${f.del}</span></div>`).join("")||'<div class="hint">no file changes</div>'}<div style="margin-top:6px"><button class="small" onclick="showDiff('${esc(c.sha)}','')">Whole commit diff</button></div></div></details>`).join("")||'<div class="hint">No commits yet.</div>'}</div>`;
+    const dv=diffView?`<div class="panel" style="margin-top:16px"><h3>${esc(diffView.title)} <button class="small" onclick="diffView=null;lastBody='';renderProject()">close</button></h3><pre>${fmtDiff(diffView.text)}</pre></div>`:"";
+    return un+dv+`<div class="grid2" style="margin-top:${dv||un?16:0}px">${files}${commits}</div>`;
+  }
+  if(tab==="ideas"){
+    return `<div class="panel"><h3>Quick feedback</h3><p class="hint">A bug or wish in one sentence. The agent re-plans on its next pass.</p>
     <div class="row"><input id="say" placeholder="e.g. The save button does nothing" onkeydown="if(event.key==='Enter')say()"><button class="primary" onclick="say()">Send</button></div></div>
     <div class="panel" style="margin-top:16px"><h3>IDEAS.md: your directives</h3><p class="hint">Wishes, implementation hints, rework requests, "do not do". Read continuously, even while the agent works.</p>
     <textarea id="ideas" rows="18" oninput="dirty=true">${esc(d.ideas)}</textarea>
     <div class="row" style="justify-content:flex-end;margin-top:10px"><button class="primary" onclick="saveFile('ideas','IDEAS.md')">Save</button></div></div>`;
-  }else if(tab==="sources"){
-    body=`<div class="panel"><h3>SOURCES.md: websites the agent should read</h3>
+  }
+  if(tab==="sources"){
+    return `<div class="panel"><h3>SOURCES.md: websites the agent should read</h3>
     <p class="hint">One URL per line, optionally with a note on what to use it for. Web access mode: <b>${esc(d.web_mode)}</b> (<code>off</code>, <code>sources</code> = only these pages, <code>open</code> = the agent may also search). Change it in <code>agent/config.json</code> under "web".</p>
     <textarea id="sources" rows="14" oninput="dirty=true" placeholder="https://example.com/docs   use this for the payment flow">${esc(d.sources)}</textarea>
     <div class="row" style="justify-content:flex-end;margin-top:10px"><button class="primary" onclick="saveFile('sources','SOURCES.md')">Save</button></div></div>`;
-  }else if(tab==="testing"){
-    body=`<div class="panel"><p class="hint">"Test now" lets the agent finish its current task, builds the last working state and shows here how to run it. Press Start afterwards to continue.</p>
-    ${d.testing?`<pre>${esc(d.testing)}</pre>`:'<div class="hint">No test version built yet.</div>'}${d.try_running||d.try_out?`<h4>Output</h4><pre>${esc(d.try_out)}</pre>`:""}</div>`;
-  }else if(tab==="log"){
-    body=`<pre id="logbox">${esc(d.log||"No log yet.")}${d.run_out&&/Traceback|Error/.test(d.run_out)?"\n\n--- run.out ---\n"+esc(d.run_out):""}</pre>`;
-  }else{
-    body=`<pre>${esc(d.goal||"")}</pre>`;
   }
-  const keep=m.scrollTop;
-  m.innerHTML=head+body;
-  m.scrollTop=keep;
-  const lb=$("#logbox"); if(lb) lb.scrollTop=lb.scrollHeight;
+  if(tab==="testing"){
+    return `<div class="panel"><p class="hint">"Test now" lets the agent finish its current task, builds the last working state and shows here how to run it. Press Start afterwards to continue.</p>
+    ${d.testing?`<pre>${esc(d.testing)}</pre>`:'<div class="hint">No test version built yet.</div>'}${d.try_running||d.try_out?`<h4>Output</h4><pre>${esc(d.try_out)}</pre>`:""}</div>`;
+  }
+  if(tab==="log")return `<pre id="logbox">${esc(d.log||"No log yet.")}${d.run_out&&/Traceback|Error/.test(d.run_out)?"\n\n--- run.out ---\n"+esc(d.run_out):""}${d.do_out&&/Traceback|Error/.test(d.do_out)?"\n\n--- do.out ---\n"+esc(d.do_out):""}</pre>`;
+  return `<pre>${esc(d.goal||"")}</pre>`;
 }
-function setTab(k){tab=k;dirty=false;$("#main").dataset.tab="";renderMain()}
+function setTab(k){tab=k;dirty=false;extra=null;lastBody="";$("#body").dataset.tab="";lastTabs="";renderProject();fetchExtra().then(renderProject)}
+async function fetchExtra(){
+  try{
+    if(view==="tool"){extra={kind:"tool",...await api("/api/tool")};return}
+    if(!sel)return;
+    if(tab==="llm")extra={kind:"llm",...await api(`/api/project/${encodeURIComponent(sel)}/llm`)};
+    else if(tab==="changes")extra={kind:"changes",...await api(`/api/project/${encodeURIComponent(sel)}/changes`)};
+  }catch(e){}
+}
+async function showDiff(sha,path){
+  try{const r=await api(`/api/project/${encodeURIComponent(sel)}/diff?sha=${sha}&path=${encodeURIComponent(path)}`);diffView={title:path||("commit "+sha),text:r.diff};lastBody="";renderProject();$("#main").scrollTop=0}catch(e){toast(e.message,true)}
+}
+async function showFileHistory(path){
+  if(!extra||!extra.commits)return;
+  const c=extra.commits.find(c=>c.files.some(f=>f.path===path));if(c)showDiff(c.sha,path);
+}
 async function doTry(){await act("try",{},"Building a test version once the current task is done");setTab("testing")}
-async function say(){const v=$("#say").value.trim();if(!v)return;try{await api(`/api/project/${sel}/say`,{msg:v});toast("Feedback added");$("#say").value="";dirty=false;await refresh(true)}catch(e){toast(e.message,true)}}
-async function saveFile(kind,label){try{await api(`/api/project/${sel}/${kind}`,{text:$("#"+kind).value});dirty=false;toast(label+" saved");await refresh(true)}catch(e){toast(e.message,true)}}
+async function say(){const v=$("#say").value.trim();if(!v)return;try{await api(`/api/project/${sel}/say`,{msg:v});toast("Feedback added");$("#say").value="";dirty=false;await refresh()}catch(e){toast(e.message,true)}}
+async function saveFile(kind,label){try{await api(`/api/project/${sel}/${kind}`,{text:$("#"+kind).value});dirty=false;toast(label+" saved");await refresh()}catch(e){toast(e.message,true)}}
+async function runTask(){
+  const v=$("#task").value.trim();if(v.length<5){toast("Describe the task first",true);return}
+  const r=await act("do",{task:v});
+  if(r){toast(r.queued?"Queued: the running agent does it next":"Started: the agent does only this task");$("#task").value="";dirty=false;setTab("overview")}
+}
 
+/* ---- tool view ---- */
+function renderTool(){
+  $("#head").innerHTML=`<div class="top"><div><h1>Change the tool itself</h1><div class="idea">Tell it what to change in this program (Makefile, scripts, web UI, agent loop, docs). It does only what you write, on a separate git branch, and never merges by itself.</div></div></div>`;
+  $("#tabs").innerHTML="";
+  const x=extra&&extra.kind==="tool"?extra:{running:false,log:"",branches:[]};
+  const body=`<div class="panel"><h3>What should change?</h3>
+  <p class="hint">Examples: "Add a make target that prints the status of all projects", "Make the UI log tab show the last 500 lines", "Change the Makefile so make tmux also opens make logs". Tests must stay green and docs are updated; guards for web fetching, CI and this feature itself cannot be changed.</p>
+  <textarea id="tool" rows="6" oninput="dirty=true" ${x.running?"disabled":""}></textarea>
+  <div class="row" style="justify-content:flex-end;margin-top:10px"><button class="primary" onclick="runTool()" ${x.running?"disabled":""}>${x.running?"Working…":"Do this"}</button></div>
+  ${x.log?`<h4>Progress</h4><pre>${esc(x.log)}</pre>`:""}</div>
+  <div class="panel" style="margin-top:16px"><h3>Result branches</h3><p class="hint">Review in the terminal with <code>git diff HEAD...&lt;branch&gt;</code>, then <code>git merge &lt;branch&gt;</code> if you like it, or ignore it. Nothing changes in the running program until you merge.</p>
+  ${x.branches.length?x.branches.map(b=>`<details data-k="${esc(b.name)}"><summary><code>${esc(b.name)}</code> ${esc(b.subject)} <span class="meta">${esc(b.date.slice(0,16))}</span></summary><div class="inner"><pre>${esc(b.stat.join("\n")||"no changes")}</pre><div style="margin-top:8px"><button class="small" onclick="toolDiff('${esc(b.name)}')">Show full diff</button></div></div></details>`).join(""):'<div class="hint">No branches yet.</div>'}</div>
+  ${diffView?`<div class="panel" style="margin-top:16px"><h3>${esc(diffView.title)}</h3><pre>${fmtDiff(diffView.text)}</pre></div>`:""}`;
+  setBody(body);
+}
+async function runTool(){
+  const v=$("#tool").value.trim();if(v.length<10){toast("Describe the change in a sentence or two",true);return}
+  try{await api("/api/tool/task",{task:v});toast("Started. This can take several minutes.");dirty=false;await refresh()}catch(e){toast(e.message,true)}
+}
+async function toolDiff(b){try{const r=await api("/api/tool/diff?branch="+encodeURIComponent(b));diffView={title:b,text:r.diff};lastBody="";renderTool()}catch(e){toast(e.message,true)}}
+
+/* ---- dialogs ---- */
 function showHelp(){
   const l=langs.find(x=>x.key===$("#nPreset").value);
   $("#nHelp").innerHTML=l&&!l.available?`<div class="warnbox">${esc(l.label)} is not installed on this machine.\n${esc(l.help)}</div>`:"";
@@ -198,16 +322,18 @@ async function openMaster(){try{$("#mText").value=(await api("/api/master")).tex
 async function saveMaster(){try{await api("/api/master",{text:$("#mText").value});toast("Master prompt saved (applies from the next start)");dMaster.close()}catch(e){toast(e.message,true)}}
 
 let shownErr=false;
-async function refresh(force){
+async function refresh(){
   try{
     list=await api("/api/projects");shownErr=false;
-    if(!sel||!list.projects.some(p=>p.name===sel))sel=list.projects[0]?.name||null;
+    if(view==="project"&&(!sel||!list.projects.some(p=>p.name===sel)))sel=list.projects[0]?.name||null;
     renderList();
-    if(sel){detail=await api("/api/project/"+encodeURIComponent(sel));if(force)$("#main").dataset.tab=""}
-    renderMain();
+    if(view==="project"&&sel)detail=await api("/api/project/"+encodeURIComponent(sel));
+    await fetchExtra();
+    if(view==="tool")renderTool();else renderProject();
+    renderNow();
   }catch(e){if(!shownErr){shownErr=true;toast(e.message,true)}}
 }
-refresh(true); setInterval(refresh,3000);
+refresh(); setInterval(refresh,3000); setInterval(renderNow,1000);
 </script>
 </body>
 </html>

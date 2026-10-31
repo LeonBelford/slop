@@ -277,6 +277,7 @@ class LLM:
 
     def __init__(self, cfg: dict, log):
         self.cfg, self.log = cfg, log
+        self.live: Path | None = None  # file describing the model call in progress (for the UI)
         self.trace: Path | None = None  # set by Agent: every model call is appended here so you can watch the "thinking"
 
     def _traced(self, tag: str, role: str, user: str, answer: str) -> str:
@@ -318,6 +319,8 @@ class LLM:
         }).encode()
         last = None
         done = threading.Event()
+        if self.live:
+            write_json(self.live, {"role": role, "tag": tag, "model": self.cfg["models"].get(role, ""), "since": time.time()})
 
         def heartbeat():
             t0 = time.time()
@@ -333,12 +336,16 @@ class LLM:
                 with urllib.request.urlopen(req, timeout=self.cfg["limits"]["llm_timeout"]) as r:
                     answer = json.loads(r.read())["choices"][0]["message"]["content"]
                 done.set()
+                if self.live:
+                    self.live.unlink(missing_ok=True)
                 return self._traced(tag, role, user, answer)
             except Exception as e:  # network/model briefly unavailable: wait and retry
                 last = e
                 self.log(f"LLM error ({tag}), attempt {attempt + 1}: {e}")
                 time.sleep(5 * (attempt + 1))
         done.set()
+        if self.live:
+            self.live.unlink(missing_ok=True)
         raise RuntimeError(f"LLM unreachable: {last}")
 
     def json(self, tag: str, role: str, system: str, user: str):
@@ -434,8 +441,8 @@ class Backlog:
         return False
 
     def add(self, title, description, type_="feature", priority=5.0, acceptance=None, rationale="",
-            source="ideation", extra_titles=None):
-        if self.is_dup(title, extra_titles):
+            source="ideation", extra_titles=None, force=False):
+        if not force and self.is_dup(title, extra_titles):
             return None
         item = {"id": f"T{len(self.items) + 1:04d}", "title": title, "description": description,
                 "type": type_, "priority": float(priority), "status": "pending", "attempts": 0,
@@ -452,7 +459,7 @@ class Backlog:
         p = self.pending()
         if not p:
             return None
-        return max(p, key=lambda i: i["priority"] + (1000 if i["type"] == "bug" else 0))
+        return max(p, key=lambda i: i["priority"] + (1000 if i["type"] == "bug" else 0) + (2000 if i.get("source") == "user" else 0))
 
     def set(self, item: dict, **kw) -> None:
         item.update(kw)
@@ -790,6 +797,8 @@ class Agent:
                 self.lim[k] = max(TUNABLE[k][0], min(TUNABLE[k][1], int(v)))
         self.llm = LLM(self.cfg, self.log)
         self.llm.trace = self.dir / "llm.log"
+        self.llm.live = self.dir / "llm_now.json"
+        self.cur_task, self.cur_attempt = "", 0
         self.git = Git(self.repo)
         self.backlog = Backlog(self.dir / "backlog.json")
         self.mem = Memory(self.dir, self.repo, self.cfg, self.llm, self.log)
@@ -827,6 +836,14 @@ class Agent:
         print(line, flush=True)
         with open(self.dir / "agent.log", "a", encoding="utf-8") as f:
             f.write(line + "\n")
+
+    def phase(self, name: str, step: str | None = None, detail: str = "") -> None:
+        """Publishes what the agent is doing right now (activity.json) and appends it to the event timeline (events.jsonl)."""
+        write_json(self.dir / "activity.json", {"phase": name, "step": step, "detail": detail[:300], "since": time.time(),
+                                                "task": self.cur_task, "attempt": self.cur_attempt, "pid": os.getpid()})
+        with open(self.dir / "events.jsonl", "a", encoding="utf-8") as f:
+            f.write(json.dumps({"time": now(), "phase": name, "step": step, "detail": detail[:300], "task": self.cur_task,
+                                "attempt": self.cur_attempt}, ensure_ascii=False) + "\n")
 
     def save_state(self) -> None:
         write_json(self.dir / "state.json", self.state)
@@ -930,6 +947,7 @@ class Agent:
             return self.coder_mock(self.repo, tag, edit, read, prompt)
         pf = self.run_dir / f"{tag}.prompt.md"
         write_text(pf, prompt)
+        write_json(self.dir / "coder_now.json", {"tag": tag, "files": edit[:12], "model": self.cfg["coder_model"], "since": time.time()})
         cmd = ["aider", "--yes-always", "--no-auto-commits", "--no-pretty", "--no-stream", "--no-check-update",
                "--model", self.cfg["coder_model"], "--message-file", str(pf)]
         for r in read:
@@ -937,6 +955,7 @@ class Agent:
         cmd += edit
         env = {"OLLAMA_API_BASE": os.getenv("OLLAMA_API_BASE", "http://localhost:11434")}
         rc, out = sh(cmd, self.repo, self.lim["coder_timeout"], env=env)
+        (self.dir / "coder_now.json").unlink(missing_ok=True)
         write_text(self.run_dir / f"{tag}.aider.log", out)
         if rc != 0:
             self.log(f"Aider exit code {rc} for {tag}: {tail(out, 300)}")
@@ -964,6 +983,7 @@ class Agent:
 
     # ---- Planning
     def impact_analysis(self, item: dict, previous: list[str]) -> dict:
+        self.phase("Planning: analysing the codebase and the impact of the change", "plan")
         cands = self.mem.select_candidates(item)
         ctx = self.mem.context_pack(item, cands)
         src = "\n\n".join(f"### {f}\n```\n{clip((self.repo / f).read_text('utf-8', 'replace'), self.cfg['context']['file_clip'])}\n```"
@@ -1003,6 +1023,7 @@ class Agent:
              "The project must build and all tests must pass after your change.")
 
     def implement(self, item: dict, plan: dict) -> None:
+        self.phase("Implementing the change with Aider", "implement", "; ".join(str(x) for x in plan.get("steps", [])[:4]))
         prompt = (f"Task {item['id']}: {item['title']}\n{item['description']}\nAcceptance: {item.get('acceptance')}\n\n"
                   f"Understanding: {plan.get('understanding', '')}\nSteps: {plan.get('steps')}\nInvariants: {plan.get('invariants')}\n"
                   f"Risks: {plan.get('risks')}\nAffected callers: {plan.get('affected_dependents')}\n"
@@ -1012,6 +1033,7 @@ class Agent:
         self.code("implement", edit, read, prompt)
 
     def debug_loop(self, item: dict) -> tuple[bool, str]:
+        self.phase("Building and running tests", "build")
         ok, report = self.verify()
         for n in range(1, self.lim["max_debug_rounds"] + 1):
             if ok and self.cfg["features"]["require_tests"] and item["type"] in ("feature", "bug") \
@@ -1020,6 +1042,7 @@ class Agent:
             if ok:
                 return True, report
             self.log(f"Debug round {n}: {report.splitlines()[0]}")
+            self.phase(f"Debugging, round {n}", "build", report.splitlines()[0])
             mentioned = [f for f in re.findall(r"[\w./-]+\.(?:py|js|ts|html)", report) if (self.repo / f).exists()]
             files = sorted(set(self.git.changed_files()) | set(mentioned))[:self.lim["max_files_per_task"] + 4]
             self.code(f"debug{n}", files, [str(self.run_dir / "context.md")],
@@ -1030,6 +1053,7 @@ class Agent:
         return ok, report
 
     def review(self, item: dict, plan: dict) -> dict:
+        self.phase("Independent review of the diff", "review")
         diff = self.git.diff()
         try:
             return self.llm.json(
@@ -1048,7 +1072,9 @@ class Agent:
         self.run_dir.mkdir(parents=True, exist_ok=True)
         previous: list[str] = []
         self.backlog.set(item, status="in_progress")
+        self.cur_task = f"{item['id']} {item['title']}"
         for attempt in range(1, self.lim["max_attempts_per_task"] + 1):
+            self.cur_attempt = attempt
             self.backlog.set(item, attempts=item["attempts"] + 1)
             self.log(f"== {item['id']} {item['title']} (attempt {attempt})")
             branch = f"agent/{item['id']}-{attempt}"
@@ -1060,6 +1086,8 @@ class Agent:
                 ok, why = False, f"Exception: {e}"
             if ok:
                 self.backlog.set(item, status="done")
+                self.cur_task, self.cur_attempt = "", 0
+                self.phase("Task finished and merged, picking the next one", None, item["title"])
                 return True
             self.git.hard_reset()
             self.git.run("checkout", "-q", "main")
@@ -1069,6 +1097,7 @@ class Agent:
             self.metric(kind="attempt_failed", item=item["id"], title=item["title"], type=item["type"], attempt=attempt,
                         why=clip(why, 300))
         self.backlog.set(item, status="blocked")
+        self.phase("Task blocked after repeated failures", None, item["title"])
         return False
 
     def record_failure(self, item: dict, why: str) -> None:
@@ -1100,6 +1129,7 @@ class Agent:
         self.git.commit_all(f"{item['id']}: {item['title']}")
         checkpoint = self.git.sha()
         if self.cfg["features"]["cleanup_pass"] and item["type"] != "docs":
+            self.phase("Cleanup pass (no behavior change)", "cleanup")
             changed = [f for f in self.git.changed_files(base_sha) if (self.repo / f).exists() and f.endswith(tuple(self.cfg["source_exts"]))]
             self.code("cleanup", changed[:self.lim["max_files_per_task"]], [str(self.run_dir / "context.md")],
                       "Cleanup without behavior change: remove dead code, clarify names, merge duplicates, "
@@ -1111,6 +1141,7 @@ class Agent:
                 self.log("Cleanup broke the build, discarded.")
                 self.git.hard_reset(checkpoint)
         snap = self.mem.snapshot()
+        self.phase("Updating memory, documentation and decision records", "docs")
         try:
             changed_all = [f for f in self.git.changed_files(base_sha) if (self.repo / f).exists()]
             self.mem.sync(force_docs_for=[f for f in changed_all if f in self.mem.codemap])
@@ -1125,6 +1156,7 @@ class Agent:
             ok, report = self.verify()
             if not ok:
                 raise RuntimeError("Build red after docs update:\n" + report)
+            self.phase("Merging into main and verifying the build", "merge")
             old_main = self.git.out("rev-parse", "main")
             if not self.git.merge_ff(branch):
                 raise RuntimeError("Fast-forward merge into main failed")
@@ -1145,6 +1177,7 @@ class Agent:
 
     # ---- Ideas, review, hygiene
     def ideate(self) -> int:
+        self.phase("Inventing new feature ideas (with critic)", "ideas")
         lens = LENSES[self.state["iteration"] % len(LENSES)]
         feats = [f["title"] for f in self.mem.features.values()]
         lessons = ""
@@ -1186,6 +1219,7 @@ class Agent:
         return added
 
     def product_review(self) -> int:
+        self.phase("Auditing the product for gaps", "ideas")
         ok, report = self.verify()
         data = self.llm.json(
             "product_review", "reviewer", "You are an independent product auditor. Find concrete gaps in quality and completeness.",
@@ -1225,6 +1259,7 @@ class Agent:
             self.state["last_coverage_at"] = merged
 
     def health_check(self) -> None:
+        self.phase("Health check: building main", None)
         self.git.hard_reset()
         self.git.run("checkout", "-q", "main")
         ok, report = self.verify()
@@ -1471,6 +1506,7 @@ class Agent:
         with open(self.dir / "tool_ideas.jsonl", "a", encoding="utf-8") as f:
             for idea in d.get("tool_improvements") or []:
                 f.write(json.dumps({"time": now(), "stats": stats, "idea": str(idea)[:500]}, ensure_ascii=False) + "\n")
+        self.phase("Reflecting on own performance", None)
         self.state["last_reflect_at"] = self.state["merged"]
         self.state["failed_since_reflect"] = 0
         self.save_state()
@@ -1564,7 +1600,39 @@ class Agent:
             self.save_state()
         self.state["elapsed"] += time.time() - started
         self.save_state()
+        self.cur_task, self.cur_attempt = "", 0
+        self.phase("Stopped", None, str(reason))
         self.log(f"End: {reason}")
+
+    # ---- Directed work: exactly what the user asks, nothing else
+    def add_user_task(self, text: str) -> dict:
+        text = text.strip()
+        title = clip(text.splitlines()[0], 90)
+        return self.backlog.add(title, text, "feature", 100.0, ["Does exactly what was asked, nothing more",
+                                                                 "Build and tests green"], "Requested directly by the user", "user",
+                                force=True)  # an explicit request is never dropped as a duplicate
+
+    def run_user_tasks(self) -> int:
+        """Processes only the tasks the user queued (source "user") and then stops. No ideation, no autonomy."""
+        if self.is_running():
+            sys.exit("The agent is running already; your task is queued and will be picked up next.")
+        self.llm.preflight()
+        write_text(self.dir / "agent.pid", str(os.getpid()))
+        done = 0
+        try:
+            self.git.hard_reset()
+            while True:
+                items = [i for i in self.backlog.pending() if i.get("source") == "user"]
+                if not items:
+                    break
+                item = max(items, key=lambda i: i["priority"])
+                done += bool(self.process(item))
+                self.save_state()
+        finally:
+            (self.dir / "agent.pid").unlink(missing_ok=True)
+            self.cur_task = ""
+            self.phase("Idle (directed tasks finished)", None)
+        return done
 
     # ---- Interactive: build a testable version
     def is_running(self) -> bool:
@@ -1722,6 +1790,11 @@ def selftest() -> None:
     tuned = read_json(a.dir / "tuning.json", {})
     assert tuned == {"max_debug_rounds": 4}, f"only whitelisted limits may be tuned: {tuned}"
     assert (a.dir / "tool_ideas.jsonl").exists(), "reflection must record tool improvement ideas"
+    ev = [json.loads(l) for l in (a.dir / "events.jsonl").read_text("utf-8").splitlines()]
+    assert {"plan", "implement", "build", "review", "merge"} <= {e["step"] for e in ev}, "workflow steps must be published"
+    t = a.add_user_task("Add a /about endpoint")
+    assert a.backlog.next()["id"] == t["id"], "user tasks go first"
+    assert a.run_user_tasks() == 1 and t["status"] == "done", "directed task must run alone"
     digest = (a.dir / "web" / "digest.md").read_text("utf-8")
     assert "example.com/docs" in digest and "use this for payments" in digest, "SOURCES.md must be fetched into the digest"
     assert "example.com/found" in digest, "open mode must store searched pages"
@@ -1783,6 +1856,11 @@ def main() -> None:
         q.add_argument("--projects-dir", default="projects")
         q.add_argument("--project")
     p_say.add_argument("--msg", required=True)
+    p_do = sub.add_parser("do", help="Do exactly what you ask in this project (queues the task; runs it if the agent is idle)")
+    p_do.add_argument("--projects-dir", default="projects")
+    p_do.add_argument("--project")
+    p_do.add_argument("--task", required=True)
+    p_do.add_argument("--queue-only", action="store_true")
     p_name = sub.add_parser("name", help="Print the resolved project name")
     p_name.add_argument("--projects-dir", default="projects")
     p_name.add_argument("--project")
@@ -1792,12 +1870,16 @@ def main() -> None:
     p_imp = sub.add_parser("improve", help="Let the agent improve its own code on a review branch (never auto-merged)")
     p_imp.add_argument("--projects-dir", default="projects")
     p_imp.add_argument("--dry-run", action="store_true", help="Only write proposals, change no code")
+    p_imp.add_argument("--task", help="Not autonomous: do exactly this instruction with the tool itself, on a review branch")
     a = ap.parse_args()
     if a.cmd == "selftest":
         return selftest()
     root = Path(a.projects_dir)
     if a.cmd == "improve":
         import selfimprove
+        if a.task:
+            selfimprove.directed(a.task)
+            return
         return selfimprove.main(root, dry_run=a.dry_run)
     if a.cmd == "list":
         for p in list_projects(root):
@@ -1813,6 +1895,13 @@ def main() -> None:
         print(f"Project: {ws}")
         return Agent(ws).init(a.idea)
     ws = pick_project(root, a.project)
+    if a.cmd == "do":
+        ag = Agent(ws)
+        item = ag.add_user_task(a.task)
+        print(f"Queued {item['id']}: {item['title']}")
+        if not a.queue_only and not ag.is_running():
+            ag.run_user_tasks()
+        return
     if a.cmd == "name":
         print(ws.name)
         return

@@ -21,17 +21,19 @@ from pathlib import Path
 import saas_agent as sa
 
 PROTECTED = ("webaccess.py", "webui.py", "selfimprove.py", ".github/", ".env", "scripts/quick-setup-popos.sh")
+# Directed tasks (user-written instruction) may also change the web UI server; the guards for fetching and this module stay locked.
+PROTECTED_DIRECTED = ("webaccess.py", "selfimprove.py", ".github/", ".env", "scripts/quick-setup-popos.sh")
 MAX_PROPOSALS = 3
 
 
-def protected_violations(changes: list[str]) -> list[str]:
+def protected_violations(changes: list[str], protected: tuple = PROTECTED) -> list[str]:
     """changes: lines of `git diff --name-status`. Existing tests may not change; new test files are welcome."""
     bad = []
     for line in changes:
         parts = line.split("\t")
         status, paths = parts[0][:1], parts[1:]
         for path in paths:
-            if path.startswith(PROTECTED) or (path.startswith("tests/") and status != "A"):
+            if path.startswith(protected) or (path.startswith("tests/") and status != "A"):
                 bad.append(path)
     return bad
 
@@ -139,6 +141,11 @@ def main(projects: Path, dry_run: bool = False, repo: Path | None = None, llm=No
     if dry_run or not proposals:
         return {"branch": None, "proposals": proposals}
 
+    return _implement(repo, proposals, coder, stamp, out_dir, log, PROTECTED)
+
+
+def _implement(repo: Path, proposals: list[dict], coder, stamp: str, out_dir: Path, log, protected: tuple) -> dict:
+    """Implements proposals one by one in a worktree on a new branch; keeps only green, non-protected changes."""
     branch, work = f"self-improve/{stamp}", out_dir / "work" / stamp
     rc, out = _git(repo, "worktree", "add", "-b", branch, str(work), "HEAD")
     if rc != 0:
@@ -148,14 +155,14 @@ def main(projects: Path, dry_run: bool = False, repo: Path | None = None, llm=No
     try:
         for p in proposals:
             files = [f for f in p.get("files", []) if isinstance(f, str) and (work / f).is_file()
-                     and not f.startswith(PROTECTED)]
+                     and not f.startswith(protected)]
             log(f"Implementing: {p['title']}")
             coder(work, files, f"{p['change']}\n\nRationale: {p.get('rationale', '')}\n"
                   "Keep the change small and focused. Do not modify existing tests; add new tests if sensible. Standard library only. "
                   "Documentation is updated in a separate step afterwards.")
             _git(work, "add", "-A")
             changes = [l for l in _git(work, "diff", "--cached", "--name-status")[1].splitlines() if l.strip()]
-            bad = protected_violations(changes)
+            bad = protected_violations(changes, protected)
             ok, report = (False, f"touches protected files: {bad}") if bad else (_tests_green(work, 900) if changes else (False, "no changes"))
             if ok:
                 _git(work, "-c", "user.name=saas-agent", "-c", "user.email=agent@localhost", "commit", "-q", "-m",
@@ -180,3 +187,29 @@ def main(projects: Path, dry_run: bool = False, repo: Path | None = None, llm=No
 
 if __name__ == "__main__":
     main(Path("projects"))
+
+
+def directed(instruction: str, repo: Path | None = None, llm=None, coder=None, log=print) -> dict:
+    """Does exactly what the user asked with the tool itself (Makefile, scripts, UI, loop ...), on a review branch.
+    No autonomy: one instruction in, one branch out, nothing merged."""
+    repo = (repo or Path(__file__).resolve().parent).resolve()
+    cfg = json.loads(json.dumps(sa.DEFAULT_CONFIG))
+    llm = llm or sa.LLM(cfg, log)
+    coder = coder or _aider(cfg["coder_model"], cfg["limits"]["coder_timeout"])
+    stamp = time.strftime("%Y%m%d-%H%M%S")
+    out_dir = repo / "self_improve"
+    out_dir.mkdir(exist_ok=True)
+    tracked = sorted(l for l in _git(repo, "ls-files")[1].splitlines()
+                     if not l.startswith(PROTECTED_DIRECTED) and not l.startswith("tests/") and l.count("/") <= 2)
+    try:
+        files = llm.json("tool_files", "planner", "You pick which files of a code repository must change for a task. Pick as few as possible.",
+                         f"Task from the user:\n{instruction}\n\nFiles:\n" + "\n".join(tracked) +
+                         '\nSchema: {"files": ["path", "..."]} (max 6)').get("files", [])
+    except Exception as e:  # noqa: BLE001
+        log(f"Could not pick files automatically: {e}")
+        files = []
+    files = [f for f in files if isinstance(f, str) and f in tracked][:6]
+    proposal = {"title": sa.clip(instruction.strip().splitlines()[0], 80), "rationale": "Requested directly by the user.",
+                "files": files, "change": instruction.strip(), "risk": "user"}
+    sa.write_text(out_dir / f"task-{stamp}.md", f"# Directed task {stamp}\n\n{instruction}\n\nFiles: {files}\n")
+    return _implement(repo, [proposal], coder, stamp, out_dir, log, PROTECTED_DIRECTED)

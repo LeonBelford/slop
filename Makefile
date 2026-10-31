@@ -1,6 +1,6 @@
 P ?=
 
-.PHONY: setup selftest init run status stop list tmux try say ui improve watch logs
+.PHONY: setup selftest init run status stop list tmux try say ui improve watch logs do
 
 setup:
 	bash scripts/setup.sh
@@ -44,3 +44,7 @@ ui:
 # Let the agent improve its own code on a review branch (never auto-merged): make improve [ARGS=--dry-run]
 improve:
 	bash scripts/run.sh improve $(ARGS)
+
+# Give the agent one explicit task and nothing else: make do P=name TASK="add a dark mode"
+do:
+	bash scripts/run.sh do $(P) "$(TASK)"

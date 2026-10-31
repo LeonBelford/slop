@@ -4,6 +4,7 @@
 #   scripts/run.sh run|status|stop|try [project name]
 #   scripts/run.sh say <project name> "<feedback>"
 #   scripts/run.sh tmux|watch|logs [project name]
+#   scripts/run.sh do <project name> "<task>"
 #   scripts/run.sh list
 #   scripts/run.sh ui [--port 8765]
 set -euo pipefail
@@ -22,6 +23,8 @@ case "$cmd" in
     python3 saas_agent.py say ${1:+--project "$1"} --msg "${2:?message}" ;;
   run|status|stop)
     python3 saas_agent.py "$cmd" ${1:+--project "$1"} ;;
+  do)
+    python3 saas_agent.py do ${1:+--project "$1"} --task "${2:?task}" ;;
   list) python3 saas_agent.py list ;;
   tmux)
     command -v tmux >/dev/null || { echo "tmux is not installed: sudo apt install tmux (or run it in the foreground: make run P=...)"; exit 1; }
