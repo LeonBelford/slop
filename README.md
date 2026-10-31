@@ -12,7 +12,7 @@ Linux/macOS/WSL, Python ≥ 3.10, git, [Ollama](https://ollama.com/download). Em
 ## Benutzung
 ```bash
 git clone https://github.com/LeonBelford/slop && cd slop
-make setup                                   # venv, aider, Modell "qwen2.5-coder-agent" (14B, 12k Kontext)
+bash scripts/quick-setup-popos.sh            # Pop!_OS/Ubuntu: alles installieren (--no-model, --nvidia)
 make selftest                                # Mechanik ohne Modell prüfen
 
 make init IDEA="Rechnungs-Tool für Freelancer"   # legt projects/<name>/ an (Name optional: NAME=rechnungen)
@@ -28,7 +28,7 @@ make list                                    # alle Projekte
 ```
 slop/
 ├─ saas_agent.py        die komplette Schleife (nur Standardbibliothek)
-├─ Makefile, scripts/   setup.sh · run.sh · Modelfile für 12 GB VRAM
+├─ Makefile, scripts/   quick-setup-popos.sh · setup.sh (nur venv+Modell) · run.sh · Modelfile
 ├─ .env.example, config.example.json
 ├─ docs/ARCHITECTURE.md Gedächtnis, Impact-Analyse, Config im Detail
 ├─ tests/, .github/     Selftest und CI
