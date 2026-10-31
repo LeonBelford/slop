@@ -1,97 +1,97 @@
 <!doctype html>
-<html lang="de">
+<html lang="en">
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>SaaS-Agent</title>
+<title>SaaS Agent</title>
 <style>
-:root{--bg:#0f1218;--panel:#171c26;--panel2:#1d2331;--line:#2a3245;--text:#e6e9f0;--mute:#8b94a8;--accent:#6c8cff;--ok:#38c98a;--warn:#f2b441;--bad:#f0616d}
+:root{--bg:#121212;--panel:#1b1b1b;--panel2:#242424;--line:#333;--text:#e4e4e4;--mute:#8e8e8e;--accent:#d0d0d0;--ok:#5fb36b;--warn:#d6a23c;--bad:#d9605a}
 *{box-sizing:border-box}
-body{margin:0;font:15px/1.5 system-ui,-apple-system,Segoe UI,Roboto,sans-serif;background:var(--bg);color:var(--text);height:100vh;display:flex}
-button{font:inherit;cursor:pointer;border:1px solid var(--line);background:var(--panel2);color:var(--text);padding:7px 14px;border-radius:8px;transition:.15s}
-button:hover{border-color:var(--accent)}
-button.primary{background:var(--accent);border-color:var(--accent);color:#fff;font-weight:600}
+body{margin:0;font:14px/1.5 system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;background:var(--bg);color:var(--text);height:100vh;display:flex}
+button{font:inherit;cursor:pointer;border:1px solid var(--line);background:var(--panel2);color:var(--text);padding:6px 12px;border-radius:4px}
+button:hover{border-color:#666}
+button.primary{background:#e4e4e4;border-color:#e4e4e4;color:#111;font-weight:600}
 button.danger{border-color:var(--bad);color:var(--bad)}
 button:disabled{opacity:.45;cursor:not-allowed}
-input,textarea,select{font:inherit;width:100%;background:var(--bg);color:var(--text);border:1px solid var(--line);border-radius:8px;padding:9px 11px}
-input:focus,textarea:focus,select:focus{outline:none;border-color:var(--accent)}
-textarea{resize:vertical;font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:13.5px;line-height:1.5}
-aside{width:300px;background:var(--panel);border-right:1px solid var(--line);display:flex;flex-direction:column}
-aside header{padding:18px 18px 12px;font-weight:700;font-size:18px;display:flex;align-items:center;gap:10px}
-aside header span{background:linear-gradient(135deg,#6c8cff,#a46cff);-webkit-background-clip:text;color:transparent}
-.side-actions{padding:0 14px 12px;display:flex;gap:8px}
+input,textarea,select{font:inherit;width:100%;background:#0e0e0e;color:var(--text);border:1px solid var(--line);border-radius:4px;padding:7px 9px}
+input:focus,textarea:focus,select:focus{outline:none;border-color:#777}
+textarea{resize:vertical;font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:13px}
+aside{width:270px;background:var(--panel);border-right:1px solid var(--line);display:flex;flex-direction:column}
+aside header{padding:16px;font-weight:600;font-size:15px;letter-spacing:.04em;text-transform:uppercase;border-bottom:1px solid var(--line)}
+.side-actions{padding:12px;display:flex;gap:8px}
 .side-actions button{flex:1}
-#plist{flex:1;overflow:auto;padding:4px 10px 14px}
-.card{padding:12px 14px;border:1px solid transparent;border-radius:10px;cursor:pointer;margin-bottom:4px}
+#plist{flex:1;overflow:auto;padding:0 8px 12px}
+.card{padding:9px 10px;border-left:2px solid transparent;cursor:pointer}
 .card:hover{background:var(--panel2)}
-.card.sel{background:var(--panel2);border-color:var(--accent)}
+.card.sel{background:var(--panel2);border-left-color:var(--text)}
 .card .n{font-weight:600;display:flex;align-items:center;gap:8px}
-.card .s{color:var(--mute);font-size:12.5px;margin-top:3px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
-.dot{width:9px;height:9px;border-radius:50%;background:var(--mute);flex:none}
-.dot.run{background:var(--ok);box-shadow:0 0 0 0 rgba(56,201,138,.6);animation:pulse 1.8s infinite}
-.dot.stop{background:var(--warn)}
-@keyframes pulse{70%{box-shadow:0 0 0 8px rgba(56,201,138,0)}100%{box-shadow:0 0 0 0 rgba(56,201,138,0)}}
-main{flex:1;overflow:auto;padding:26px 34px 50px}
+.card .s{color:var(--mute);font-size:12px;margin-top:2px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.dot{width:8px;height:8px;border-radius:50%;background:#555;flex:none}
+.dot.run{background:var(--ok)}.dot.stop{background:var(--warn)}
+main{flex:1;overflow:auto;padding:24px 32px 50px}
 .empty{color:var(--mute);margin-top:15vh;text-align:center}
-.empty h2{color:var(--text)}
+.empty h2{color:var(--text);font-weight:600}
 .top{display:flex;justify-content:space-between;gap:20px;align-items:flex-start;flex-wrap:wrap}
-.top h1{margin:0;font-size:26px}
+.top h1{margin:0;font-size:22px;font-weight:600}
 .idea{color:var(--mute);margin-top:4px;max-width:640px}
 .btns{display:flex;gap:8px;flex-wrap:wrap}
-.pill{display:inline-block;padding:2px 10px;border-radius:99px;font-size:12px;background:var(--panel2);border:1px solid var(--line);color:var(--mute);vertical-align:middle}
+.pill{display:inline-block;padding:1px 8px;border-radius:3px;font-size:11.5px;border:1px solid var(--line);color:var(--mute);vertical-align:middle;font-weight:400}
 .pill.ok{color:var(--ok);border-color:var(--ok)}.pill.warn{color:var(--warn);border-color:var(--warn)}.pill.bad{color:var(--bad);border-color:var(--bad)}
-.stats{display:grid;grid-template-columns:repeat(auto-fit,minmax(130px,1fr));gap:12px;margin:22px 0}
-.stat{background:var(--panel);border:1px solid var(--line);border-radius:12px;padding:14px 16px}
-.stat b{display:block;font-size:24px}.stat span{color:var(--mute);font-size:12.5px}
-.tabs{display:flex;gap:4px;border-bottom:1px solid var(--line);margin-bottom:18px}
-.tab{padding:9px 16px;cursor:pointer;color:var(--mute);border-bottom:2px solid transparent}
-.tab.on{color:var(--text);border-color:var(--accent)}
-.panel{background:var(--panel);border:1px solid var(--line);border-radius:12px;padding:18px}
+.stats{display:grid;grid-template-columns:repeat(auto-fit,minmax(120px,1fr));gap:10px;margin:20px 0}
+.stat{background:var(--panel);border:1px solid var(--line);border-radius:4px;padding:10px 14px}
+.stat b{display:block;font-size:20px;font-weight:600}.stat span{color:var(--mute);font-size:12px}
+.tabs{display:flex;gap:2px;border-bottom:1px solid var(--line);margin-bottom:16px}
+.tab{padding:8px 14px;cursor:pointer;color:var(--mute);border-bottom:2px solid transparent}
+.tab.on{color:var(--text);border-color:var(--text)}
+.panel{background:var(--panel);border:1px solid var(--line);border-radius:4px;padding:16px}
+.panel h3{margin:0 0 6px;font-size:14px}
 table{width:100%;border-collapse:collapse}
-th{color:var(--mute);font-weight:500;text-align:left;font-size:12.5px;padding:6px 8px}
-td{padding:8px;border-top:1px solid var(--line);vertical-align:top}
-pre{background:#0a0d13;border:1px solid var(--line);border-radius:10px;padding:14px;overflow:auto;max-height:60vh;font-size:12.5px;line-height:1.45;margin:0;white-space:pre-wrap;word-break:break-word}
+th{color:var(--mute);font-weight:500;text-align:left;font-size:12px;padding:5px 8px}
+td{padding:7px 8px;border-top:1px solid var(--line);vertical-align:top}
+pre{background:#0e0e0e;border:1px solid var(--line);border-radius:4px;padding:12px;overflow:auto;max-height:60vh;font-size:12.5px;line-height:1.45;margin:0;white-space:pre-wrap;word-break:break-word}
 .row{display:flex;gap:10px;align-items:center}
-.hint{color:var(--mute);font-size:13px;margin:6px 0 12px}
-.grid2{display:grid;grid-template-columns:1fr 1fr;gap:18px}
-@media(max-width:1000px){.grid2{grid-template-columns:1fr}aside{width:230px}}
-dialog{background:var(--panel);color:var(--text);border:1px solid var(--line);border-radius:14px;padding:24px;width:min(640px,92vw)}
-dialog::backdrop{background:rgba(5,8,14,.7)}
-dialog h3{margin:0 0 14px}
-label{display:block;color:var(--mute);font-size:13px;margin:12px 0 5px}
-.toast{position:fixed;right:22px;bottom:22px;background:var(--panel2);border:1px solid var(--line);padding:11px 18px;border-radius:10px;opacity:0;transform:translateY(10px);transition:.25s;pointer-events:none}
-.toast.on{opacity:1;transform:none}.toast.err{border-color:var(--bad)}
-.job{font-size:12.5px;color:var(--mute);padding:8px 14px;border:1px dashed var(--line);border-radius:10px;margin-bottom:6px}
+.hint{color:var(--mute);font-size:12.5px;margin:4px 0 10px}
+.grid2{display:grid;grid-template-columns:1fr 1fr;gap:16px}
+@media(max-width:1000px){.grid2{grid-template-columns:1fr}aside{width:220px}}
+dialog{background:var(--panel);color:var(--text);border:1px solid #555;border-radius:6px;padding:22px;width:min(640px,92vw)}
+dialog::backdrop{background:rgba(0,0,0,.7)}
+dialog h3{margin:0 0 12px}
+label{display:block;color:var(--mute);font-size:12.5px;margin:12px 0 4px}
+.toast{position:fixed;right:20px;bottom:20px;background:var(--panel2);border:1px solid var(--line);padding:10px 16px;border-radius:4px;opacity:0;transition:.2s;pointer-events:none;max-width:480px;white-space:pre-wrap}
+.toast.on{opacity:1}.toast.err{border-color:var(--bad)}
+.job{font-size:12.5px;color:var(--mute);padding:8px 10px;border:1px dashed var(--line);margin-bottom:6px}
+.warnbox{border:1px solid var(--warn);color:var(--warn);padding:8px 10px;border-radius:4px;font-size:12.5px;margin-top:8px;white-space:pre-wrap}
 </style>
 </head>
 <body>
 <aside>
-  <header>🤖 <span>SaaS-Agent</span></header>
+  <header>SaaS Agent</header>
   <div class="side-actions">
-    <button class="primary" onclick="openNew()">+ Neue Idee</button>
-    <button onclick="openMaster()" title="Globale Vorgaben für alle Projekte">Master-Prompt</button>
+    <button class="primary" onclick="openNew()">+ New idea</button>
+    <button onclick="openMaster()" title="Global instructions for all projects">Master prompt</button>
   </div>
   <div id="plist"></div>
 </aside>
 <main id="main"></main>
 
 <dialog id="dNew">
-  <h3>Neue Idee, neues Projekt</h3>
-  <label>Idee in ein, zwei Sätzen</label>
-  <textarea id="nIdea" rows="3" placeholder="z. B. Rechnungs-Tool für Freelancer mit PDF-Export"></textarea>
+  <h3>New idea, new project</h3>
+  <label>Describe the idea in a sentence or two</label>
+  <textarea id="nIdea" rows="3" placeholder="e.g. Invoicing tool for freelancers with PDF export"></textarea>
   <div class="grid2">
-    <div><label>Projektname (optional)</label><input id="nName" placeholder="rechnungen"></div>
-    <div><label>Technik</label><select id="nPreset"><option value="fastapi">Python / FastAPI</option><option value="minimal">Minimal (Python)</option></select></div>
+    <div><label>Project name (optional)</label><input id="nName" placeholder="invoices"></div>
+    <div><label>Language / framework</label><select id="nPreset" onchange="showHelp()"></select></div>
   </div>
-  <p class="hint">Der Agent schreibt zuerst Ziel und Start-Aufgaben (einige Minuten). Gestartet wird danach per Knopf.</p>
-  <div class="row" style="justify-content:flex-end"><button onclick="dNew.close()">Abbrechen</button><button class="primary" onclick="createProject()">Anlegen</button></div>
+  <div id="nHelp"></div>
+  <p class="hint">The agent first writes the goal and initial tasks (a few minutes). Start it afterwards with the Start button.</p>
+  <div class="row" style="justify-content:flex-end"><button onclick="dNew.close()">Cancel</button><button class="primary" onclick="createProject()">Create</button></div>
 </dialog>
 
 <dialog id="dMaster">
-  <h3>Master-Prompt</h3>
-  <p class="hint">Gilt für <b>alle</b> Projekte und wird beim Start jeder Session (jedes „Starten“) übernommen. Liegt als <code>MASTER.md</code> im Hauptordner.</p>
+  <h3>Master prompt</h3>
+  <p class="hint">Applies to <b>all</b> projects and is picked up at the start of every session. Stored as <code>MASTER.md</code> in the repository root.</p>
   <textarea id="mText" rows="14"></textarea>
-  <div class="row" style="justify-content:flex-end;margin-top:14px"><button onclick="dMaster.close()">Schließen</button><button class="primary" onclick="saveMaster()">Speichern</button></div>
+  <div class="row" style="justify-content:flex-end;margin-top:12px"><button onclick="dMaster.close()">Close</button><button class="primary" onclick="saveMaster()">Save</button></div>
 </dialog>
 
 <div class="toast" id="toast"></div>
@@ -99,64 +99,75 @@ label{display:block;color:var(--mute);font-size:13px;margin:12px 0 5px}
 <script>
 const $=s=>document.querySelector(s);
 const esc=s=>String(s??"").replace(/[&<>"]/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c]));
-let sel=localStorage.getItem("sel")||null, tab="uebersicht", list={projects:[],init_jobs:[]}, detail=null, dirty=false;
+let sel=localStorage.getItem("sel")||null, tab="overview", list={projects:[],init_jobs:[]}, detail=null, dirty=false, langs=[];
+const EDITABLE=["ideas","sources"];
 
 async function api(path,body){
   const opt=body===undefined?{}:{method:"POST",headers:{"X-UI":"1","Content-Type":"application/json"},body:JSON.stringify(body)};
-  const r=await fetch(path,opt); const j=await r.json().catch(()=>({error:"Ungültige Antwort"}));
+  let r;
+  try{r=await fetch(path,opt)}catch(e){throw new Error("Cannot reach the UI server. Is `make ui` still running?")}
+  const text=await r.text();
+  let j;
+  try{j=JSON.parse(text)}catch(e){
+    throw new Error(`Unexpected response from ${path} (HTTP ${r.status}). Open the UI via the address printed by "make ui" (http://127.0.0.1:8765), not as a file or through a proxy.\n`+text.slice(0,160));
+  }
   if(!r.ok) throw new Error(j.error||r.statusText); return j;
 }
-function toast(msg,err){const t=$("#toast");t.textContent=msg;t.className="toast on"+(err?" err":"");clearTimeout(t._h);t._h=setTimeout(()=>t.className="toast",3200)}
+function toast(msg,err){const t=$("#toast");t.textContent=msg;t.className="toast on"+(err?" err":"");clearTimeout(t._h);t._h=setTimeout(()=>t.className="toast",err?7000:3000)}
 async function act(a,body,ok){try{await api(`/api/project/${sel}/${a}`,body||{});if(ok)toast(ok);await refresh(true)}catch(e){toast(e.message,true)}}
 
-function statusOf(p){return p.running?(p.stopping?["stop","stoppt nach Aufgabe"]:["run","läuft"]):["","gestoppt"]}
+function statusOf(p){return p.running?(p.stopping?["stop","stopping after task"]:["run","running"]):["","stopped"]}
 function renderList(){
-  const jobs=list.init_jobs.map(j=>`<div class="job">${j.running?"⏳ Wird angelegt":"⚠️ Fehlgeschlagen"}: <b>${esc(j.name)}</b><br><code>${esc((j.log||"").split("\n").slice(-2).join(" "))}</code></div>`).join("");
+  const jobs=list.init_jobs.map(j=>`<div class="job">${j.running?"Creating":"Failed"}: <b>${esc(j.name)}</b><br><code>${esc((j.log||"").split("\n").slice(-3).join(" "))}</code></div>`).join("");
   $("#plist").innerHTML=jobs+(list.projects.map(p=>{const[c,t]=statusOf(p);
-    return `<div class="card ${p.name===sel?"sel":""}" onclick="select('${esc(p.name)}')"><div class="n"><span class="dot ${c}"></span>${esc(p.name)}</div><div class="s">${t} · ${p.merged} Features · ${p.backlog.pending||0} offen</div></div>`}).join("")||(jobs?"":'<div class="hint" style="padding:10px">Noch keine Projekte.</div>'));
+    return `<div class="card ${p.name===sel?"sel":""}" onclick="select('${esc(p.name)}')"><div class="n"><span class="dot ${c}"></span>${esc(p.name)}</div><div class="s">${t} · ${p.merged} features · ${p.backlog.pending||0} open</div></div>`}).join("")||(jobs?"":'<div class="hint" style="padding:10px">No projects yet.</div>'));
 }
-function select(n){sel=n;localStorage.setItem("sel",n);tab="uebersicht";dirty=false;detail=null;$("#main").dataset.tab="";renderList();refresh(true)}
+function select(n){sel=n;localStorage.setItem("sel",n);tab="overview";dirty=false;detail=null;$("#main").dataset.tab="";renderList();refresh(true)}
 
 function renderMain(){
   const m=$("#main");
-  if(!sel){m.innerHTML=`<div class="empty"><h2>Willkommen 👋</h2><p>Wähle links ein Projekt oder lege mit <b>+ Neue Idee</b> ein neues an.</p></div>`;return}
+  if(!sel){m.innerHTML=`<div class="empty"><h2>No project selected</h2><p>Pick a project on the left or create one with <b>+ New idea</b>.</p></div>`;return}
   if(!detail)return;
   const d=detail,[c,t]=statusOf(d);
   const el=document.activeElement, typing=el&&["INPUT","TEXTAREA","SELECT"].includes(el.tagName)&&m.contains(el);
-  // Eingaben nicht durch das automatische Aktualisieren überschreiben
-  if(tab==="ideen"&&m.dataset.name===sel&&m.dataset.tab===tab&&(typing||dirty))return;
+  if(EDITABLE.includes(tab)&&m.dataset.name===sel&&m.dataset.tab===tab&&(typing||dirty))return;
   m.dataset.name=sel;m.dataset.tab=tab;
-  const pillF=d.failures?`<span class="pill bad">${d.failures} Fehler in Folge</span>`:"";
+  const pillF=d.failures?`<span class="pill bad">${d.failures} consecutive failures</span>`:"";
   const head=`<div class="top"><div><h1>${esc(d.name)} <span class="pill ${c==="run"?"ok":c==="stop"?"warn":""}">${t}</span> ${pillF}</h1><div class="idea">${esc(d.idea)}</div></div>
   <div class="btns">
-    ${d.running?`<button class="danger" onclick="act('stop',{},'Stopp nach der aktuellen Aufgabe')" ${d.stopping?"disabled":""}>■ Stoppen</button>`:`<button class="primary" onclick="act('start',{},'Agent gestartet')">▶ Starten</button>`}
-    <button onclick="doTry()" ${d.try_running?"disabled":""}>🧪 ${d.try_running?"Baue Testversion …":"Jetzt testen"}</button>
+    ${d.running?`<button class="danger" onclick="act('stop',{},'Will stop after the current task')" ${d.stopping?"disabled":""}>Stop</button>`:`<button class="primary" onclick="act('start',{},'Agent started')">Start</button>`}
+    <button onclick="doTry()" ${d.try_running?"disabled":""}>${d.try_running?"Building test version…":"Test now"}</button>
   </div></div>
   <div class="stats">
-    <div class="stat"><b>${d.merged}</b><span>Features gemerged</span></div>
-    <div class="stat"><b>${d.backlog.pending||0}</b><span>offene Aufgaben</span></div>
-    <div class="stat"><b>${d.backlog.done||0}</b><span>erledigt</span></div>
-    <div class="stat"><b>${d.backlog.blocked||0}</b><span>blockiert</span></div>
-    <div class="stat"><b>${d.iteration}</b><span>Iterationen</span></div>
-    <div class="stat"><b>${d.hours} h</b><span>Laufzeit</span></div>
+    <div class="stat"><b>${d.merged}</b><span>features merged</span></div>
+    <div class="stat"><b>${d.backlog.pending||0}</b><span>open tasks</span></div>
+    <div class="stat"><b>${d.backlog.done||0}</b><span>done</span></div>
+    <div class="stat"><b>${d.backlog.blocked||0}</b><span>blocked</span></div>
+    <div class="stat"><b>${d.iteration}</b><span>iterations</span></div>
+    <div class="stat"><b>${d.hours} h</b><span>runtime</span></div>
   </div>
-  <div class="tabs">${[["uebersicht","Übersicht"],["ideen","Ideen & Feedback"],["testen","Testversion"],["log","Live-Log"],["ziel","Ziel"]].map(([k,l])=>`<div class="tab ${tab===k?"on":""}" onclick="setTab('${k}')">${l}</div>`).join("")}</div>`;
+  <div class="tabs">${[["overview","Overview"],["ideas","Ideas & feedback"],["sources","Web sources"],["testing","Test version"],["log","Live log"],["goal","Goal"]].map(([k,l])=>`<div class="tab ${tab===k?"on":""}" onclick="setTab('${k}')">${l}</div>`).join("")}</div>`;
   let body="";
-  if(tab==="uebersicht"){
-    const rows=d.backlog_items.map(i=>`<tr><td>${esc(i.id)}</td><td>${esc(i.title)}${i.source==="ideas"?' <span class="pill ok">von dir</span>':""}</td><td>${esc(i.type)}</td><td>${Math.round(i.priority*10)/10}</td><td><span class="pill ${i.status==="done"?"ok":i.status==="blocked"?"bad":""}">${esc(i.status)}</span></td></tr>`).join("");
-    body=`<div class="grid2"><div class="panel"><h3 style="margin-top:0">Backlog</h3><table><tr><th>ID</th><th>Aufgabe</th><th>Typ</th><th>Prio</th><th>Status</th></tr>${rows||'<tr><td colspan=5 class="hint">leer</td></tr>'}</table></div>
-    <div class="panel"><h3 style="margin-top:0">Fertige Features</h3>${d.features.length?d.features.map(f=>`<div style="padding:5px 0;border-top:1px solid var(--line)">✅ ${esc(f.title)}</div>`).join(""):'<div class="hint">Noch keine.</div>'}</div></div>`;
-  }else if(tab==="ideen"){
-    body=`<div class="panel"><h3 style="margin-top:0">Schnelles Feedback</h3><p class="hint">Fehler oder Wunsch in einem Satz. Der Agent plant beim nächsten Durchlauf neu.</p>
-    <div class="row"><input id="say" placeholder="z. B. Der Speichern-Button reagiert nicht" onkeydown="if(event.key==='Enter')say()"><button class="primary" onclick="say()">Senden</button></div></div>
-    <div class="panel" style="margin-top:16px"><h3 style="margin-top:0">IDEAS.md – deine Vorgaben</h3><p class="hint">Wünsche, Umsetzungshinweise, Umbauten, „Nicht tun“. Wird laufend gelesen, auch während der Agent arbeitet.</p>
+  if(tab==="overview"){
+    const rows=d.backlog_items.map(i=>`<tr><td>${esc(i.id)}</td><td>${esc(i.title)}${i.source==="ideas"?' <span class="pill ok">from you</span>':""}</td><td>${esc(i.type)}</td><td>${Math.round(i.priority*10)/10}</td><td><span class="pill ${i.status==="done"?"ok":i.status==="blocked"?"bad":""}">${esc(i.status)}</span></td></tr>`).join("");
+    body=`<div class="grid2"><div class="panel"><h3>Backlog</h3><table><tr><th>ID</th><th>Task</th><th>Type</th><th>Prio</th><th>Status</th></tr>${rows||'<tr><td colspan=5 class="hint">empty</td></tr>'}</table></div>
+    <div class="panel"><h3>Finished features</h3>${d.features.length?d.features.map(f=>`<div style="padding:5px 0;border-top:1px solid var(--line)">${esc(f.title)}</div>`).join(""):'<div class="hint">None yet.</div>'}</div></div>`;
+  }else if(tab==="ideas"){
+    body=`<div class="panel"><h3>Quick feedback</h3><p class="hint">A bug or wish in one sentence. The agent re-plans on its next pass.</p>
+    <div class="row"><input id="say" placeholder="e.g. The save button does nothing" onkeydown="if(event.key==='Enter')say()"><button class="primary" onclick="say()">Send</button></div></div>
+    <div class="panel" style="margin-top:16px"><h3>IDEAS.md: your directives</h3><p class="hint">Wishes, implementation hints, rework requests, "do not do". Read continuously, even while the agent works.</p>
     <textarea id="ideas" rows="18" oninput="dirty=true">${esc(d.ideas)}</textarea>
-    <div class="row" style="justify-content:flex-end;margin-top:12px"><button class="primary" onclick="saveIdeas()">Speichern</button></div></div>`;
-  }else if(tab==="testen"){
-    body=`<div class="panel"><p class="hint">„Jetzt testen“ lässt den Agenten die aktuelle Aufgabe beenden, baut den letzten funktionierenden Stand und zeigt hier, wie du ihn startest. Danach mit „Starten“ weiterarbeiten lassen.</p>
-    ${d.testen?`<pre>${esc(d.testen)}</pre>`:'<div class="hint">Noch keine Testversion gebaut.</div>'}${d.try_running||d.try_out?`<h4>Ausgabe</h4><pre>${esc(d.try_out)}</pre>`:""}</div>`;
+    <div class="row" style="justify-content:flex-end;margin-top:10px"><button class="primary" onclick="saveFile('ideas','IDEAS.md')">Save</button></div></div>`;
+  }else if(tab==="sources"){
+    body=`<div class="panel"><h3>SOURCES.md: websites the agent should read</h3>
+    <p class="hint">One URL per line, optionally with a note on what to use it for. Web access mode: <b>${esc(d.web_mode)}</b> (<code>off</code>, <code>sources</code> = only these pages, <code>open</code> = the agent may also search). Change it in <code>agent/config.json</code> under "web".</p>
+    <textarea id="sources" rows="14" oninput="dirty=true" placeholder="https://example.com/docs   use this for the payment flow">${esc(d.sources)}</textarea>
+    <div class="row" style="justify-content:flex-end;margin-top:10px"><button class="primary" onclick="saveFile('sources','SOURCES.md')">Save</button></div></div>`;
+  }else if(tab==="testing"){
+    body=`<div class="panel"><p class="hint">"Test now" lets the agent finish its current task, builds the last working state and shows here how to run it. Press Start afterwards to continue.</p>
+    ${d.testing?`<pre>${esc(d.testing)}</pre>`:'<div class="hint">No test version built yet.</div>'}${d.try_running||d.try_out?`<h4>Output</h4><pre>${esc(d.try_out)}</pre>`:""}</div>`;
   }else if(tab==="log"){
-    body=`<pre id="logbox">${esc(d.log||"Noch kein Log.")}${d.run_out&&/Traceback|Error/.test(d.run_out)?"\n\n--- run.out ---\n"+esc(d.run_out):""}</pre>`;
+    body=`<pre id="logbox">${esc(d.log||"No log yet.")}${d.run_out&&/Traceback|Error/.test(d.run_out)?"\n\n--- run.out ---\n"+esc(d.run_out):""}</pre>`;
   }else{
     body=`<pre>${esc(d.goal||"")}</pre>`;
   }
@@ -166,25 +177,35 @@ function renderMain(){
   const lb=$("#logbox"); if(lb) lb.scrollTop=lb.scrollHeight;
 }
 function setTab(k){tab=k;dirty=false;$("#main").dataset.tab="";renderMain()}
-async function doTry(){await act("try",{},"Testversion wird gebaut, sobald die Aufgabe fertig ist");setTab("testen")}
-async function say(){const v=$("#say").value.trim();if(!v)return;try{await api(`/api/project/${sel}/say`,{msg:v});toast("Feedback eingetragen");$("#say").value="";dirty=false;await refresh(true)}catch(e){toast(e.message,true)}}
-async function saveIdeas(){try{await api(`/api/project/${sel}/ideas`,{text:$("#ideas").value});dirty=false;toast("IDEAS.md gespeichert");await refresh(true)}catch(e){toast(e.message,true)}}
+async function doTry(){await act("try",{},"Building a test version once the current task is done");setTab("testing")}
+async function say(){const v=$("#say").value.trim();if(!v)return;try{await api(`/api/project/${sel}/say`,{msg:v});toast("Feedback added");$("#say").value="";dirty=false;await refresh(true)}catch(e){toast(e.message,true)}}
+async function saveFile(kind,label){try{await api(`/api/project/${sel}/${kind}`,{text:$("#"+kind).value});dirty=false;toast(label+" saved");await refresh(true)}catch(e){toast(e.message,true)}}
 
-function openNew(){$("#nIdea").value="";$("#nName").value="";dNew.showModal()}
+function showHelp(){
+  const l=langs.find(x=>x.key===$("#nPreset").value);
+  $("#nHelp").innerHTML=l&&!l.available?`<div class="warnbox">${esc(l.label)} is not installed on this machine.\n${esc(l.help)}</div>`:"";
+}
+async function openNew(){
+  $("#nIdea").value="";$("#nName").value="";
+  try{langs=(await api("/api/languages")).stacks}catch(e){langs=[];toast(e.message,true)}
+  $("#nPreset").innerHTML='<option value="auto">Auto (agent picks the best fit)</option>'+langs.map(l=>`<option value="${esc(l.key)}">${esc(l.label)}${l.available?"":" (not installed)"}</option>`).join("");
+  showHelp();dNew.showModal();
+}
 async function createProject(){
-  try{const r=await api("/api/projects",{idea:$("#nIdea").value,name:$("#nName").value,preset:$("#nPreset").value});dNew.close();toast("Projekt „"+r.name+"“ wird angelegt …");await refresh()}catch(e){toast(e.message,true)}
+  try{const r=await api("/api/projects",{idea:$("#nIdea").value,name:$("#nName").value,preset:$("#nPreset").value});dNew.close();toast("Creating project \""+r.name+"\"…");await refresh()}catch(e){toast(e.message,true)}
 }
 async function openMaster(){try{$("#mText").value=(await api("/api/master")).text;dMaster.showModal()}catch(e){toast(e.message,true)}}
-async function saveMaster(){try{await api("/api/master",{text:$("#mText").value});toast("Master-Prompt gespeichert (gilt ab dem nächsten Start)");dMaster.close()}catch(e){toast(e.message,true)}}
+async function saveMaster(){try{await api("/api/master",{text:$("#mText").value});toast("Master prompt saved (applies from the next start)");dMaster.close()}catch(e){toast(e.message,true)}}
 
+let shownErr=false;
 async function refresh(force){
   try{
-    list=await api("/api/projects");
+    list=await api("/api/projects");shownErr=false;
     if(!sel||!list.projects.some(p=>p.name===sel))sel=list.projects[0]?.name||null;
     renderList();
     if(sel){detail=await api("/api/project/"+encodeURIComponent(sel));if(force)$("#main").dataset.tab=""}
     renderMain();
-  }catch(e){}
+  }catch(e){if(!shownErr){shownErr=true;toast(e.message,true)}}
 }
 refresh(true); setInterval(refresh,3000);
 </script>

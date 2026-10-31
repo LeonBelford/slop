@@ -1,114 +1,139 @@
-# slop — autonomer lokaler SaaS-Agent
+# slop — autonomous local SaaS agent
 
-Du gibst **eine Idee** vor. Der Agent entwirft das Produkt, baut es in kleinen Schritten, erfindet danach selbst neue Features,
-testet, debuggt, räumt auf und dokumentiert, bis du ihn stoppst oder ein Limit greift. Alles läuft lokal mit Ollama + Aider.
+You provide **one idea**. The agent designs the product, builds it in small steps, then invents new features on its own,
+tests, debugs, cleans up and documents until you stop it or a limit is reached. Everything runs locally with Ollama + Aider.
 
-> Die Schleifenmechanik ist mit einem Stub-Modell getestet (`make selftest`, auch in CI). Mit echtem Modell wurde sie noch nicht
-> gelaufen. Starte mit einer kleinen Idee und beobachte `agent.log`.
+> The loop mechanics are tested with a stub model (`make selftest`, also in CI). They have not yet been run with a real model.
+> Start with a small idea and watch `agent.log`.
 
-## Voraussetzungen
-Linux/macOS/WSL, Python ≥ 3.10, git, [Ollama](https://ollama.com/download). Empfohlen: 12 GB VRAM (RTX 3060) und 16 GB RAM.
+## Requirements
+Linux/macOS/WSL, Python ≥ 3.10, git, [Ollama](https://ollama.com/download). Recommended: 12 GB VRAM (RTX 3060) and 16 GB RAM.
 
-## Benutzung (Kurzfassung)
-Die ausführliche Schritt-für-Schritt-Anleitung steht in **[docs/ANLEITUNG.md](docs/ANLEITUNG.md)**.
+## Usage (short version)
+The detailed step-by-step guide is in **[docs/GUIDE.md](docs/GUIDE.md)**.
 
-**1. Einmalig installieren**
+**1. One-time installation**
 ```bash
 git clone -b main https://github.com/LeonBelford/slop && cd slop
-bash scripts/quick-setup-popos.sh            # Pop!_OS/Ubuntu: alles installieren (--no-model, --nvidia)
-make selftest                                # Mechanik ohne Modell prüfen
+bash scripts/quick-setup-popos.sh            # Pop!_OS/Ubuntu: install everything (--no-model, --nvidia)
+make selftest                                # verify the mechanics without a model
 ```
 
-**Web-Oberfläche (optional, die CLI bleibt)**
+**Web interface (optional, the CLI remains)**
 ```bash
-make ui                                      # öffnet http://127.0.0.1:8765
+make ui                                      # opens http://127.0.0.1:8765
 ```
-Projekte anlegen, starten/stoppen, „Jetzt testen“, Feedback geben, `IDEAS.md` und Master-Prompt bearbeiten, Backlog und Live-Log ansehen.
-Läuft nur lokal (127.0.0.1); Agenten laufen auch weiter, wenn du das UI schließt.
+Create projects, start/stop them, "Test now", give feedback, edit `IDEAS.md`, `SOURCES.md` and the master prompt, view the backlog and live log.
+Runs locally only (127.0.0.1); agents keep running when you close the UI.
 
-**Master-Prompt:** `MASTER.md` im Hauptordner gilt für alle Projekte und wird beim Start jeder Session (`run`) übernommen.
+**Master prompt:** `MASTER.md` in the main folder applies to all projects and is picked up at the start of each session (`run`).
 
-**2. Pro Idee starten**
+**2. Start per idea**
 ```bash
-make init IDEA="Rechnungs-Tool für Freelancer" NAME=rechnungen   # legt projects/rechnungen/ an (dauert einige Minuten)
-make tmux P=rechnungen                                           # läuft im Hintergrund
+make init IDEA="Invoicing tool for freelancers" NAME=invoices   # creates projects/invoices/ (takes a few minutes)
+make tmux P=invoices                                            # runs in the background
 ```
-Eigene Wünsche, Umsetzungshinweise und Umbauten schreibst du jederzeit (auch während des Laufs) in `projects/rechnungen/IDEAS.md`. Der Agent liest die Datei jede Iteration, plant bei Änderungen neu und gleicht sie alle 5 Merges mit dem Produkt ab.
+Write your own wishes, implementation hints and restructuring requests to `projects/invoices/IDEAS.md` at any time (also while it runs). The agent reads the file every iteration, replans when it changes and reconciles it with the product every 5 merges.
 
-**Selbst testen, ohne den Agenten abzuwürgen**
+**Test it yourself without stalling the agent**
 ```bash
-make try P=rechnungen                      # wartet bis die aktuelle Aufgabe fertig ist, baut den Stand, schreibt projects/rechnungen/TESTEN.md
-make say P=rechnungen MSG="Der Button geht nicht"   # Feedback landet in IDEAS.md, der Agent plant neu
-make tmux P=rechnungen                     # danach weiterarbeiten lassen
+make try P=invoices                        # waits until the current task is done, builds the current state, writes projects/invoices/TESTING.md
+make say P=invoices MSG="The button does not work"   # feedback goes into IDEAS.md, the agent replans
+make tmux P=invoices                       # then let it continue
 ```
-`make try` erkennt .NET (`dotnet publish` → `dist/`), Rust, Go, Node und FastAPI und nennt dir den Startbefehl.
+`make try` detects .NET (`dotnet publish` → `dist/`), Rust, Go, Node and FastAPI and tells you the start command.
 
-**3. Bei Bedarf, einzeln**
+**3. Individually, as needed**
 ```bash
-tmux attach -t agent-rechnungen              # zuschauen; Strg+B, dann D löst dich wieder
-make status P=rechnungen                     # Fortschritt
-make stop P=rechnungen                       # sauberer Stopp nach der aktuellen Aufgabe
-make list                                    # alle Projekte
+tmux attach -t agent-invoices                # watch; Ctrl+B, then D to detach
+make status P=invoices                       # progress
+make stop P=invoices                         # clean stop after the current task
+make list                                    # all projects
 ```
-`P` darf entfallen, wenn es nur ein Projekt gibt. Eigene Einstellungen: `config.example.json` kopieren, anpassen und mit
-`CONFIG=meine.json make init ...` übergeben.
+`P` can be omitted if there is only one project. For custom settings, copy `config.example.json`, adjust it and pass it with
+`CONFIG=mine.json make init ...`.
 
-## Struktur
+## Languages and frameworks
+The agent picks the best fit for your idea (`PRESET=auto`, default) or you choose one (`make init IDEA=... PRESET=go`).
+
+| Key | Stack | Needs |
+|---|---|---|
+| `fastapi` | Python / FastAPI | python3 |
+| `javascript` | Node.js + Express | node, npm |
+| `typescript` | TypeScript + Express | node, npm |
+| `go` | Go (net/http) | go |
+| `rust` | Rust + axum | cargo |
+| `csharp` | C# / ASP.NET Core | dotnet |
+| `java` | Java + Spring Boot (Maven) | java, mvn (scaffold not verified) |
+| `php` | PHP (Composer) | php, composer |
+| `ruby` | Ruby + Sinatra | ruby, bundle |
+
+If a toolchain is missing, the agent stops before doing anything and prints what to install and how. The UI shows the same hint in the new-project dialog.
+
+## Internet access
+Configured in `projects/<name>/agent/config.json` under `"web"`:
+- `"mode": "sources"` (default): the agent only reads the URLs you list in `projects/<name>/SOURCES.md` (one per line, optional note), refreshes them every `refresh_hours` and uses the summaries when planning and coding.
+- `"mode": "open"`: additionally searches the web itself (DuckDuckGo by default, or your SearXNG via `search_url` with `format=json`).
+- `"mode": "off"`: no network access.
+
+Fetching only allows http/https, refuses local and private addresses (also via redirects) and supports `blocked_domains`. Page content is treated as untrusted reference data, never as instructions.
+
+## Structure
 ```
 slop/
-├─ saas_agent.py        die komplette Schleife (nur Standardbibliothek)
-├─ webui.py, web/       lokale Web-Oberfläche (make ui)
-├─ MASTER.md            globale Vorgaben für alle Projekte (pro Session übernommen)
-├─ Makefile, scripts/   quick-setup-popos.sh · setup.sh (nur venv+Modell) · run.sh · Modelfile
+├─ saas_agent.py        the complete loop (standard library only)
+├─ webui.py, web/       local web interface (make ui)
+├─ MASTER.md            global directives for all projects (picked up per session)
+├─ Makefile, scripts/   quick-setup-popos.sh · setup.sh (venv + model only) · run.sh · Modelfile
 ├─ .env.example, config.example.json
-├─ docs/                ANLEITUNG.md (Benutzung) · ARCHITECTURE.md (Technik)
-├─ tests/, .github/     Selftest und CI
-└─ projects/            pro Idee ein Ordner (nicht im Git)
+├─ docs/                GUIDE.md (usage) · ARCHITECTURE.md (technical details)
+├─ tests/, .github/     selftest and CI
+└─ projects/            one folder per idea (not in Git)
    └─ <name>/
-      ├─ TESTEN.md      Startanleitung der letzten Testversion (von `make try`)
-      ├─ IDEAS.md       deine Wünsche und Vorgaben (optional, vom Agenten laufend gelesen)
-      ├─ repo/          das Produkt als eigenes Git-Repo inkl. docs/, CHANGELOG, README
-      └─ agent/         Zustand und Gedächtnis dieses Projekts (außerhalb von repo/)
+      ├─ TESTING.md     start instructions for the latest test build (from `make try`)
+      ├─ IDEAS.md       your wishes and directives (optional, read continuously by the agent)
+      ├─ repo/          the product as its own Git repo incl. docs/, CHANGELOG, README
+      └─ agent/         state and memory of this project (outside repo/)
          ├─ GOAL.md, backlog.json, state.json, config.json, agent.log, metrics.jsonl
          ├─ memory/     codemap · features · decisions · lessons · ARCHITECTURE
-         └─ runs/       Prompts, Pläne, Aider-Logs pro Aufgabe
+         └─ runs/       prompts, plans, Aider logs per task
 ```
-Jedes Projekt hat damit seine eigene Codebase und sein eigenes Gedächtnis; nichts wird zwischen Projekten geteilt.
+Each project thus has its own codebase and its own memory; nothing is shared between projects.
 
-## Ablauf pro Aufgabe
-1. `main` grün? Sonst zuerst reparieren.
-2. Backlog leer → Produkt-Review und Ideation (rotierende Linsen, SaaS-Checkliste, Kritiker, Dubletten-Filter).
-3. **Impact-Analyse** mit Gedächtnis (Codemap, Abhängigkeiten in beide Richtungen, ADRs, Lessons) → Plan → Plan-Kritik.
-4. Umsetzung mit Aider auf eigenem Branch → **Build + Tests**, bis zu 3 Debug-Runden; Features ohne Tests werden abgelehnt.
-5. Review (Score < 7 → Überarbeitung), Cleanup-Pass (bei rotem Build verworfen).
-6. Gedächtnis und Doku aktualisieren, Commit, **Build**, Merge, **Build auf main** (bei Rot Rollback).
-7. Fehlversuche werden zu Lessons; nach 3 Versuchen gilt die Aufgabe als blockiert.
+## Flow per task
+1. Is `main` green? If not, repair it first.
+2. Backlog empty → product review and ideation (rotating lenses, SaaS checklist, critic, duplicate filter).
+3. **Impact analysis** with memory (codemap, dependencies in both directions, ADRs, lessons) → plan → plan critique.
+4. Implementation with Aider on its own branch → **build + tests**, up to 3 debug rounds; features without tests are rejected.
+5. Review (score < 7 → rework), cleanup pass (discarded if the build turns red).
+6. Update memory and docs, commit, **build**, merge, **build on main** (roll back if red).
+7. Failed attempts become lessons; after 3 attempts the task is marked blocked.
 
-Ende durch: `stop`, `max_hours`, `max_iterations`, 5 Fehlschläge in Folge oder dauerhaft keine neuen Ideen.
+Ends on: `stop`, `max_hours`, `max_iterations`, 5 consecutive failures, or no new ideas for a sustained period.
 
-## Modelle (RTX 3060, 12 GB)
-Richtwerte, nicht auf deiner Hardware gemessen; Tags und Lizenzen auf [ollama.com/library](https://ollama.com/library) prüfen.
+## Models (RTX 3060, 12 GB)
+Rough guidelines, not measured on your hardware; check tags and licenses at [ollama.com/library](https://ollama.com/library).
 
-| Modell | ca. Größe Q4 | Einsatz |
+| Model | approx. size Q4 | Use |
 |---|---|---|
-| `qwen2.5-coder:14b` | 9 GB | Standard für alle Rollen |
-| `qwen2.5-coder:7b` | 5 GB | schneller, z. B. als `summarizer` |
-| `qwen3:8b` / `qwen3:14b` | 5 / 9 GB | Planung und Review |
-| `deepseek-coder-v2:16b` | 9 GB (MoE) | schnell durch wenige aktive Parameter |
-| `gemma3:12b` | 8 GB | Ideen und Doku |
-| `gpt-oss:20b`, 24B+ | 13 GB+ | nur mit CPU-Offload, bei 16 GB RAM nicht empfohlen |
+| `qwen2.5-coder:14b` | 9 GB | default for all roles |
+| `qwen2.5-coder:7b` | 5 GB | faster, e.g. as `summarizer` |
+| `qwen3:8b` / `qwen3:14b` | 5 / 9 GB | planning and review |
+| `deepseek-coder-v2:16b` | 9 GB (MoE) | fast due to few active parameters |
+| `gemma3:12b` | 8 GB | ideas and docs |
+| `gpt-oss:20b`, 24B+ | 13 GB+ | only with CPU offload, not recommended with 16 GB RAM |
 
-`num_ctx` setzen (macht das Modelfile), sonst wird der Kontext abgeschnitten. Größter Qualitätshebel: `models.planner`/`reviewer`
-auf ein stärkeres Modell über `LLM_API` legen; der Code kommt weiter vom lokalen Coder.
+Set `num_ctx` (the Modelfile does this), otherwise the context is truncated. The biggest quality lever: point `models.planner`/`reviewer`
+at a stronger model via `LLM_API`; the code still comes from the local coder.
 
-## Rust-Engines?
-Es gibt kein "Rust-Modell", Rust steckt in Inferenz-Engines. Open Source (per GitHub geprüft): mistral.rs (MIT), candle und burn
-(Apache-2.0). Für diesen Agenten lohnt der Wechsel von Ollama kaum, da Tempo vom Modell und der GPU kommt. Möglich ist er über
-jeden OpenAI-kompatiblen Server (`LLM_API`, für Aider `CODER_MODEL=openai/<name>` + `OPENAI_API_BASE`), ungetestet.
+## Rust engines?
+There is no "Rust model"; Rust lives in inference engines. Open source (checked on GitHub): mistral.rs (MIT), candle and burn
+(Apache-2.0). Switching away from Ollama is hardly worthwhile for this agent, since speed comes from the model and the GPU. It is possible via
+any OpenAI-compatible server (`LLM_API`, for Aider `CODER_MODEL=openai/<name>` + `OPENAI_API_BASE`), untested.
 
-## Probleme
-Siehe [docs/ANLEITUNG.md](docs/ANLEITUNG.md#10-probleme).
+## Troubleshooting
+See [docs/GUIDE.md](docs/GUIDE.md#10-troubleshooting).
 
-## Sicherheit
-Der Agent arbeitet nur in `projects/<name>/repo/`, führt dort aber Build- und Testbefehle ohne Sandbox aus. Nutze bei Bedarf
-Container oder VM. Er veröffentlicht nichts und gibt kein Geld aus; prüfe den Code vor einem Deployment.
+## Security
+The agent works only in `projects/<name>/repo/`, but runs build and test commands there without a sandbox. Use a container or VM
+if needed. It publishes nothing and spends no money; review the code before deploying.

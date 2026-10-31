@@ -8,7 +8,7 @@ setup:
 selftest:
 	python3 saas_agent.py selftest
 
-# make init IDEA="Rechnungs-Tool für Freelancer" [NAME=rechnungen]
+# make init IDEA="Invoicing tool for freelancers" [NAME=invoices]
 init:
 	bash scripts/run.sh init "$(IDEA)" $(NAME)
 
@@ -19,16 +19,16 @@ list:
 	bash scripts/run.sh list
 
 tmux:
-	tmux new -d -s agent-$(P) "bash scripts/run.sh run $(P)" && echo "läuft: tmux attach -t agent-$(P)"
+	tmux new -d -s agent-$(P) "bash scripts/run.sh run $(P)" && echo "running: tmux attach -t agent-$(P)"
 
-# Agent pausieren, Testversion bauen: make try P=rechnungen
+# Pause the agent and build a test version: make try P=invoices
 try:
 	bash scripts/run.sh try $(P)
 
-# Feedback eintragen: make say P=rechnungen MSG="Der Button geht nicht"
+# Add feedback: make say P=invoices MSG="The button does not work"
 say:
 	bash scripts/run.sh say $(P) "$(MSG)"
 
-# Web-Oberfläche auf http://127.0.0.1:8765
+# Web UI at http://127.0.0.1:8765
 ui:
 	bash scripts/run.sh ui

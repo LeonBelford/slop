@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
-# Startet den Agenten mit .env und venv. Nutzung:
-#   scripts/run.sh init "<Idee>" [Projektname]
-#   scripts/run.sh run|status|stop|try [Projektname]
-#   scripts/run.sh say <Projektname> "<Feedback>"
+# Starts the agent with .env and venv. Usage:
+#   scripts/run.sh init "<idea>" [project name]
+#   scripts/run.sh run|status|stop|try [project name]
+#   scripts/run.sh say <project name> "<feedback>"
 #   scripts/run.sh list
 #   scripts/run.sh ui [--port 8765]
 set -euo pipefail
@@ -13,15 +13,15 @@ cd "$(dirname "$0")/.."
 cmd="${1:?init|run|status|stop|list}"; shift
 case "$cmd" in
   init)
-    idea="${1:?Idee als Parameter}"; name="${2:-}"
+    idea="${1:?idea as parameter}"; name="${2:-}"
     python3 saas_agent.py init --idea "$idea" ${name:+--name "$name"} ${CONFIG:+--config "$CONFIG"} ${PRESET:+--preset "$PRESET"} ;;
   try)
     python3 saas_agent.py try ${1:+--project "$1"} ;;
   say)
-    python3 saas_agent.py say ${1:+--project "$1"} --msg "${2:?Nachricht}" ;;
+    python3 saas_agent.py say ${1:+--project "$1"} --msg "${2:?message}" ;;
   run|status|stop)
     python3 saas_agent.py "$cmd" ${1:+--project "$1"} ;;
   list) python3 saas_agent.py list ;;
   ui) python3 webui.py "$@" ;;
-  *) echo "unbekannt: $cmd"; exit 1 ;;
+  *) echo "unknown: $cmd"; exit 1 ;;
 esac

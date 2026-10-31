@@ -1,6 +1,6 @@
 {
   "preset": "fastapi",
-  "doc_language": "German",
+  "doc_language": "English",
   "models": {
     "planner": "qwen2.5-coder-agent",
     "reviewer": "qwen2.5-coder-agent",

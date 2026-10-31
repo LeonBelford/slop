@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
-"""Lokales Web-UI für den SaaS-Agenten (nur Standardbibliothek, nur 127.0.0.1).
+"""Local web UI for the SaaS agent (standard library only, 127.0.0.1 only).
 
-Start: `make ui` oder `python3 webui.py [--port 8765] [--projects-dir projects]`.
-Die CLI bleibt voll nutzbar; das UI ruft dieselben Befehle (scripts/run.sh) auf und liest/schreibt dieselben Dateien.
+Start: `make ui` or `python3 webui.py [--port 8765] [--projects-dir projects]`.
+The CLI stays fully usable; the UI calls the same commands (scripts/run.sh) and reads/writes the same files.
 """
 from __future__ import annotations
 
@@ -24,7 +24,7 @@ INDEX = ROOT / "web" / "index.html"
 MAX_BODY = 1_000_000
 NAME_RE = re.compile(r"^[a-z0-9][a-z0-9-]{0,60}$")
 
-PROCS: dict[str, subprocess.Popen] = {}  # gestartete Agenten, init- und try-Jobs: "<art>:<projekt>"
+PROCS: dict[str, subprocess.Popen] = {}  # started agents, init and try jobs: "<kind>:<project>"
 LOCK = threading.Lock()
 
 
@@ -73,7 +73,7 @@ class Service:
 
     def ws(self, name: str) -> Path:
         if not NAME_RE.match(name or "") or not (self.projects / name / "agent" / "GOAL.md").exists():
-            raise UiError("Projekt nicht gefunden", 404)
+            raise UiError("Project not found", 404)
         return self.projects / name
 
     def summary(self, ws: Path) -> dict:
@@ -83,7 +83,7 @@ class Service:
         for i in backlog:
             counts[i["status"]] = counts.get(i["status"], 0) + 1
         ideas = (ws / "IDEAS.md").read_text("utf-8") if (ws / "IDEAS.md").exists() else ""
-        m = re.search(r"^Startidee:\s*(.+)$", ideas, re.M)
+        m = re.search(r"^Start idea:\s*(.+)$", ideas, re.M)
         running = pid_alive(a / "agent.pid") or alive(f"run:{ws.name}")
         log = tail(a / "agent.log", 1).strip()
         return {"name": ws.name, "idea": m.group(1) if m else "", "running": running,
@@ -107,7 +107,7 @@ class Service:
         feats = sa.read_json(a / "memory" / "features.json", {})
         backlog = sorted(sa.read_json(a / "backlog.json", []), key=lambda i: -i["priority"])
         read = lambda p: p.read_text("utf-8") if p.exists() else ""
-        return {**self.summary(ws), "ideas": read(ws / "IDEAS.md"), "goal": read(a / "GOAL.md"), "testen": read(ws / "TESTEN.md"),
+        return {**self.summary(ws), "ideas": read(ws / "IDEAS.md"), "goal": read(a / "GOAL.md"), "testing": read(ws / "TESTING.md"), "sources": read(ws / "SOURCES.md"), "web_mode": sa.read_json(a / "config.json", {}).get("web", {}).get("mode", "sources"),
                 "log": tail(a / "agent.log"), "run_out": tail(a / "run.out", 15), "try_out": tail(a / "try.out", 15),
                 "features": [{"id": k, "title": v.get("title", k)} if isinstance(v, dict) else {"id": k, "title": str(v)}
                              for k, v in feats.items()],
@@ -119,38 +119,46 @@ class Service:
         a = ws / "agent"
         if action == "start":
             if self.summary(ws)["running"]:
-                raise UiError("Agent läuft bereits", 409)
+                raise UiError("Agent is already running", 409)
             spawn(f"run:{name}", ["run", name], a / "run.out")
         elif action == "stop":
             sa.write_text(a / "STOP", "ui\n")
         elif action == "try":
             if alive(f"try:{name}"):
-                raise UiError("Testversion wird bereits gebaut", 409)
+                raise UiError("A test version is already being built", 409)
             (a / "try.out").write_text("", "utf-8")
             spawn(f"try:{name}", ["try", name], a / "try.out")
         elif action == "say":
             msg = str(body.get("msg", "")).strip()
             if not msg:
-                raise UiError("Nachricht fehlt")
+                raise UiError("Message is empty")
             sa.Agent(ws).add_feedback(msg)
         elif action == "ideas":
             sa.write_text(ws / "IDEAS.md", str(body.get("text", "")))
+        elif action == "sources":
+            sa.write_text(ws / "SOURCES.md", str(body.get("text", "")))
         else:
-            raise UiError("Unbekannte Aktion", 404)
+            raise UiError("Unknown action", 404)
         return {"ok": True}
 
     def create(self, body: dict) -> dict:
         idea = str(body.get("idea", "")).strip()
         if len(idea) < 5:
-            raise UiError("Bitte die Idee in einem Satz beschreiben")
-        preset = str(body.get("preset") or "fastapi")
-        if preset not in sa.PRESETS:
-            raise UiError("Unbekanntes Preset")
+            raise UiError("Please describe the idea in a sentence")
+        preset = str(body.get("preset") or "auto")
+        if preset != "auto" and (preset not in sa.PRESETS or preset == "minimal"):
+            raise UiError("Unknown language/stack")
+        missing = sa.stacks.missing_tools(preset) if preset != "auto" else []
+        if missing:
+            raise UiError(sa.stacks.install_help(preset))
         name = sa.unique_slug(self.projects, str(body.get("name") or "").strip() or idea)
         if alive(f"init:{name}"):
-            raise UiError("Projekt wird bereits angelegt", 409)
+            raise UiError("Project is already being created", 409)
         spawn(f"init:{name}", ["init", idea, name], self.projects / ".ui" / f"init-{name}.log", {"PRESET": preset})
         return {"ok": True, "name": name}
+
+    def languages(self) -> dict:
+        return {"stacks": sa.stacks.availability()}
 
     def get_master(self) -> dict:
         return {"text": self.master.read_text("utf-8") if self.master.exists() else sa.MASTER_TEMPLATE}
@@ -161,7 +169,7 @@ class Service:
 
 
 def make_handler(svc: Service, port: int):
-    hosts = {f"127.0.0.1:{port}", f"localhost:{port}"}
+    hosts = {f"127.0.0.1:{port}", f"localhost:{port}", f"[::1]:{port}"}
 
     class H(BaseHTTPRequestHandler):
         server_version = "SaasAgentUI"
@@ -179,14 +187,14 @@ def make_handler(svc: Service, port: int):
             self.wfile.write(data)
 
         def guard(self, post: bool) -> bool:
-            # Schutz gegen DNS-Rebinding und fremde Webseiten, die an localhost senden
+            # Protects against DNS rebinding and foreign websites posting to localhost
             if self.headers.get("Host", "") not in hosts:
-                self.send(403, {"error": "Host nicht erlaubt"})
+                self.send(403, {"error": "Host not allowed"})
                 return False
             if post:
                 origin = self.headers.get("Origin")
                 if (origin and origin.split("://", 1)[-1] not in hosts) or self.headers.get("X-UI") != "1":
-                    self.send(403, {"error": "Anfrage abgelehnt"})
+                    self.send(403, {"error": "Request rejected"})
                     return False
             return True
 
@@ -199,14 +207,14 @@ def make_handler(svc: Service, port: int):
                 if method == "POST":
                     n = int(self.headers.get("Content-Length") or 0)
                     if n > MAX_BODY:
-                        raise UiError("Anfrage zu groß", 413)
+                        raise UiError("Request too large", 413)
                     body = json.loads(self.rfile.read(n) or b"{}")
                 with LOCK:
                     self.send(200, self.route(method, path, body))
             except UiError as e:
                 self.send(e.code, {"error": str(e)})
             except (ValueError, KeyError) as e:
-                self.send(400, {"error": f"Ungültige Anfrage: {e}"})
+                self.send(400, {"error": f"Invalid request: {e}"})
             except Exception as e:  # noqa: BLE001
                 self.send(500, {"error": f"{type(e).__name__}: {e}"})
 
@@ -218,6 +226,8 @@ def make_handler(svc: Service, port: int):
                     return svc.list()
                 if path == "/api/master":
                     return svc.get_master()
+                if path == "/api/languages":
+                    return svc.languages()
                 m = re.fullmatch(r"/api/project/([^/]+)", path)
                 if m:
                     return svc.detail(m.group(1))
@@ -229,7 +239,7 @@ def make_handler(svc: Service, port: int):
                 m = re.fullmatch(r"/api/project/([^/]+)/([a-z]+)", path)
                 if m:
                     return svc.act(m.group(1), m.group(2), body)
-            raise UiError("Nicht gefunden", 404)
+            raise UiError("Not found", 404)
 
         def do_GET(self):
             if self.path.split("?", 1)[0] == "/":
@@ -249,13 +259,13 @@ def serve(projects: Path, port: int, open_browser: bool = True) -> None:
     svc = Service(projects)
     srv = ThreadingHTTPServer(("127.0.0.1", port), make_handler(svc, port))
     url = f"http://127.0.0.1:{port}"
-    print(f"Web-UI läuft auf {url}  (Beenden mit Strg+C; laufende Agenten bleiben aktiv)")
+    print(f"Web UI running at {url}  (stop with Ctrl+C; running agents keep going)")
     if open_browser:
         threading.Timer(0.5, lambda: webbrowser.open(url)).start()
     try:
         srv.serve_forever()
     except KeyboardInterrupt:
-        print("\nUI beendet.")
+        print("\nUI stopped.")
 
 
 def main() -> None:

@@ -1,60 +1,60 @@
-# Technische Details
+# Technical details
 
-Ergänzung zur [README](../README.md). Hier steht nur, was dort nicht steht.
+Supplement to the [README](../README.md). It covers only what the README does not.
 
-## Komponenten in `saas_agent.py`
-| Klasse | Aufgabe |
+## Components in `saas_agent.py`
+| Class | Responsibility |
 |---|---|
-| `LLM` | OpenAI-kompatibler Client mit Retry und JSON-Reparatur (`LLM.mock` ersetzt ihn im Selftest) |
-| `Git` | Branch pro Versuch, Commit, Fast-Forward-Merge, harter Reset, Churn-Statistik |
-| `Backlog` | Aufgaben mit Priorität/Status; Dubletten-Filter per Textähnlichkeit |
-| `Memory` | Gedächtnis (unten) |
-| `Agent` | Hauptschleife, Impact-Analyse, Implementierung, Debug, Review, Cleanup, Merge, Hygiene |
+| `LLM` | OpenAI-compatible client with retry and JSON repair (`LLM.mock` replaces it in the selftest) |
+| `Git` | Branch per attempt, commit, fast-forward merge, hard reset, churn statistics |
+| `Backlog` | Tasks with priority/status; duplicate filter by text similarity |
+| `Memory` | Memory (below) |
+| `Agent` | Main loop, impact analysis, implementation, debug, review, cleanup, merge, hygiene |
 
-## Gedächtnis pro Projekt (`projects/<name>/agent/memory/`)
-Es entsteht automatisch beim `init` und gehört immer genau einem Projekt.
+## Memory per project (`projects/<name>/agent/memory/`)
+It is created automatically on `init` and always belongs to exactly one project.
 
-| Datei | Inhalt |
+| File | Content |
 |---|---|
-| `codemap.json` (+ `CODEMAP.md`) | je Datei: Hash, Zweck, API, Daten, Seiteneffekte, Invarianten, Stolperfallen, `imports`, `imported_by` |
-| `features.json` | Feature → Dateien, Tests, Akzeptanzkriterien |
-| `decisions.jsonl` | ADRs: Kontext, Entscheidung, Alternativen, Folgen |
-| `lessons.jsonl` | Fehlversuche und wie man sie vermeidet (ab 60 Einträgen verdichtet) |
-| `ARCHITECTURE.md` | verdichtete Gesamtsicht, alle `architecture_refresh_every` Merges neu erzeugt |
+| `codemap.json` (+ `CODEMAP.md`) | per file: hash, purpose, API, data, side effects, invariants, pitfalls, `imports`, `imported_by` |
+| `features.json` | feature → files, tests, acceptance criteria |
+| `decisions.jsonl` | ADRs: context, decision, alternatives, consequences |
+| `lessons.jsonl` | failed attempts and how to avoid them (condensed from 60 entries) |
+| `ARCHITECTURE.md` | condensed overall view, regenerated every `architecture_refresh_every` merges |
 
-- Der Abhängigkeitsgraph wird **statisch** gebaut (Python-AST, JS/TS-Imports, Jinja `extends/include`). Das Modell fasst nur jede Datei zusammen.
-- Neu zusammengefasst werden nur Dateien mit geändertem Hash.
-- Lesbare Kopien landen im Produkt-Repo unter `docs/` (ARCHITECTURE, CODEMAP, FEATURES, DECISIONS, `modules/*`).
+- The dependency graph is built **statically** (Python AST, JS/TS imports, Jinja `extends/include`). The model only summarizes each file.
+- Only files with a changed hash are re-summarized.
+- Readable copies are placed in the product repo under `docs/` (ARCHITECTURE, CODEMAP, FEATURES, DECISIONS, `modules/*`).
 
-## Impact-Analyse vor jeder Änderung
-1. LLM wählt aus dem Dateiindex relevante Dateien, ergänzt um Schlüsselwort-Treffer.
-2. Kontextpaket: Ziel, Architektur, passende ADRs/Lessons, verwandte Features, Codemap der Dateien **und aller Nachbarn** (Aufrufer und Abhängigkeiten).
-3. Plan als JSON: Verständnis, zu ändernde/neue Dateien, betroffene Aufrufer, Invarianten, Risiken, Schritte, Tests.
-4. Plan-Kritik prüft per Graph auf übersehene Aufrufer und ergänzt Dateien.
+## Impact analysis before every change
+1. The LLM selects relevant files from the file index, supplemented by keyword hits.
+2. Context package: goal, architecture, matching ADRs/lessons, related features, codemap of the files **and all neighbors** (callers and dependencies).
+3. Plan as JSON: understanding, files to change/create, affected callers, invariants, risks, steps, tests.
+4. Plan critique checks the graph for overlooked callers and adds files.
 
-## Nutzer-Vorgaben (`projects/<name>/IDEAS.md`)
-`Agent.sync_ideas()` läuft nach dem Health-Check jeder Iteration. Der Hash des kommentarbereinigten Texts (`read_ideas`) wird mit
-`state.ideas_hash` verglichen; zusätzlich erzwingt `limits.ideas_review_every` Merges einen Abgleich. Das Modell (Tag `replan`) bekommt
-Vorgaben, zuletzt verarbeitete Fassung (`agent/ideas_seen.md`), Ziel, Features, offene Aufgaben und Architektur und liefert neue Aufgaben,
-Prioritäten und Streichungen (Status `cancelled`). Neue Aufgaben erhalten Priorität 20+p (vor Ideation), Quelle `ideas`. Der Text wird in
-`GOAL.md`, `repo/docs/PRODUCT.md` und den Kontextpack jeder Änderung übernommen. Schlägt die Neuplanung fehl, wird sie erneut versucht.
+## User directives (`projects/<name>/IDEAS.md`)
+`Agent.sync_ideas()` runs after the health check of each iteration. The hash of the comment-stripped text (`read_ideas`) is compared with
+`state.ideas_hash`; in addition, `limits.ideas_review_every` merges force a reconciliation. The model (tag `replan`) receives the
+directives, the last processed version (`agent/ideas_seen.md`), goal, features, open tasks and architecture, and returns new tasks,
+priorities and cancellations (status `cancelled`). New tasks get priority 20+p (ahead of ideation), source `ideas`. The text is carried into
+`GOAL.md`, `repo/docs/PRODUCT.md` and the context pack of every change. If replanning fails, it is retried.
 
-## Master-Prompt und Web-UI
-MASTER.md (Repo-Root) wird bei run() nach agent/master_session.md kopiert (read_master, ohne Kommentare). Agent.directive hängt ihn an die
-Ideen-, Review- und Replan-Prompts, Memory.context_pack an jeden Änderungskontext. webui.py ist ein ThreadingHTTPServer (nur stdlib, 127.0.0.1)
-mit JSON-API; Start, Init und Try laufen als Subprozess über scripts/run.sh (eigene Session, überleben das UI). POSTs brauchen den Header
-X-UI: 1, Host und Origin werden geprüft.
+## Master prompt and web UI
+MASTER.md (repo root) is copied to agent/master_session.md on run() (read_master, without comments). Agent.directive appends it to the
+ideation, review and replan prompts, Memory.context_pack to every change context. webui.py is a ThreadingHTTPServer (stdlib only, 127.0.0.1)
+with a JSON API; start, init and try run as subprocesses via scripts/run.sh (own session, they survive the UI). POSTs require the header
+X-UI: 1; host and origin are checked.
 
-## Robustheit
-- Das Skript entscheidet über Weitermachen und Ende, nie das Modell.
-- Der Zustand liegt außerhalb des Repos; `git reset --hard` zerstört ihn nicht, ein Lauf ist nach Absturz fortsetzbar.
-- Vor dem Doku-Update wird das Gedächtnis gesichert und bei Fehlschlag zurückgerollt.
-- Tests dürfen laut Prompt nicht entfernt werden, um grün zu werden; das Review prüft das nur indirekt.
+## Robustness
+- The script decides whether to continue or end, never the model.
+- State lives outside the repo; `git reset --hard` does not destroy it, and a run can be resumed after a crash.
+- Before the docs update, memory is backed up and rolled back on failure.
+- According to the prompt, tests must not be removed to turn the build green; the review checks this only indirectly.
 
 ## Config (`projects/<name>/agent/config.json`)
-Überschreibt `DEFAULT_CONFIG` in `saas_agent.py`: `preset` (`fastapi`, `minimal`), `commands` (setup/build/test/lint), `models`,
-`coder_model`, `limits.*`, `features.*`, `doc_language`. Für einen anderen Stack `commands` setzen und `SCAFFOLDS` anpassen.
+Overrides `DEFAULT_CONFIG` in `saas_agent.py`: `preset` (`fastapi`, `minimal`), `commands` (setup/build/test/lint), `models`,
+`coder_model`, `limits.*`, `features.*`, `doc_language`. For a different stack, set `commands` and adjust `SCAFFOLDS`.
 
-## Grenzen
-- Nicht mit echtem Modell/Aider erprobt; Aider-Flags hängen von der Version ab (`Agent.code`).
-- Build-/Test-Befehle des generierten Codes laufen ohne Sandbox.
+## Limitations
+- Not tried with a real model/Aider; Aider flags depend on the version (`Agent.code`).
+- Build/test commands of the generated code run without a sandbox.

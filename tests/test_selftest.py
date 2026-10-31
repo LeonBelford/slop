@@ -1,4 +1,4 @@
-"""Führt den eingebauten Mechanik-Test aus (Stub-LLM, kein Ollama nötig)."""
+"""Runs the built-in mechanics test (stub LLM, no Ollama needed)."""
 import subprocess
 import sys
 import unittest
