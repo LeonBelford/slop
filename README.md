@@ -49,6 +49,7 @@ make attach P=invoices                        # attach to the live session; Ctrl
 make thinking  P=invoices                        # follow what the model is asked and answers (agent/llm.log)
 make status P=invoices                       # progress
 make stop P=invoices                         # clean stop after the current task
+make force-stop P=invoices                    # kill switch: ends the agent and its processes immediately, mid-task
 make list                                    # all projects
 ```
 `P` can be omitted if there is only one project. For custom settings, copy `config.example.json`, adjust it and pass it with

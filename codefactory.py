@@ -37,6 +37,7 @@ import os
 import re
 import shlex
 import shutil
+import signal
 import subprocess
 import sys
 import tempfile
@@ -175,6 +176,56 @@ def sh(cmd, cwd: Path, timeout: int = 900, shell: bool = False, env: dict | None
         return 124, f"TIMEOUT after {timeout}s: {cmd}"
     except FileNotFoundError as e:
         return 127, f"Command not found: {e}"
+
+
+def _children() -> dict[int, list[int]]:
+    tree: dict[int, list[int]] = {}
+    for d in Path("/proc").iterdir():
+        if d.name.isdigit():
+            try:
+                ppid = int((d / "stat").read_text().rsplit(")", 1)[1].split()[1])
+            except (OSError, ValueError, IndexError):
+                continue
+            tree.setdefault(ppid, []).append(int(d.name))
+    return tree
+
+
+def process_tree(pid: int) -> list[int]:
+    """pid plus all its descendants (Linux /proc), children last-to-first."""
+    tree, order, todo = _children(), [], [pid]
+    while todo:
+        cur = todo.pop()
+        order.append(cur)
+        todo.extend(tree.get(cur, []))
+    return order
+
+
+def force_stop_pid(pid: int, grace: float = 3.0) -> list[int]:
+    """Terminates pid and everything it started (aider, builds, tests). SIGTERM first, SIGKILL after `grace` seconds."""
+    pids = [x for x in process_tree(pid) if x != os.getpid()]
+    try:  # the run.sh wrapper would otherwise keep a tmux pane or log open
+        parent = int(Path(f"/proc/{pid}/stat").read_text().rsplit(")", 1)[1].split()[1])
+        if b"run.sh" in Path(f"/proc/{parent}/cmdline").read_bytes():
+            pids.append(parent)
+    except (OSError, ValueError, IndexError):
+        pass
+    for sig, wait in ((signal.SIGTERM, grace), (signal.SIGKILL, 1.0)):
+        for x in pids:
+            try:
+                os.kill(x, sig)
+            except OSError:
+                pass
+        end = time.time() + wait
+        while time.time() < end and any(Path(f"/proc/{x}").exists() and not _zombie(x) for x in pids):
+            time.sleep(0.1)
+    return pids
+
+
+def _zombie(pid: int) -> bool:
+    try:
+        return Path(f"/proc/{pid}/stat").read_text().rsplit(")", 1)[1].split()[0] == "Z"
+    except (OSError, IndexError):
+        return True
 
 
 def words(text: str) -> set[str]:
@@ -1643,6 +1694,22 @@ class Agent:
         except (OSError, ValueError):
             return False
 
+    def force_stop(self) -> str:
+        """Kill switch: ends the running agent immediately, mid-task. The next start resets the repo and re-queues the task."""
+        write_text(self.dir / "STOP", "force\n")
+        try:
+            pid = int((self.dir / "agent.pid").read_text())
+        except (OSError, ValueError):
+            pid = 0
+        killed = force_stop_pid(pid) if pid else []
+        sh(["tmux", "kill-session", "-t", f"agent-{self.ws.name}"], self.dir)
+        for f in ("agent.pid", "llm_now.json", "coder_now.json"):
+            (self.dir / f).unlink(missing_ok=True)
+        self.cur_task, self.cur_attempt = "", 0
+        self.phase("Force-stopped", None, "kill switch used; unfinished work is discarded on the next start")
+        self.log(f"FORCE STOP: ended {len(killed)} process(es).")
+        return f"Force-stopped {self.ws.name}: {len(killed)} process(es) ended" if killed else "No running agent found (STOP flag set)"
+
     def detect_run_plan(self) -> dict:
         """Build steps (shell commands) plus start command, URL and artifact for the user, from the stack definition."""
         st = PRESETS.get(self.cfg["preset"])
@@ -1839,7 +1906,7 @@ def pick_project(root: Path, name: str | None) -> Path:
 def main() -> None:
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     sub = ap.add_subparsers(dest="cmd", required=True)
-    for name in ("init", "run", "status", "stop"):
+    for name in ("init", "run", "status", "stop", "force-stop"):
         p = sub.add_parser(name)
         p.add_argument("--projects-dir", default="projects", help="Folder containing all projects")
         if name == "init":
@@ -1911,6 +1978,9 @@ def main() -> None:
     if a.cmd == "say":
         Agent(ws).add_feedback(a.msg)
         print("Added to IDEAS.md. The agent will re-plan on its next pass.")
+        return
+    if a.cmd == "force-stop":
+        print(Agent(ws).force_stop())
         return
     if a.cmd == "stop":
         write_text(ws / "agent" / "STOP", "stop\n")

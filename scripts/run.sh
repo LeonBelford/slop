@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Starts the agent with .env and venv. Usage:
 #   scripts/run.sh init "<idea>" [project name]
-#   scripts/run.sh run|status|stop|try [project name]
+#   scripts/run.sh run|status|stop|force-stop|try [project name]
 #   scripts/run.sh say <project name> "<feedback>"
 #   scripts/run.sh start|tmux|watch|logs [project name]
 #   scripts/run.sh do <project name> "<task>"
@@ -12,7 +12,7 @@ cd "$(dirname "$0")/.."
 [ -f .env ] && { set -a; . ./.env; set +a; }
 [ -d .venv ] && export PATH="$PWD/.venv/bin:$PATH"
 
-cmd="${1:?init|run|status|stop|list}"; shift
+cmd="${1:?init|run|status|stop|force-stop|list}"; shift
 case "$cmd" in
   init)
     idea="${1:?idea as parameter}"; name="${2:-}"
@@ -21,7 +21,7 @@ case "$cmd" in
     python3 codefactory.py try ${1:+--project "$1"} ;;
   say)
     python3 codefactory.py say ${1:+--project "$1"} --msg "${2:?message}" ;;
-  run|status|stop)
+  run|status|stop|force-stop)
     python3 codefactory.py "$cmd" ${1:+--project "$1"} ;;
   do)
     python3 codefactory.py do ${1:+--project "$1"} --task "${2:?task}" ;;

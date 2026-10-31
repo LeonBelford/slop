@@ -145,6 +145,7 @@ async function act(a,body,ok){try{const r=await api(`/api/project/${sel}/${a}`,b
 const fmtDur=s=>{s=Math.max(0,Math.round(s));return s<60?s+"s":Math.floor(s/60)+"m "+(s%60)+"s"};
 const fmtDiff=t=>esc(t).split("\n").map(l=>{const c=l.startsWith("+++")||l.startsWith("---")||l.startsWith("diff ")||l.startsWith("index ")?"meta":l.startsWith("+")?"add":l.startsWith("-")?"del":l.startsWith("@@")?"hunk":"";return c?`<span class="${c}">${l}</span>`:l}).join("\n");
 
+async function forceStop(){if(!confirm('Force stop kills the agent and everything it runs right now. The unfinished task is discarded and retried on the next start. Continue?'))return;try{const r=await api(`/api/project/${sel}/force-stop`,{});toast(r.message||'Force-stopped');await refresh()}catch(e){toast(e.message,true)}}
 function statusOf(p){return p.running?(p.stopping?["stop","stopping after task"]:["run","running"]):["","stopped"]}
 function renderList(){
   const jobs=list.init_jobs.map(j=>`<div class="job">${j.running?"Creating":"Failed"}: <b>${esc(j.name)}</b><br><code>${esc((j.log||"").split("\n").slice(-3).join(" "))}</code></div>`).join("");
@@ -182,7 +183,7 @@ function renderProject(){
   const pillF=d.failures?`<span class="pill bad">${d.failures} consecutive failures</span>`:"";
   const head=`<div class="top"><div><h1>${esc(d.name)} <span class="pill ${c==="run"?"ok":c==="stop"?"warn":""}">${t}</span> ${pillF}</h1><div class="idea">${esc(d.idea)}</div></div>
   <div class="btns">
-    ${d.running?`<button class="danger" onclick="act('stop',{},'Will stop after the current task')" ${d.stopping?"disabled":""}>Stop</button>`:`<button class="primary" onclick="act('start',{},'Agent started')">Start</button>`}
+    ${d.running?`<button class="danger" onclick="act('stop',{},'Will stop after the current task')" ${d.stopping?"disabled":""}>Stop</button><button class="danger" title="Kill switch: ends the agent and all its processes immediately; unfinished work is discarded" onclick="forceStop()">Force stop</button>`:`<button class="primary" onclick="act('start',{},'Agent started')">Start</button>`}
     <button onclick="doTry()" ${d.try_running?"disabled":""}>${d.try_running?"Building test version…":"Test now"}</button>
   </div></div>
   <div class="stats">

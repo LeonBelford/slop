@@ -66,6 +66,7 @@ The agent creates `repo/.venv` itself on the first build. While the agent is run
 ## 5. Stop and resume
 ```bash
 make stop P=invoices               # ends after the current task
+make force-stop P=invoices         # kill switch: immediate, mid-task; the unfinished task is retried on the next start
 make start-tmux P=invoices               # resumes from the saved state
 ```
 It also ends by itself at `max_hours`/`max_iterations` (config), after 5 consecutive failures, or when it can no longer think of anything

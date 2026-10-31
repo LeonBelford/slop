@@ -226,6 +226,8 @@ class Service:
             spawn(f"run:{name}", ["run", name], a / "run.out")
         elif action == "stop":
             sa.write_text(a / "STOP", "ui\n")
+        elif action == "force-stop":
+            return {"ok": True, "message": sa.Agent(ws).force_stop()}
         elif action == "try":
             if alive(f"try:{name}"):
                 raise UiError("A test version is already being built", 409)
@@ -363,7 +365,7 @@ def make_handler(svc: Service, port: int):
                     return svc.set_master(body)
                 if path == "/api/tool/task":
                     return svc.tool_task(body)
-                m = re.fullmatch(r"/api/project/([^/]+)/([a-z]+)", path)
+                m = re.fullmatch(r"/api/project/([^/]+)/([a-z-]+)", path)
                 if m:
                     return svc.act(m.group(1), m.group(2), body)
             raise UiError("Not found", 404)
