@@ -11,14 +11,25 @@ Linux/macOS/WSL, Python ≥ 3.10, git, [Ollama](https://ollama.com/download). Em
 
 ## Benutzung (Kurzfassung)
 Die ausführliche Schritt-für-Schritt-Anleitung steht in **[docs/ANLEITUNG.md](docs/ANLEITUNG.md)**.
+
+**1. Einmalig installieren**
 ```bash
-git clone https://github.com/LeonBelford/slop && cd slop
+git clone -b main https://github.com/LeonBelford/slop && cd slop
 bash scripts/quick-setup-popos.sh            # Pop!_OS/Ubuntu: alles installieren (--no-model, --nvidia)
 make selftest                                # Mechanik ohne Modell prüfen
+```
 
-make init IDEA="Rechnungs-Tool für Freelancer"   # legt projects/<name>/ an (Name optional: NAME=rechnungen)
-make tmux P=rechnungen                       # läuft im Hintergrund; tmux attach -t agent-rechnungen
-make status P=rechnungen
+**2. Pro Idee starten**
+```bash
+make init IDEA="Rechnungs-Tool für Freelancer" NAME=rechnungen   # legt projects/rechnungen/ an (dauert einige Minuten)
+make tmux P=rechnungen                                           # läuft im Hintergrund
+```
+Vor dem Start `projects/rechnungen/agent/GOAL.md` lesen und bei Bedarf anpassen.
+
+**3. Bei Bedarf, einzeln**
+```bash
+tmux attach -t agent-rechnungen              # zuschauen; Strg+B, dann D löst dich wieder
+make status P=rechnungen                     # Fortschritt
 make stop P=rechnungen                       # sauberer Stopp nach der aktuellen Aufgabe
 make list                                    # alle Projekte
 ```

@@ -4,7 +4,7 @@ Schritt für Schritt vom leeren Rechner bis zum laufenden Produkt. Hintergrund u
 
 ## 1. Installation (einmalig, Pop!_OS/Ubuntu)
 ```bash
-git clone https://github.com/LeonBelford/slop && cd slop
+git clone -b main https://github.com/LeonBelford/slop && cd slop
 bash scripts/quick-setup-popos.sh
 ```
 Das Skript installiert Pakete, Ollama, Aider und das Modell (ca. 9 GB, dauert je nach Leitung). Es fragt bei `sudo` nach deinem Passwort.
