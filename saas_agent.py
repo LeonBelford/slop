@@ -1082,6 +1082,10 @@ class Agent:
         if not (self.dir / "GOAL.md").exists():
             sys.exit("Workspace nicht initialisiert: erst `init --idea ...`.")
         (self.dir / "STOP").unlink(missing_ok=True)
+        for it in self.backlog.items:  # Aufgaben eines abgebrochenen Laufs wieder aufnehmen
+            if it["status"] == "in_progress":
+                it["status"] = "pending"
+        self.backlog.save()
         started = time.time()
         self.git.hard_reset()
         self.health_check()

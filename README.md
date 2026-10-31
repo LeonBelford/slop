@@ -9,7 +9,8 @@ testet, debuggt, räumt auf und dokumentiert, bis du ihn stoppst oder ein Limit 
 ## Voraussetzungen
 Linux/macOS/WSL, Python ≥ 3.10, git, [Ollama](https://ollama.com/download). Empfohlen: 12 GB VRAM (RTX 3060) und 16 GB RAM.
 
-## Benutzung
+## Benutzung (Kurzfassung)
+Die ausführliche Schritt-für-Schritt-Anleitung steht in **[docs/ANLEITUNG.md](docs/ANLEITUNG.md)**.
 ```bash
 git clone https://github.com/LeonBelford/slop && cd slop
 bash scripts/quick-setup-popos.sh            # Pop!_OS/Ubuntu: alles installieren (--no-model, --nvidia)
@@ -30,7 +31,7 @@ slop/
 ├─ saas_agent.py        die komplette Schleife (nur Standardbibliothek)
 ├─ Makefile, scripts/   quick-setup-popos.sh · setup.sh (nur venv+Modell) · run.sh · Modelfile
 ├─ .env.example, config.example.json
-├─ docs/ARCHITECTURE.md Gedächtnis, Impact-Analyse, Config im Detail
+├─ docs/                ANLEITUNG.md (Benutzung) · ARCHITECTURE.md (Technik)
 ├─ tests/, .github/     Selftest und CI
 └─ projects/            pro Idee ein Ordner (nicht im Git)
    └─ <name>/
@@ -74,11 +75,7 @@ Es gibt kein "Rust-Modell", Rust steckt in Inferenz-Engines. Open Source (per Gi
 jeden OpenAI-kompatiblen Server (`LLM_API`, für Aider `CODER_MODEL=openai/<name>` + `OPENAI_API_BASE`), ungetestet.
 
 ## Probleme
-- `LLM nicht erreichbar`: läuft `ollama serve`? `curl localhost:11434/api/tags`.
-- Agent wirkt vergesslich: `num_ctx` zu klein (`ollama show qwen2.5-coder-agent`).
-- Zu langsam: kleineres Modell als `summarizer`, `features.cleanup_pass` abschalten.
-- Aufgabe `blocked`: `runs/<iter>-<id>/` und `memory/lessons.jsonl` lesen, Status in `backlog.json` auf `pending` setzen.
-- Aider-Option unbekannt: `pip install -U aider-chat`, Flags in `Agent.code` anpassen.
+Siehe [docs/ANLEITUNG.md](docs/ANLEITUNG.md#10-probleme).
 
 ## Sicherheit
 Der Agent arbeitet nur in `projects/<name>/repo/`, führt dort aber Build- und Testbefehle ohne Sandbox aus. Nutze bei Bedarf
