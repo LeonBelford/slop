@@ -82,6 +82,32 @@ def _aider(model: str, timeout: int):
     return run
 
 
+def _docs_pass(work: Path, proposal: dict, coder, log) -> None:
+    """After a kept change, brings README.md and docs/ in line with it and logs it in docs/SELF_IMPROVEMENTS.md."""
+    diff = _git(work, "show", "--stat", "--patch", "HEAD")[1]
+    doc_files = [f for f in ("README.md", "docs/GUIDE.md", "docs/ARCHITECTURE.md", "docs/SELF_IMPROVEMENTS.md")
+                 if (work / f).is_file()]
+    if not (work / "docs" / "SELF_IMPROVEMENTS.md").exists():
+        doc_files.append("docs/SELF_IMPROVEMENTS.md")
+        sa.write_text(work / "docs" / "SELF_IMPROVEMENTS.md", "# Self-improvements\n\nChanges the agent made to itself, newest last.\n")
+    coder(work, doc_files,
+          f"Documentation update for this change: {proposal['title']}\n\n{proposal.get('rationale', '')}\n\n"
+          f"Diff:\n{sa.clip(diff, 6000)}\n\nUpdate README.md, docs/GUIDE.md and docs/ARCHITECTURE.md only where the change affects "
+          "what they say (usage, commands, config, behavior). Keep the existing structure and language (English). Append one "
+          "entry to docs/SELF_IMPROVEMENTS.md: what changed, why, which files. Change documentation files only.")
+    _git(work, "add", "-A")
+    changes = [l for l in _git(work, "diff", "--cached", "--name-status")[1].splitlines() if l.strip()]
+    only_docs = all(l.split("\t")[-1] in ("README.md",) or l.split("\t")[-1].startswith("docs/") for l in changes)
+    if changes and only_docs:
+        _git(work, "-c", "user.name=saas-agent", "-c", "user.email=agent@localhost", "commit", "-q", "-m",
+             f"self-improve: docs for {proposal['title']}")
+        log("  docs updated")
+    else:
+        _git(work, "reset", "-q", "--hard", "HEAD")
+        _git(work, "clean", "-qfd")
+        log("  docs pass produced no valid change (reverted)" if changes else "  docs pass: nothing to change")
+
+
 def main(projects: Path, dry_run: bool = False, repo: Path | None = None, llm=None, coder=None, log=print) -> dict:
     repo = (repo or Path(__file__).resolve().parent).resolve()
     cfg = json.loads(json.dumps(sa.DEFAULT_CONFIG))
@@ -125,7 +151,8 @@ def main(projects: Path, dry_run: bool = False, repo: Path | None = None, llm=No
                      and not f.startswith(PROTECTED)]
             log(f"Implementing: {p['title']}")
             coder(work, files, f"{p['change']}\n\nRationale: {p.get('rationale', '')}\n"
-                  "Keep the change small and focused. Do not modify existing tests; add new tests if sensible. Standard library only.")
+                  "Keep the change small and focused. Do not modify existing tests; add new tests if sensible. Standard library only. "
+                  "Documentation is updated in a separate step afterwards.")
             _git(work, "add", "-A")
             changes = [l for l in _git(work, "diff", "--cached", "--name-status")[1].splitlines() if l.strip()]
             bad = protected_violations(changes)
@@ -135,6 +162,7 @@ def main(projects: Path, dry_run: bool = False, repo: Path | None = None, llm=No
                      f"self-improve: {p['title']}\n\n{p.get('rationale', '')}")
                 kept.append(p["title"])
                 log("  kept (tests green)")
+                _docs_pass(work, p, coder, log)
             else:
                 _git(work, "reset", "-q", "--hard", "HEAD")
                 _git(work, "clean", "-qfd")
