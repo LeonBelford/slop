@@ -39,6 +39,12 @@ Vorgaben, zuletzt verarbeitete Fassung (`agent/ideas_seen.md`), Ziel, Features, 
 Prioritäten und Streichungen (Status `cancelled`). Neue Aufgaben erhalten Priorität 20+p (vor Ideation), Quelle `ideas`. Der Text wird in
 `GOAL.md`, `repo/docs/PRODUCT.md` und den Kontextpack jeder Änderung übernommen. Schlägt die Neuplanung fehl, wird sie erneut versucht.
 
+## Master-Prompt und Web-UI
+MASTER.md (Repo-Root) wird bei run() nach agent/master_session.md kopiert (read_master, ohne Kommentare). Agent.directive hängt ihn an die
+Ideen-, Review- und Replan-Prompts, Memory.context_pack an jeden Änderungskontext. webui.py ist ein ThreadingHTTPServer (nur stdlib, 127.0.0.1)
+mit JSON-API; Start, Init und Try laufen als Subprozess über scripts/run.sh (eigene Session, überleben das UI). POSTs brauchen den Header
+X-UI: 1, Host und Origin werden geprüft.
+
 ## Robustheit
 - Das Skript entscheidet über Weitermachen und Ende, nie das Modell.
 - Der Zustand liegt außerhalb des Repos; `git reset --hard` zerstört ihn nicht, ein Lauf ist nach Absturz fortsetzbar.

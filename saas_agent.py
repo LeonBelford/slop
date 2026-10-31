@@ -208,6 +208,28 @@ Startidee: {idea}
 """
 
 
+MASTER_TEMPLATE = """# Master-Prompt (gilt für ALLE Projekte)
+
+<!-- Globale Vorgaben, die der Agent in jeder Session (jedem `run`) für jedes Projekt als verbindlich behandelt.
+Der Stand wird beim Start einer Session übernommen; Änderungen wirken ab dem nächsten Start.
+z. B. - Antworte und dokumentiere auf Deutsch
+     - Bevorzuge einfache, gut lesbare Lösungen statt cleverer Tricks
+     - Jede neue Funktion braucht Tests; keine neuen Abhängigkeiten ohne Begründung -->
+"""
+
+
+def read_master(path: Path) -> str:
+    """Liest MASTER.md ohne Kommentare und Überschriften; leer, wenn nichts Inhaltliches drinsteht."""
+    try:
+        text = re.sub(r"<!--.*?-->", "", path.read_text("utf-8"), flags=re.S)
+    except OSError:
+        return ""
+    lines = [l.rstrip() for l in text.splitlines() if l.strip()]
+    if not [l for l in lines if not l.lstrip().startswith("#")]:
+        return ""
+    return "\n".join(lines)
+
+
 def read_ideas(path: Path) -> str:
     """Liest IDEAS.md ohne Kommentare. Leer, wenn nur Überschriften und Startidee drinstehen."""
     try:
@@ -549,6 +571,9 @@ class Memory:
         goal = self.dir.parent / "GOAL.md"
         if goal.exists():
             parts.append("## Produktziel\n" + clip(goal.read_text("utf-8"), 2500))
+        master = self.dir.parent / "master_session.md"
+        if master.exists():
+            parts.append("## Master-Prompt (global, verbindlich)\n" + clip(master.read_text("utf-8"), 2000))
         wishes = read_ideas(self.dir.parent.parent / "IDEAS.md")
         if wishes:
             parts.append("## Vorgaben des Nutzers (verbindlich, auch Umsetzungshinweise und 'Nicht tun')\n" + clip(wishes, 3000))
@@ -717,6 +742,7 @@ class Agent:
             "last_refactor_at": 0, "last_coverage_at": 0, "last_arch_at": 0})
         self.run_dir = self.dir
         self.ideas_path = self.ws / "IDEAS.md"
+        self.master_path = self.ws.parent.parent / "MASTER.md"
         self.coder_mock = None
 
     # ---- Konfiguration/Logging
@@ -746,6 +772,12 @@ class Agent:
     def metric(self, **kw) -> None:
         with open(self.dir / "metrics.jsonl", "a", encoding="utf-8") as f:
             f.write(json.dumps({"time": now(), **kw}, ensure_ascii=False) + "\n")
+
+    @property
+    def directive(self) -> str:
+        """Master-Prompt dieser Session als Textblock für Prompts (leer, wenn keiner gesetzt ist)."""
+        p = self.dir / "master_session.md"
+        return "\n\nMaster-Prompt (verbindlich für alle Projekte):\n" + clip(p.read_text("utf-8"), 2000) if p.exists() else ""
 
     @property
     def goal(self) -> str:
@@ -1019,7 +1051,7 @@ class Agent:
         ideas = self.llm.json(
             "ideate", "planner", "Du bist Produktmanager eines wachsenden SaaS. Schlage Verbesserungen vor, die Nutzerwert liefern, "
             "klein genug für eine Iteration sind und zum Produktziel passen. Keine Dubletten.",
-            f"Produktziel:\n{clip(self.goal, 2500)}\n\nBereits gebaut: {feats}\nIm Backlog: {self.backlog.titles()[-30:]}\n"
+            f"Produktziel:\n{clip(self.goal, 2500)}{self.directive}\n\nBereits gebaut: {feats}\nIm Backlog: {self.backlog.titles()[-30:]}\n"
             f"Fokus-Linse: {lens}\nSaaS-Checkliste (Lücken füllen): {SAAS_CHECKLIST}\nLessons: {lessons}\n"
             f"Gib {self.lim['ideation_batch'] * 2} Ideen. Schema: "
             '{"ideas": [{"title": "", "description": "", "type": "feature|refactor|bug|docs|test", "rationale": "", '
@@ -1054,7 +1086,7 @@ class Agent:
         ok, report = self.verify()
         data = self.llm.json(
             "product_review", "reviewer", "Du bist unabhängiger Produkt-Auditor. Finde konkrete Lücken in Qualität und Vollständigkeit.",
-            f"Ziel:\n{clip(self.goal, 2000)}\nCodemap:\n{clip(self.mem.render_codemap(), 9000)}\nBuild/Test: {report[:500]}\n"
+            f"Ziel:\n{clip(self.goal, 2000)}{self.directive}\nCodemap:\n{clip(self.mem.render_codemap(), 9000)}\nBuild/Test: {report[:500]}\n"
             f"Checkliste: {SAAS_CHECKLIST}\nSchema: "
             '{"scores": {"completeness": 1-10, "code_quality": 1-10, "test_coverage": 1-10, "docs": 1-10, "ux": 1-10}, '
             '"items": [{"title": "", "description": "", "type": "feature|bug|refactor|docs|test", "acceptance": [], "priority": 1-10}]}')
@@ -1120,7 +1152,7 @@ class Agent:
                 "Ergänze nur, was fehlt. Größere Umbauten zerlegst du in kleine, geordnete Schritte (type refactor, frühere "
                 "Schritte höhere Priorität). Offene Aufgaben, die den Vorgaben widersprechen, werden gestrichen.",
                 f"Vorgaben des Nutzers (aktuell):\n{clip(text, 5000)}\n\nZuletzt verarbeitete Fassung:\n{clip(seen, 3000) or '(keine)'}\n\n"
-                f"Produktziel:\n{clip(self.goal, 1500)}\nBereits gebaut: {[f['title'] for f in self.mem.features.values()]}\n"
+                f"Produktziel:\n{clip(self.goal, 1500)}{self.directive}\nBereits gebaut: {[f['title'] for f in self.mem.features.values()]}\n"
                 f"Offene Aufgaben: {json.dumps(open_items)}\nArchitektur:\n"
                 f"{clip((self.mem.dir / 'ARCHITECTURE.md').read_text('utf-8') if (self.mem.dir / 'ARCHITECTURE.md').exists() else '', 3000)}\n\n"
                 "Schema: "
@@ -1188,6 +1220,12 @@ class Agent:
         if not (self.dir / "GOAL.md").exists():
             sys.exit("Workspace nicht initialisiert: erst `init --idea ...`.")
         (self.dir / "STOP").unlink(missing_ok=True)
+        master = read_master(self.master_path)
+        if master:
+            write_text(self.dir / "master_session.md", master)
+            self.log(f"Master-Prompt aus {self.master_path} für diese Session übernommen.")
+        else:
+            (self.dir / "master_session.md").unlink(missing_ok=True)
         write_text(self.dir / "agent.pid", str(os.getpid()))
         try:
             self._run_loop()

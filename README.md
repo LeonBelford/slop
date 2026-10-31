@@ -19,6 +19,15 @@ bash scripts/quick-setup-popos.sh            # Pop!_OS/Ubuntu: alles installiere
 make selftest                                # Mechanik ohne Modell prüfen
 ```
 
+**Web-Oberfläche (optional, die CLI bleibt)**
+```bash
+make ui                                      # öffnet http://127.0.0.1:8765
+```
+Projekte anlegen, starten/stoppen, „Jetzt testen“, Feedback geben, `IDEAS.md` und Master-Prompt bearbeiten, Backlog und Live-Log ansehen.
+Läuft nur lokal (127.0.0.1); Agenten laufen auch weiter, wenn du das UI schließt.
+
+**Master-Prompt:** `MASTER.md` im Hauptordner gilt für alle Projekte und wird beim Start jeder Session (`run`) übernommen.
+
 **2. Pro Idee starten**
 ```bash
 make init IDEA="Rechnungs-Tool für Freelancer" NAME=rechnungen   # legt projects/rechnungen/ an (dauert einige Minuten)
@@ -48,6 +57,8 @@ make list                                    # alle Projekte
 ```
 slop/
 ├─ saas_agent.py        die komplette Schleife (nur Standardbibliothek)
+├─ webui.py, web/       lokale Web-Oberfläche (make ui)
+├─ MASTER.md            globale Vorgaben für alle Projekte (pro Session übernommen)
 ├─ Makefile, scripts/   quick-setup-popos.sh · setup.sh (nur venv+Modell) · run.sh · Modelfile
 ├─ .env.example, config.example.json
 ├─ docs/                ANLEITUNG.md (Benutzung) · ARCHITECTURE.md (Technik)

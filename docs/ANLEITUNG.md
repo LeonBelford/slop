@@ -101,6 +101,15 @@ Alles Folgende **nur bei gestopptem Agenten**:
    Das geht auch während der Agent läuft.
 4. `make tmux P=<name>` setzt die Arbeit fort.
 
+## 6b. Master-Prompt und Web-Oberfläche
+- **Master-Prompt:** `MASTER.md` im Hauptordner (neben dem Makefile). Gilt für alle Projekte, z. B. Sprache, Stilregeln, "immer Tests".
+  Er wird beim Start jeder Session (`make tmux` bzw. `run`) in `agent/master_session.md` übernommen und fließt in Planung, Ideenfindung,
+  Neuplanung und jeden Änderungskontext ein. Änderungen wirken erst ab dem nächsten Start. Die Vorlage selbst (nur Kommentare) wird ignoriert.
+- **Web-UI:** `make ui`, dann `http://127.0.0.1:8765`. Links die Projekte (grüner Punkt = läuft), rechts Status, Backlog, fertige Features,
+  Ideen/Feedback, Testversion, Live-Log und Ziel. Oben Starten/Stoppen und "Jetzt testen". "+ Neue Idee" legt ein Projekt an
+  (dauert einige Minuten, Fortschritt oben links). Das UI nutzt dieselben Dateien und Befehle wie die CLI, beides lässt sich mischen.
+  Es hört nur auf 127.0.0.1 und prüft Host und Herkunft der Anfragen; nicht ins Netz weiterleiten.
+
 ## 7. Einstellungen
 Datei `projects/<name>/agent/config.json` (Vorlage: `config.example.json`, Wirkung ab dem nächsten Start). Wichtige Werte:
 ```json

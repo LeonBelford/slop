@@ -1,6 +1,6 @@
 P ?=
 
-.PHONY: setup selftest init run status stop list tmux try say
+.PHONY: setup selftest init run status stop list tmux try say ui
 
 setup:
 	bash scripts/setup.sh
@@ -28,3 +28,7 @@ try:
 # Feedback eintragen: make say P=rechnungen MSG="Der Button geht nicht"
 say:
 	bash scripts/run.sh say $(P) "$(MSG)"
+
+# Web-Oberfläche auf http://127.0.0.1:8765
+ui:
+	bash scripts/run.sh ui
