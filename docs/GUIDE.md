@@ -66,6 +66,7 @@ The agent creates `repo/.venv` itself on the first build. While the agent is run
 ## 5. Stop and resume
 ```bash
 make stop P=invoices               # ends after the current task
+make force-stop P=invoices         # kill switch: immediate, mid-task; the unfinished task is retried on the next start
 make start-tmux P=invoices               # resumes from the saved state
 ```
 It also ends by itself at `max_hours`/`max_iterations` (config), after 5 consecutive failures, or when it can no longer think of anything
@@ -149,7 +150,7 @@ Delete a project: `rm -rf projects/<name>`. Everything else is in the `slop` rep
 | `LLM not reachable` | `systemctl status ollama`, `curl localhost:11434/api/tags`; otherwise `ollama serve` |
 | Model returns no JSON | occurs occasionally (the agent tries 3×); if frequent → another model in `models.*` |
 | Agent seems forgetful | `num_ctx` too small: check `ollama show qwen2.5-coder-agent` |
-| Unknown Aider option | `.venv/bin/pip install -U aider-chat`, adjust flags in `Agent.code` (`saas_agent.py`) |
+| Unknown Aider option | `.venv/bin/pip install -U aider-chat`, adjust flags in `Agent.code` (`codefactory.py`) |
 | Task `blocked` | see section 6 |
 | "main is red" in the log | the agent creates a repair task itself; otherwise run the build command from the config in `repo/` |
 | Abort after 5 failures | read `agent.log` and `agent/runs/`, fix the cause, restart |

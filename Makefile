@@ -1,7 +1,7 @@
 P ?=
 
 .DEFAULT_GOAL := help
-.PHONY: help setup selftest init start run status stop list ui start-tmux tmux attach watch thinking logs task do self-improve improve test-build try feedback say
+.PHONY: force-stop kill help setup selftest init start run status stop list ui start-tmux tmux attach watch thinking logs task do self-improve improve test-build try feedback say
 
 help:
 	@echo "First time:   make setup"
@@ -9,7 +9,7 @@ help:
 	@echo "Start agent:  make start P=myproj     (background, survives closing the terminal)"
 	@echo "Watch it:     make attach P=myproj     (live view; Ctrl+B then D leaves tmux)"
 	@echo "Model chat:   make thinking P=myproj      (prompts and answers)"
-	@echo "Status/Stop:  make status P=myproj / make stop P=myproj / make list"
+	@echo "Status/Stop:  make status P=myproj / make stop P=myproj (after the task) / make force-stop P=myproj (immediately) / make list"
 	@echo "Web UI:       make ui                 (http://127.0.0.1:8765, can start/stop too)"
 	@echo "Feedback:     make feedback P=myproj MSG=\"...\"   Test build: make test-build P=myproj"
 
@@ -17,7 +17,7 @@ setup:
 	bash scripts/setup.sh
 
 selftest:
-	python3 saas_agent.py selftest
+	python3 codefactory.py selftest
 
 # make init IDEA="Invoicing tool for freelancers" [NAME=invoices]
 init:
@@ -25,6 +25,10 @@ init:
 
 run status stop:
 	bash scripts/run.sh $@ $(P)
+
+# Kill switch: ends the agent and everything it started right now, mid-task
+force-stop kill:
+	bash scripts/run.sh force-stop $(P)
 
 list:
 	bash scripts/run.sh list

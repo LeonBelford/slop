@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Local web UI for the SaaS agent (standard library only, 127.0.0.1 only).
+"""Local web UI for CodeFactory (standard library only, 127.0.0.1 only).
 
 Start: `make ui` or `python3 webui.py [--port 8765] [--projects-dir projects]`.
 The CLI stays fully usable; the UI calls the same commands (scripts/run.sh) and reads/writes the same files.
@@ -18,7 +18,7 @@ import webbrowser
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 
-import saas_agent as sa
+import codefactory as sa
 
 ROOT = Path(__file__).resolve().parent
 INDEX = ROOT / "web" / "index.html"
@@ -226,6 +226,8 @@ class Service:
             spawn(f"run:{name}", ["run", name], a / "run.out")
         elif action == "stop":
             sa.write_text(a / "STOP", "ui\n")
+        elif action == "force-stop":
+            return {"ok": True, "message": sa.Agent(ws).force_stop()}
         elif action == "try":
             if alive(f"try:{name}"):
                 raise UiError("A test version is already being built", 409)
@@ -284,7 +286,7 @@ def make_handler(svc: Service, port: int):
     hosts = {f"127.0.0.1:{port}", f"localhost:{port}", f"[::1]:{port}"}
 
     class H(BaseHTTPRequestHandler):
-        server_version = "SaasAgentUI"
+        server_version = "CodeFactoryUI"
 
         def log_message(self, *a):
             pass
@@ -363,7 +365,7 @@ def make_handler(svc: Service, port: int):
                     return svc.set_master(body)
                 if path == "/api/tool/task":
                     return svc.tool_task(body)
-                m = re.fullmatch(r"/api/project/([^/]+)/([a-z]+)", path)
+                m = re.fullmatch(r"/api/project/([^/]+)/([a-z-]+)", path)
                 if m:
                     return svc.act(m.group(1), m.group(2), body)
             raise UiError("Not found", 404)

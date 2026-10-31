@@ -2,7 +2,7 @@
 
 Supplement to the [README](../README.md). It covers only what the README does not.
 
-## Components in `saas_agent.py`
+## Components in `codefactory.py`
 | Class | Responsibility |
 |---|---|
 | `LLM` | OpenAI-compatible client with retry and JSON repair (`LLM.mock` replaces it in the selftest) |
@@ -46,7 +46,7 @@ with a JSON API; start, init and try run as subprocesses via scripts/run.sh (own
 X-UI: 1; host and origin are checked.
 
 ## Self-improvement
-- `Agent.reflect()` (in `saas_agent.py`) runs every `reflect_every` merges or after 3 failed tasks. Inputs: `metrics.jsonl` (including `attempt_failed` rows), recent lessons, the current playbook. Outputs: `agent/playbook.md` (injected via `Agent.directive` and `context_pack`), `agent/tuning.json` (only keys in `TUNABLE`, clamped to hard bounds), `agent/tool_ideas.jsonl`.
+- `Agent.reflect()` (in `codefactory.py`) runs every `reflect_every` merges or after 3 failed tasks. Inputs: `metrics.jsonl` (including `attempt_failed` rows), recent lessons, the current playbook. Outputs: `agent/playbook.md` (injected via `Agent.directive` and `context_pack`), `agent/tuning.json` (only keys in `TUNABLE`, clamped to hard bounds), `agent/tool_ideas.jsonl`.
 - `selfimprove.py` (`make self-improve`) reads that evidence from all projects, asks the planner for at most 3 proposals, implements each with Aider in a separate git worktree and keeps a proposal only if `selftest` and the unit tests pass and no protected file (`PROTECTED`, existing tests) was touched. `_docs_pass` then lets the coder update README/docs and append to `docs/SELF_IMPROVEMENTS.md` (docs-only diff enforced, else reverted). Result: a branch `self-improve/<timestamp>` for manual review; proposals are logged in `self_improve/` (git-ignored).
 
 ## Robustness
@@ -56,7 +56,7 @@ X-UI: 1; host and origin are checked.
 - According to the prompt, tests must not be removed to turn the build green; the review checks this only indirectly.
 
 ## Config (`projects/<name>/agent/config.json`)
-Overrides `DEFAULT_CONFIG` in `saas_agent.py`: `preset` (`fastapi`, `minimal`), `commands` (setup/build/test/lint), `models`,
+Overrides `DEFAULT_CONFIG` in `codefactory.py`: `preset` (`fastapi`, `minimal`), `commands` (setup/build/test/lint), `models`,
 `coder_model`, `limits.*`, `features.*`, `doc_language`. For a different stack, set `commands` and adjust `SCAFFOLDS`.
 
 ## Limitations

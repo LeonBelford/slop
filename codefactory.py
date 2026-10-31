@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Autonomous SaaS agent: invents features, builds, tests, debugs, cleans up and documents.
+"""CodeFactory: local autonomous agent team that builds, tests, debugs, cleans up and documents open-source software.
 
 Only the start idea comes from you. After that an outer loop runs and decides on its own
 (the model does NOT decide when to finish):
@@ -16,12 +16,12 @@ Layout (one folder per idea under projects/<name>/):
             config.json state.json backlog.json GOAL.md memory/ runs/ agent.log metrics.jsonl STOP
 
 Usage:
-  python saas_agent.py init   --idea "Invoicing tool for freelancers"   # creates projects/<name>/
-  python saas_agent.py run    --project <name>
-  python saas_agent.py status --project <name>
-  python saas_agent.py list
-  python saas_agent.py stop   --project <name>     # clean stop after the current task
-  python saas_agent.py selftest                    # mechanics test with a stub LLM, no Ollama needed
+  python codefactory.py init   --idea "Invoicing tool for freelancers"   # creates projects/<name>/
+  python codefactory.py run    --project <name>
+  python codefactory.py status --project <name>
+  python codefactory.py list
+  python codefactory.py stop   --project <name>     # clean stop after the current task
+  python codefactory.py selftest                    # mechanics test with a stub LLM, no Ollama needed
 
 Standard library only. Requires: git, aider (pip install aider-chat), an OpenAI-compatible
 LLM endpoint (Ollama by default). Details: README.md and docs/.
@@ -37,6 +37,7 @@ import os
 import re
 import shlex
 import shutil
+import signal
 import subprocess
 import sys
 import tempfile
@@ -102,18 +103,18 @@ TUNABLE = {"max_attempts_per_task": (2, 5), "max_debug_rounds": (2, 6), "max_fil
 
 PRESETS = stacks.STACKS  # one entry per language/framework, see stacks.py
 
-SAAS_CHECKLIST = [
-    "authentication & sessions", "multi-tenancy / workspaces & roles", "billing/plans/usage limits (stub ok)",
-    "onboarding & activation flow", "settings & profile", "audit log", "notifications / email (stub ok)",
-    "public API + API keys", "input validation & error handling", "structured logging & health endpoint",
-    "rate limiting & security headers", "DB migrations / schema versioning", "data export/import",
-    "analytics dashboard", "admin area", "accessibility & UX polish", "performance & caching",
-    "test coverage & CI config", "Dockerfile & deployment docs", "documentation",
+QUALITY_CHECKLIST = [
+    "clear architecture & module boundaries", "input validation & error handling", "performance & profiling hot paths",
+    "caching & efficient data access", "memory and resource usage", "test coverage (unit + integration)",
+    "CI config & reproducible builds", "structured logging & health checks", "security hardening & dependency hygiene",
+    "accessibility & UX polish", "first-run experience & setup docs", "public API / CLI ergonomics",
+    "configuration & sane defaults", "DB migrations / schema versioning", "Dockerfile & deployment docs",
+    "documentation & examples", "contributor guide & license", "internationalisation where useful",
 ]
 LENSES = [
-    "activation & onboarding", "retention & habit loops", "monetization & plans", "collaboration & teams",
-    "insight & analytics", "integrations & API", "security & admin", "reliability & performance",
-    "UX polish & accessibility", "automation & time saving",
+    "performance & efficiency", "code quality & clean architecture", "first-run experience for everyone",
+    "reliability & error handling", "security & privacy", "accessibility & UX polish",
+    "testing & CI", "documentation & examples", "extensibility & integrations", "simplicity & removing complexity",
 ]
 
 # --------------------------------------------------------------------------- Helpers
@@ -175,6 +176,56 @@ def sh(cmd, cwd: Path, timeout: int = 900, shell: bool = False, env: dict | None
         return 124, f"TIMEOUT after {timeout}s: {cmd}"
     except FileNotFoundError as e:
         return 127, f"Command not found: {e}"
+
+
+def _children() -> dict[int, list[int]]:
+    tree: dict[int, list[int]] = {}
+    for d in Path("/proc").iterdir():
+        if d.name.isdigit():
+            try:
+                ppid = int((d / "stat").read_text().rsplit(")", 1)[1].split()[1])
+            except (OSError, ValueError, IndexError):
+                continue
+            tree.setdefault(ppid, []).append(int(d.name))
+    return tree
+
+
+def process_tree(pid: int) -> list[int]:
+    """pid plus all its descendants (Linux /proc), children last-to-first."""
+    tree, order, todo = _children(), [], [pid]
+    while todo:
+        cur = todo.pop()
+        order.append(cur)
+        todo.extend(tree.get(cur, []))
+    return order
+
+
+def force_stop_pid(pid: int, grace: float = 3.0) -> list[int]:
+    """Terminates pid and everything it started (aider, builds, tests). SIGTERM first, SIGKILL after `grace` seconds."""
+    pids = [x for x in process_tree(pid) if x != os.getpid()]
+    try:  # the run.sh wrapper would otherwise keep a tmux pane or log open
+        parent = int(Path(f"/proc/{pid}/stat").read_text().rsplit(")", 1)[1].split()[1])
+        if b"run.sh" in Path(f"/proc/{parent}/cmdline").read_bytes():
+            pids.append(parent)
+    except (OSError, ValueError, IndexError):
+        pass
+    for sig, wait in ((signal.SIGTERM, grace), (signal.SIGKILL, 1.0)):
+        for x in pids:
+            try:
+                os.kill(x, sig)
+            except OSError:
+                pass
+        end = time.time() + wait
+        while time.time() < end and any(Path(f"/proc/{x}").exists() and not _zombie(x) for x in pids):
+            time.sleep(0.1)
+    return pids
+
+
+def _zombie(pid: int) -> bool:
+    try:
+        return Path(f"/proc/{pid}/stat").read_text().rsplit(")", 1)[1].split()[0] == "Z"
+    except (OSError, IndexError):
+        return True
 
 
 def words(text: str) -> set[str]:
@@ -366,7 +417,7 @@ class LLM:
 class Git:
     def __init__(self, repo: Path):
         self.repo = repo
-        self.id = ["-c", "user.name=saas-agent", "-c", "user.email=agent@local"]
+        self.id = ["-c", "user.name=codefactory", "-c", "user.email=agent@local"]
 
     def run(self, *args, timeout: int = 120):
         return sh(["git", *self.id, *args], self.repo, timeout)
@@ -881,8 +932,8 @@ class Agent:
         if len(avail) > 1:
             try:
                 d = self.llm.json("stack", "planner",
-                                  "You choose the technology stack for a new SaaS product. Prefer the stack that fits the idea best and "
-                                  "that a small team can maintain. Only choose from the given options.",
+                                  "You choose the technology stack for a new open-source project. Prefer the stack that fits the idea best, performs well and "
+                                  "is easy for contributors to maintain. Only choose from the given options.",
                                   f"Idea: {idea}\nOptions: {json.dumps({k: PRESETS[k]['stack'] for k in avail})}\n"
                                   '{"stack": "<one option key>", "reason": "<one sentence>"}')
                 if d.get("stack") in avail:
@@ -917,15 +968,15 @@ class Agent:
         write_text(self.repo / ".gitignore", stacks.gitignore(self.cfg["preset"]))
         self.git.commit_all("scaffold")
         brief = self.llm.json(
-            "brief", "planner", "You are a product strategist for SaaS products. Realistic, focused, start small.",
+            "brief", "planner", "You are a senior engineer and product designer building the best open-source project in its category: fast, cleanly written, great experience for everyone. Realistic, focused, start small. No monetization.",
             f"Idea: {idea}\nStack: {self.cfg['stack']}\nSchema: "
             '{"name": "", "vision": "", "target_users": ["..."], "problems": ["..."], "mvp_features": '
             '[{"title": "", "description": "", "acceptance": ["testable"], "value": 1-10, "effort": 1-10}], '
-            '"non_goals": ["..."], "monetization": "", "quality_bar": ["..."]}')
+            '"non_goals": ["..."], "performance_goals": ["measurable"], "quality_bar": ["..."]}')
         goal = (f"# {brief.get('name', 'Product')}\n\nIdea: {idea}\n\n## Vision\n{brief.get('vision', '')}\n\n"
                 f"## Target audience\n" + "".join(f"- {x}\n" for x in brief.get("target_users", [])) +
                 "\n## Problems\n" + "".join(f"- {x}\n" for x in brief.get("problems", [])) +
-                f"\n## Monetization\n{brief.get('monetization', '')}\n\n## Non-goals\n" +
+                "\n## Performance goals\n" + "".join(f"- {x}\n" for x in brief.get("performance_goals", [])) + "\n## Non-goals\n" +
                 "".join(f"- {x}\n" for x in brief.get("non_goals", [])) + "\n## Quality bar\n" +
                 "".join(f"- {x}\n" for x in brief.get("quality_bar", [])) + f"\n## Stack\n{self.cfg['stack']}\n")
         write_text(self.dir / "GOAL.md", goal)
@@ -1185,10 +1236,10 @@ class Agent:
         if lp.exists():
             lessons = "\n".join(json.loads(l)["lesson"] for l in lp.read_text("utf-8").splitlines()[-8:] if l.strip())
         ideas = self.llm.json(
-            "ideate", "planner", "You are the product manager of a growing SaaS. Propose improvements that deliver user value, "
+            "ideate", "planner", "You are the maintainer of an open-source project that aims to be the best in its category: performant, cleanly written, excellent for everyone. Never propose monetization, billing or growth hacks. Propose improvements that deliver user value, "
             "are small enough for one iteration and fit the product goal. No duplicates.",
             f"Product goal:\n{clip(self.goal, 2500)}{self.directive}{self.web_digest()}\n\nAlready built: {feats}\nIn backlog: {self.backlog.titles()[-30:]}\n"
-            f"Focus lens: {lens}\nSaaS checklist (fill the gaps): {SAAS_CHECKLIST}\nLessons: {lessons}\n"
+            f"Focus lens: {lens}\nQuality checklist (fill the gaps): {QUALITY_CHECKLIST}\nLessons: {lessons}\n"
             f"Give {self.lim['ideation_batch'] * 2} ideas. Schema: "
             '{"ideas": [{"title": "", "description": "", "type": "feature|refactor|bug|docs|test", "rationale": "", '
             '"acceptance": ["testable"], "value": 1-10, "effort": 1-10, "risk": 1-10}]}')
@@ -1224,7 +1275,7 @@ class Agent:
         data = self.llm.json(
             "product_review", "reviewer", "You are an independent product auditor. Find concrete gaps in quality and completeness.",
             f"Goal:\n{clip(self.goal, 2000)}{self.directive}\nCodemap:\n{clip(self.mem.render_codemap(), 9000)}\nBuild/Test: {report[:500]}\n"
-            f"Checklist: {SAAS_CHECKLIST}\nSchema: "
+            f"Checklist: {QUALITY_CHECKLIST}\nSchema: "
             '{"scores": {"completeness": 1-10, "code_quality": 1-10, "test_coverage": 1-10, "docs": 1-10, "ux": 1-10}, '
             '"items": [{"title": "", "description": "", "type": "feature|bug|refactor|docs|test", "acceptance": [], "priority": 1-10}]}')
         self.metric(kind="product_review", scores=data.get("scores"))
@@ -1643,6 +1694,22 @@ class Agent:
         except (OSError, ValueError):
             return False
 
+    def force_stop(self) -> str:
+        """Kill switch: ends the running agent immediately, mid-task. The next start resets the repo and re-queues the task."""
+        write_text(self.dir / "STOP", "force\n")
+        try:
+            pid = int((self.dir / "agent.pid").read_text())
+        except (OSError, ValueError):
+            pid = 0
+        killed = force_stop_pid(pid) if pid else []
+        sh(["tmux", "kill-session", "-t", f"agent-{self.ws.name}"], self.dir)
+        for f in ("agent.pid", "llm_now.json", "coder_now.json"):
+            (self.dir / f).unlink(missing_ok=True)
+        self.cur_task, self.cur_attempt = "", 0
+        self.phase("Force-stopped", None, "kill switch used; unfinished work is discarded on the next start")
+        self.log(f"FORCE STOP: ended {len(killed)} process(es).")
+        return f"Force-stopped {self.ws.name}: {len(killed)} process(es) ended" if killed else "No running agent found (STOP flag set)"
+
     def detect_run_plan(self) -> dict:
         """Build steps (shell commands) plus start command, URL and artifact for the user, from the stack definition."""
         st = PRESETS.get(self.cfg["preset"])
@@ -1712,7 +1779,7 @@ class Agent:
 
 def selftest() -> None:
     """Checks the loop mechanics with a stub LLM and stub coder (no Ollama/Aider needed)."""
-    ws = Path(tempfile.mkdtemp(prefix="saas-selftest-"))
+    ws = Path(tempfile.mkdtemp(prefix="codefactory-selftest-"))
     counter = {"n": 0}
 
     def fake_llm(tag, role, system, user):
@@ -1839,7 +1906,7 @@ def pick_project(root: Path, name: str | None) -> Path:
 def main() -> None:
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     sub = ap.add_subparsers(dest="cmd", required=True)
-    for name in ("init", "run", "status", "stop"):
+    for name in ("init", "run", "status", "stop", "force-stop"):
         p = sub.add_parser(name)
         p.add_argument("--projects-dir", default="projects", help="Folder containing all projects")
         if name == "init":
@@ -1911,6 +1978,9 @@ def main() -> None:
     if a.cmd == "say":
         Agent(ws).add_feedback(a.msg)
         print("Added to IDEAS.md. The agent will re-plan on its next pass.")
+        return
+    if a.cmd == "force-stop":
+        print(Agent(ws).force_stop())
         return
     if a.cmd == "stop":
         write_text(ws / "agent" / "STOP", "stop\n")

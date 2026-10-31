@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>SaaS Agent</title>
+<title>CodeFactory</title>
 <style>
 :root{--bg:#121212;--panel:#1b1b1b;--panel2:#242424;--line:#333;--text:#e4e4e4;--mute:#8e8e8e;--ok:#5fb36b;--warn:#d6a23c;--bad:#d9605a;--info:#6fa3d8}
 *{box-sizing:border-box}
@@ -87,7 +87,7 @@ details .inner{padding:0 12px 12px}
 </head>
 <body>
 <aside>
-  <header>SaaS Agent</header>
+  <header>CodeFactory</header>
   <div class="side-actions">
     <button class="primary" onclick="openNew()">+ New idea</button>
     <button onclick="openMaster()" title="Global instructions for all projects">Master prompt</button>
@@ -145,6 +145,7 @@ async function act(a,body,ok){try{const r=await api(`/api/project/${sel}/${a}`,b
 const fmtDur=s=>{s=Math.max(0,Math.round(s));return s<60?s+"s":Math.floor(s/60)+"m "+(s%60)+"s"};
 const fmtDiff=t=>esc(t).split("\n").map(l=>{const c=l.startsWith("+++")||l.startsWith("---")||l.startsWith("diff ")||l.startsWith("index ")?"meta":l.startsWith("+")?"add":l.startsWith("-")?"del":l.startsWith("@@")?"hunk":"";return c?`<span class="${c}">${l}</span>`:l}).join("\n");
 
+async function forceStop(){if(!confirm('Force stop kills the agent and everything it runs right now. The unfinished task is discarded and retried on the next start. Continue?'))return;try{const r=await api(`/api/project/${sel}/force-stop`,{});toast(r.message||'Force-stopped');await refresh()}catch(e){toast(e.message,true)}}
 function statusOf(p){return p.running?(p.stopping?["stop","stopping after task"]:["run","running"]):["","stopped"]}
 function renderList(){
   const jobs=list.init_jobs.map(j=>`<div class="job">${j.running?"Creating":"Failed"}: <b>${esc(j.name)}</b><br><code>${esc((j.log||"").split("\n").slice(-3).join(" "))}</code></div>`).join("");
@@ -182,7 +183,7 @@ function renderProject(){
   const pillF=d.failures?`<span class="pill bad">${d.failures} consecutive failures</span>`:"";
   const head=`<div class="top"><div><h1>${esc(d.name)} <span class="pill ${c==="run"?"ok":c==="stop"?"warn":""}">${t}</span> ${pillF}</h1><div class="idea">${esc(d.idea)}</div></div>
   <div class="btns">
-    ${d.running?`<button class="danger" onclick="act('stop',{},'Will stop after the current task')" ${d.stopping?"disabled":""}>Stop</button>`:`<button class="primary" onclick="act('start',{},'Agent started')">Start</button>`}
+    ${d.running?`<button class="danger" onclick="act('stop',{},'Will stop after the current task')" ${d.stopping?"disabled":""}>Stop</button><button class="danger" title="Kill switch: ends the agent and all its processes immediately; unfinished work is discarded" onclick="forceStop()">Force stop</button>`:`<button class="primary" onclick="act('start',{},'Agent started')">Start</button>`}
     <button onclick="doTry()" ${d.try_running?"disabled":""}>${d.try_running?"Building test version…":"Test now"}</button>
   </div></div>
   <div class="stats">
@@ -220,7 +221,7 @@ function projectBody(d){
     const mine=d.backlog_items.filter(i=>i.source==="user");
     return `<div class="panel"><h3>Give the agent a concrete job</h3>
     <p class="hint">The agent does <b>exactly this</b> in the product, with the full pipeline (plan, implement, build, tests, review, merge), and nothing else: no new ideas. If it is idle it runs just this job and stops; if it is already running it does your job next.</p>
-    <textarea id="task" rows="6" oninput="dirty=true" placeholder="e.g. Extend the website with a pricing page with three plans, linked from the header"></textarea>
+    <textarea id="task" rows="6" oninput="dirty=true" placeholder="e.g. Extend the website with a dark mode toggle, remembered across visits"></textarea>
     <div class="row" style="justify-content:flex-end;margin-top:10px"><button class="primary" onclick="runTask()">Run this task</button></div></div>
     <div class="panel" style="margin-top:16px"><h3>Your tasks</h3>${mine.length?`<table>${mine.map(i=>`<tr><td>${esc(i.id)}</td><td>${esc(i.title)}</td><td><span class="pill ${i.status==="done"?"ok":i.status==="blocked"?"bad":""}">${esc(i.status)}</span></td></tr>`).join("")}</table>`:'<div class="hint">None yet.</div>'}</div>`;
   }

@@ -9,7 +9,7 @@ ROOT = Path(__file__).resolve().parent.parent
 
 class SelftestTest(unittest.TestCase):
     def test_selftest_passes(self):
-        p = subprocess.run([sys.executable, "saas_agent.py", "selftest"], cwd=ROOT, capture_output=True, text=True)
+        p = subprocess.run([sys.executable, "codefactory.py", "selftest"], cwd=ROOT, capture_output=True, text=True)
         self.assertEqual(p.returncode, 0, p.stdout + p.stderr)
         self.assertIn("SELFTEST OK", p.stdout)
 
