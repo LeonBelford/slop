@@ -1,0 +1,22 @@
+{
+  "preset": "fastapi",
+  "doc_language": "German",
+  "models": {
+    "planner": "qwen2.5-coder-agent",
+    "reviewer": "qwen2.5-coder-agent",
+    "summarizer": "qwen2.5-coder-agent"
+  },
+  "coder_model": "ollama_chat/qwen2.5-coder-agent",
+  "limits": {
+    "max_hours": 8,
+    "max_iterations": 200,
+    "max_attempts_per_task": 3,
+    "max_debug_rounds": 3,
+    "ideation_batch": 3
+  },
+  "features": {
+    "cleanup_pass": true,
+    "require_tests": true,
+    "plan_critique": true
+  }
+}
