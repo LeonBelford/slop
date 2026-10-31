@@ -10,17 +10,18 @@ Nur die Startidee kommt von dir. Danach läuft eine äußere Schleife, die selbs
   -> Review -> Cleanup-Pass (nur mit grünem Build) -> Gedächtnis+Doku aktualisieren
   -> Commit -> Merge nach main -> Build auf main (bei Rot: Rollback)
 
-Layout (alles unter --workspace):
+Layout (pro Idee ein eigener Ordner unter projects/<name>/):
   repo/     Git-Repo des Produkts (inkl. docs/)
-  agent/    Zustand AUSSERHALB des Repos, damit `git reset` ihn nie zerstört:
-            config.json state.json backlog.json memory/ runs/ agent.log metrics.jsonl STOP
+  agent/    Zustand dieses Projekts AUSSERHALB des Repos, damit `git reset` ihn nie zerstört:
+            config.json state.json backlog.json GOAL.md memory/ runs/ agent.log metrics.jsonl STOP
 
 Aufrufe:
-  python saas_agent.py init     --workspace ./saas --idea "Rechnungs-Tool für Freelancer"
-  python saas_agent.py run      --workspace ./saas
-  python saas_agent.py status   --workspace ./saas
-  python saas_agent.py selftest             # Mechanik-Test mit Stub-LLM, ohne Ollama
-  touch ./saas/agent/STOP                   # sauberer Stopp nach der aktuellen Aufgabe
+  python saas_agent.py init   --idea "Rechnungs-Tool für Freelancer"   # legt projects/<name>/ an
+  python saas_agent.py run    --project <name>
+  python saas_agent.py status --project <name>
+  python saas_agent.py list
+  python saas_agent.py stop   --project <name>     # sauberer Stopp nach der aktuellen Aufgabe
+  python saas_agent.py selftest                    # Mechanik-Test mit Stub-LLM, ohne Ollama
 
 Nur Standardbibliothek. Benötigt: git, aider (pip install aider-chat), einen OpenAI-kompatiblen
 LLM-Endpunkt (Standard Ollama). Details: README.md und docs/.
@@ -1184,34 +1185,74 @@ def selftest() -> None:
     print("SELFTEST OK ->", ws)
 
 
+def slugify(text: str) -> str:
+    s = re.sub(r"[^a-z0-9]+", "-", text.lower().replace("ä", "ae").replace("ö", "oe").replace("ü", "ue").replace("ß", "ss"))
+    return "-".join(s.strip("-").split("-")[:5])[:40] or "projekt"
+
+
+def unique_slug(root: Path, text: str) -> str:
+    slug = slugify(text)
+    n, cand = 2, slug
+    while (root / cand).exists():
+        cand, n = f"{slug}-{n}", n + 1
+    return cand
+
+
+def list_projects(root: Path) -> list[Path]:
+    return sorted(p for p in root.glob("*") if (p / "agent" / "GOAL.md").exists())
+
+
+def pick_project(root: Path, name: str | None) -> Path:
+    if name:
+        ws = root / name
+        if not (ws / "agent").exists():
+            sys.exit(f"Projekt '{name}' nicht gefunden in {root}/. Vorhanden: {[p.name for p in list_projects(root)]}")
+        return ws
+    found = list_projects(root)
+    if len(found) != 1:
+        sys.exit(f"Bitte --project angeben. Vorhanden: {[p.name for p in found]}")
+    return found[0]
+
+
 def main() -> None:
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     sub = ap.add_subparsers(dest="cmd", required=True)
-    for name in ("init", "run", "status"):
+    for name in ("init", "run", "status", "stop"):
         p = sub.add_parser(name)
-        p.add_argument("--workspace", required=True)
+        p.add_argument("--projects-dir", default="projects", help="Ordner, der alle Projekte enthält")
         if name == "init":
             p.add_argument("--idea", required=True)
+            p.add_argument("--name", help="Projektordner (Standard: aus der Idee abgeleitet)")
             p.add_argument("--preset", default="fastapi", choices=list(PRESETS))
             p.add_argument("--config", help="Pfad zu einer config.json (siehe config.example.json)")
+        else:
+            p.add_argument("--project", help="Projektname (optional, wenn es nur ein Projekt gibt)")
+    p_list = sub.add_parser("list")
+    p_list.add_argument("--projects-dir", default="projects")
     sub.add_parser("selftest")
     a = ap.parse_args()
     if a.cmd == "selftest":
         return selftest()
-    ws = Path(a.workspace)
+    root = Path(a.projects_dir)
+    if a.cmd == "list":
+        for p in list_projects(root):
+            print(f"{p.name}: {Agent(p).status()}")
+        return
     if a.cmd == "init":
-        ws.mkdir(parents=True, exist_ok=True)
-        (ws / "agent").mkdir(exist_ok=True)
-        if not (ws / "agent" / "config.json").exists():
-            base = read_json(Path(a.config), {}) if a.config else {}
-            write_json(ws / "agent" / "config.json", {"preset": a.preset, **base})
-    agent = Agent(ws)
-    if a.cmd == "init":
-        agent.init(a.idea)
+        ws = root / unique_slug(root, a.name or a.idea)
+        (ws / "agent").mkdir(parents=True, exist_ok=True)
+        base = read_json(Path(a.config), {}) if a.config else {}
+        write_json(ws / "agent" / "config.json", {"preset": a.preset, **base})
+        print(f"Projekt: {ws}")
+        return Agent(ws).init(a.idea)
+    ws = pick_project(root, a.project)
+    if a.cmd == "stop":
+        write_text(ws / "agent" / "STOP", "stop\n")
+        print(f"STOP gesetzt für {ws.name}")
     elif a.cmd == "run":
-        agent.run()
+        Agent(ws).run()
     else:
-        print(agent.status())
+        print(Agent(ws).status())
 
 
 if __name__ == "__main__":

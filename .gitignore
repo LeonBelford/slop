@@ -2,6 +2,5 @@
 __pycache__/
 *.pyc
 .env
-workspaces/
-saas/
+projects/
 .aider*

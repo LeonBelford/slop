@@ -3,64 +3,83 @@
 Du gibst **eine Idee** vor. Der Agent entwirft das Produkt, baut es in kleinen Schritten, erfindet danach selbst neue Features,
 testet, debuggt, räumt auf und dokumentiert, bis du ihn stoppst oder ein Limit greift. Alles läuft lokal mit Ollama + Aider.
 
-> Stand: Die Schleifenmechanik ist mit einem Stub-Modell getestet (`make selftest`, läuft auch in CI).
-> Mit einem echten Modell wurde sie noch nicht gelaufen. Starte zuerst mit einem kleinen Ziel und beobachte `agent.log`.
+> Die Schleifenmechanik ist mit einem Stub-Modell getestet (`make selftest`, auch in CI). Mit echtem Modell wurde sie noch nicht
+> gelaufen. Starte mit einer kleinen Idee und beobachte `agent.log`.
 
 ## Voraussetzungen
-- Linux/macOS/WSL, Python ≥ 3.10, git
-- [Ollama](https://ollama.com/download) mit GPU-Treiber
-- Empfohlen: 12 GB VRAM (z. B. RTX 3060) und 16 GB RAM → Modelle siehe [docs/MODELS.md](docs/MODELS.md)
+Linux/macOS/WSL, Python ≥ 3.10, git, [Ollama](https://ollama.com/download). Empfohlen: 12 GB VRAM (RTX 3060) und 16 GB RAM.
 
-## Schnellstart
+## Benutzung
 ```bash
 git clone https://github.com/LeonBelford/slop && cd slop
-make setup                      # venv, aider, Modell "qwen2.5-coder-agent" (14B, 12k Kontext)
-make selftest                   # Mechanik prüfen, ohne Modell
-make init WS=workspaces/demo IDEA="Rechnungs-Tool für Freelancer mit Mahnwesen"
-make tmux WS=workspaces/demo    # läuft im Hintergrund, `tmux attach -t agent` zum Zuschauen
-make status WS=workspaces/demo
-make stop WS=workspaces/demo    # sauberer Stopp nach der aktuellen Aufgabe
-```
-Eigene Einstellungen: `CONFIG=config.example.json make init ...` (vorher kopieren und anpassen).
+make setup                                   # venv, aider, Modell "qwen2.5-coder-agent" (14B, 12k Kontext)
+make selftest                                # Mechanik ohne Modell prüfen
 
-## Dateistruktur
+make init IDEA="Rechnungs-Tool für Freelancer"   # legt projects/<name>/ an (Name optional: NAME=rechnungen)
+make tmux P=rechnungen                       # läuft im Hintergrund; tmux attach -t agent-rechnungen
+make status P=rechnungen
+make stop P=rechnungen                       # sauberer Stopp nach der aktuellen Aufgabe
+make list                                    # alle Projekte
+```
+`P` darf entfallen, wenn es nur ein Projekt gibt. Eigene Einstellungen: `config.example.json` kopieren, anpassen und mit
+`CONFIG=meine.json make init ...` übergeben.
+
+## Struktur
 ```
 slop/
-├─ saas_agent.py            die komplette Schleife (nur Standardbibliothek)
-├─ requirements.txt         aider-chat
-├─ Makefile                 setup / selftest / init / run / status / stop / tmux
-├─ .env.example             Endpunkt und Modelle (nach .env kopieren)
-├─ config.example.json      Limits, Modelle, Feature-Schalter pro Workspace
-├─ scripts/
-│  ├─ setup.sh              venv + Aider + Ollama-Modell
-│  ├─ run.sh                lädt .env + venv, ruft den Agenten auf
-│  └─ Modelfile.qwen-coder-14b   Basismodell mit num_ctx 12288
-├─ docs/                    ARCHITECTURE · MODELS · RUST · TROUBLESHOOTING
-├─ examples/ideas.md        Beispiel-Ideen
-├─ tests/test_selftest.py   Mechanik-Test
-└─ .github/workflows/ci.yml CI
+├─ saas_agent.py        die komplette Schleife (nur Standardbibliothek)
+├─ Makefile, scripts/   setup.sh · run.sh · Modelfile für 12 GB VRAM
+├─ .env.example, config.example.json
+├─ docs/ARCHITECTURE.md Gedächtnis, Impact-Analyse, Config im Detail
+├─ tests/, .github/     Selftest und CI
+└─ projects/            pro Idee ein Ordner (nicht im Git)
+   └─ <name>/
+      ├─ repo/          das Produkt als eigenes Git-Repo inkl. docs/, CHANGELOG, README
+      └─ agent/         Zustand und Gedächtnis dieses Projekts (außerhalb von repo/)
+         ├─ GOAL.md, backlog.json, state.json, config.json, agent.log, metrics.jsonl
+         ├─ memory/     codemap · features · decisions · lessons · ARCHITECTURE
+         └─ runs/       Prompts, Pläne, Aider-Logs pro Aufgabe
 ```
-Pro Projekt entsteht unter `--workspace`:
-```
-repo/    das Produkt als Git-Repo, inkl. docs/ (ARCHITECTURE, CODEMAP, FEATURES, DECISIONS, modules/*), CHANGELOG, README
-agent/   Zustand außerhalb des Repos: GOAL.md, backlog.json, state.json, metrics.jsonl, agent.log, STOP,
-         memory/ (codemap.json, features.json, decisions.jsonl, lessons.jsonl, ARCHITECTURE.md), runs/<iter>-<task>/
-```
+Jedes Projekt hat damit seine eigene Codebase und sein eigenes Gedächtnis; nichts wird zwischen Projekten geteilt.
 
-## Was die Schleife pro Aufgabe tut
-1. **Health:** Ist `main` grün? Sonst wird zuerst repariert.
-2. **Backlog leer?** Produkt-Review und Ideation (rotierende Linsen, SaaS-Checkliste, Kritiker-Bewertung, Dubletten-Filter).
-3. **Impact-Analyse vor jeder Änderung:** Gedächtnis (Codemap, Abhängigkeitsgraph in beide Richtungen, ADRs, Lessons) → Plan → Plan-Kritik.
-4. **Umsetzen** mit Aider auf eigenem Branch, **Build + Tests**, bis zu 3 Debug-Runden. Features ohne Tests werden nicht akzeptiert.
-5. **Review** (Score < 7 → Überarbeitung), **Cleanup-Pass** (wird bei rotem Build verworfen).
-6. **Gedächtnis + Doku** aktualisieren, committen, **Build**, Merge nach `main`, **Build auf main** (bei Rot: Rollback).
+## Ablauf pro Aufgabe
+1. `main` grün? Sonst zuerst reparieren.
+2. Backlog leer → Produkt-Review und Ideation (rotierende Linsen, SaaS-Checkliste, Kritiker, Dubletten-Filter).
+3. **Impact-Analyse** mit Gedächtnis (Codemap, Abhängigkeiten in beide Richtungen, ADRs, Lessons) → Plan → Plan-Kritik.
+4. Umsetzung mit Aider auf eigenem Branch → **Build + Tests**, bis zu 3 Debug-Runden; Features ohne Tests werden abgelehnt.
+5. Review (Score < 7 → Überarbeitung), Cleanup-Pass (bei rotem Build verworfen).
+6. Gedächtnis und Doku aktualisieren, Commit, **Build**, Merge, **Build auf main** (bei Rot Rollback).
 7. Fehlversuche werden zu Lessons; nach 3 Versuchen gilt die Aufgabe als blockiert.
 
-Gestoppt wird durch: `STOP`-Datei, `max_hours`, `max_iterations`, zu viele Fehler in Folge oder dauerhaft keine neuen Ideen.
-Mehr in [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md).
+Ende durch: `stop`, `max_hours`, `max_iterations`, 5 Fehlschläge in Folge oder dauerhaft keine neuen Ideen.
 
-## Wichtige Hinweise
-- Der Agent arbeitet nur im `repo/` des Workspaces und führt dort Build-/Test-Befehle aus (siehe `commands` in der Config). Starte ihn nicht in einem Ordner mit privaten Daten; für mehr Isolation in einen Container oder eine VM.
-- Er veröffentlicht nichts und gibt kein Geld aus. Prüfe den Code, bevor du etwas deployst.
-- Das Modell sieht nur ca. 12k Token Kontext, deshalb arbeitet der Agent mit kleinen Aufgaben und dem Gedächtnis.
-- Erwarte bei 14B-Modellen kleine Produkte und gelegentliche Sackgassen. Ein stärkeres Modell für Planung/Review (`models.planner`/`reviewer`, per OpenAI-kompatibler API) hebt die Qualität am meisten.
+## Modelle (RTX 3060, 12 GB)
+Richtwerte, nicht auf deiner Hardware gemessen; Tags und Lizenzen auf [ollama.com/library](https://ollama.com/library) prüfen.
+
+| Modell | ca. Größe Q4 | Einsatz |
+|---|---|---|
+| `qwen2.5-coder:14b` | 9 GB | Standard für alle Rollen |
+| `qwen2.5-coder:7b` | 5 GB | schneller, z. B. als `summarizer` |
+| `qwen3:8b` / `qwen3:14b` | 5 / 9 GB | Planung und Review |
+| `deepseek-coder-v2:16b` | 9 GB (MoE) | schnell durch wenige aktive Parameter |
+| `gemma3:12b` | 8 GB | Ideen und Doku |
+| `gpt-oss:20b`, 24B+ | 13 GB+ | nur mit CPU-Offload, bei 16 GB RAM nicht empfohlen |
+
+`num_ctx` setzen (macht das Modelfile), sonst wird der Kontext abgeschnitten. Größter Qualitätshebel: `models.planner`/`reviewer`
+auf ein stärkeres Modell über `LLM_API` legen; der Code kommt weiter vom lokalen Coder.
+
+## Rust-Engines?
+Es gibt kein "Rust-Modell", Rust steckt in Inferenz-Engines. Open Source (per GitHub geprüft): mistral.rs (MIT), candle und burn
+(Apache-2.0). Für diesen Agenten lohnt der Wechsel von Ollama kaum, da Tempo vom Modell und der GPU kommt. Möglich ist er über
+jeden OpenAI-kompatiblen Server (`LLM_API`, für Aider `CODER_MODEL=openai/<name>` + `OPENAI_API_BASE`), ungetestet.
+
+## Probleme
+- `LLM nicht erreichbar`: läuft `ollama serve`? `curl localhost:11434/api/tags`.
+- Agent wirkt vergesslich: `num_ctx` zu klein (`ollama show qwen2.5-coder-agent`).
+- Zu langsam: kleineres Modell als `summarizer`, `features.cleanup_pass` abschalten.
+- Aufgabe `blocked`: `runs/<iter>-<id>/` und `memory/lessons.jsonl` lesen, Status in `backlog.json` auf `pending` setzen.
+- Aider-Option unbekannt: `pip install -U aider-chat`, Flags in `Agent.code` anpassen.
+
+## Sicherheit
+Der Agent arbeitet nur in `projects/<name>/repo/`, führt dort aber Build- und Testbefehle ohne Sandbox aus. Nutze bei Bedarf
+Container oder VM. Er veröffentlicht nichts und gibt kein Geld aus; prüfe den Code vor einem Deployment.
