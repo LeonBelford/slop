@@ -1,6 +1,6 @@
-WS ?= workspaces/demo
+P ?=
 
-.PHONY: setup selftest init run status stop tmux
+.PHONY: setup selftest init run status stop list tmux
 
 setup:
 	bash scripts/setup.sh
@@ -8,17 +8,15 @@ setup:
 selftest:
 	python3 saas_agent.py selftest
 
+# make init IDEA="Rechnungs-Tool für Freelancer" [NAME=rechnungen]
 init:
-	bash scripts/run.sh init $(WS) "$(IDEA)"
+	bash scripts/run.sh init "$(IDEA)" $(NAME)
 
-run:
-	bash scripts/run.sh run $(WS)
+run status stop:
+	bash scripts/run.sh $@ $(P)
 
-status:
-	bash scripts/run.sh status $(WS)
-
-stop:
-	touch $(WS)/agent/STOP
+list:
+	bash scripts/run.sh list
 
 tmux:
-	tmux new -d -s agent "bash scripts/run.sh run $(WS)" && echo "läuft: tmux attach -t agent"
+	tmux new -d -s agent-$(P) "bash scripts/run.sh run $(P)" && echo "läuft: tmux attach -t agent-$(P)"
