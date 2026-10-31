@@ -140,6 +140,9 @@ any OpenAI-compatible server (`LLM_API`, for Aider `CODER_MODEL=openai/<name>` +
 ## Troubleshooting
 See [docs/GUIDE.md](docs/GUIDE.md#10-troubleshooting).
 
+- **`make init` seems stuck:** the first model answer can take several minutes (the model has to load into VRAM, and a 14B model on 12 GB VRAM / 16 GB RAM is slow). The agent prints `... still waiting for the model` every 30 s. Check `ollama ps` and `nvtop`/`nvidia-smi` in a second terminal; use a smaller model (e.g. `qwen2.5-coder:7b`) in `.env` if it is too slow. Do not press Ctrl+C: an interrupted init leaves no project behind.
+- **"Cannot reach the model server" / "Model(s) not installed":** the agent now checks Ollama and the model names from `.env` before starting; follow the printed hint (`ollama serve`, `ollama list`).
+
 ## Security
 The agent works only in `projects/<name>/repo/`, but runs build and test commands there without a sandbox. Use a container or VM
 if needed. It publishes nothing and spends no money; review the code before deploying.
