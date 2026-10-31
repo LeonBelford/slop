@@ -764,7 +764,7 @@ class Agent:
             write_text(self.ideas_path, IDEAS_TEMPLATE.format(idea=idea))
         for rel, content in SCAFFOLDS[self.cfg["preset"]].items():
             write_text(self.repo / rel, content)
-        write_text(self.repo / ".gitignore", ".venv/\n__pycache__/\n.pytest_cache/\n.aider*\nnode_modules/\n*.db\n.env\n")
+        write_text(self.repo / ".gitignore", ".venv/\ndist/\nbin/\nobj/\ntarget/\n__pycache__/\n.pytest_cache/\n.aider*\nnode_modules/\n*.db\n.env\n")
         self.git.commit_all("scaffold")
         brief = self.llm.json(
             "brief", "planner", "Du bist Produktstratege für SaaS-Produkte. Realistisch, fokussiert, klein anfangen.",
@@ -1188,6 +1188,13 @@ class Agent:
         if not (self.dir / "GOAL.md").exists():
             sys.exit("Workspace nicht initialisiert: erst `init --idea ...`.")
         (self.dir / "STOP").unlink(missing_ok=True)
+        write_text(self.dir / "agent.pid", str(os.getpid()))
+        try:
+            self._run_loop()
+        finally:
+            (self.dir / "agent.pid").unlink(missing_ok=True)
+
+    def _run_loop(self) -> None:
         for it in self.backlog.items:  # Aufgaben eines abgebrochenen Laufs wieder aufnehmen
             if it["status"] == "in_progress":
                 it["status"] = "pending"
@@ -1220,6 +1227,81 @@ class Agent:
         self.state["elapsed"] += time.time() - started
         self.save_state()
         self.log(f"Ende: {reason}")
+
+    # ---- Interaktiv: testbare Version bauen
+    def is_running(self) -> bool:
+        try:
+            pid = int((self.dir / "agent.pid").read_text())
+            os.kill(pid, 0)
+            return True
+        except (OSError, ValueError):
+            return False
+
+    def detect_run_plan(self) -> dict:
+        """Erkennt den Projekttyp und liefert Build-Schritte plus Startbefehl für den Nutzer."""
+        r = self.repo
+        if list(r.glob("*.sln")) or list(r.glob("**/*.csproj")):
+            return {"kind": ".NET", "build": [["dotnet", "publish", "-c", "Release", "-o", "dist"]],
+                    "run": "dotnet run", "binary": "dist/ (ausführbare Datei darin, ohne Endung unter Linux)"}
+        if (r / "Cargo.toml").exists():
+            return {"kind": "Rust", "build": [["cargo", "build", "--release"]], "run": "cargo run --release",
+                    "binary": "target/release/<name>"}
+        if (r / "go.mod").exists():
+            return {"kind": "Go", "build": [["go", "build", "-o", "dist/app", "."]], "run": "go run .", "binary": "dist/app"}
+        if (r / "package.json").exists():
+            return {"kind": "Node", "build": [["npm", "install"]], "run": "npm start", "binary": ""}
+        if (r / "app" / "main.py").exists() and self.cfg["preset"] == "fastapi":
+            return {"kind": "FastAPI", "build": [["python3", "-m", "venv", ".venv"],
+                                                 [".venv/bin/pip", "install", "-q", "-r", "requirements.txt"]],
+                    "run": ".venv/bin/uvicorn app.main:app --reload", "binary": "",
+                    "url": "http://127.0.0.1:8000 (API-Doku: /docs)"}
+        return {"kind": "unbekannt", "build": [], "run": "siehe README.md im repo/", "binary": ""}
+
+    def try_version(self, wait_minutes: int = 60) -> str:
+        """Pausiert den Agenten nach der aktuellen Aufgabe, baut den aktuellen main-Stand und schreibt TESTEN.md."""
+        if self.is_running():
+            write_text(self.dir / "STOP", "try\n")
+            print("Agent läuft noch, beende erst die aktuelle Aufgabe ...", flush=True)
+            deadline = time.time() + wait_minutes * 60
+            while self.is_running() and time.time() < deadline:
+                time.sleep(3)
+            if self.is_running():
+                return "Agent hat nicht rechtzeitig angehalten. Später erneut versuchen."
+        self.git.run("checkout", "-q", "main")
+        self.git.hard_reset()
+        plan = self.detect_run_plan()
+        log = []
+        for cmd in plan["build"]:
+            rc, out = sh(cmd, self.repo, timeout=1200)
+            log.append(f"$ {' '.join(cmd)} -> {rc}")
+            if rc != 0:
+                log.append(clip(out, 1500))
+                break
+        failed = any(l.endswith("-> 127") or ("-> " in l and not l.endswith("-> 0")) for l in log if l.startswith("$"))
+        sha_ = self.git.out("rev-parse", "--short", "main")
+        lines = [f"# Testversion von {self.ws.name}", "", f"Stand: Commit {sha_}, Typ: {plan['kind']}",
+                 f"Ordner: {self.repo}", ""]
+        if failed:
+            lines += ["## Build fehlgeschlagen", "```", *log, "```", "Fehlende Werkzeuge installieren oder dem Agenten per `make say` melden."]
+        else:
+            lines += ["## So startest du es", "```", f"cd {self.repo}", plan["run"], "```"]
+            if plan.get("url"):
+                lines.append(f"Dann im Browser öffnen: {plan['url']}")
+            if plan["binary"]:
+                lines.append(f"Fertige Binary: {plan['binary']}")
+        lines += ["", "## Danach", "- Feedback an den Agenten: `make say P=<name> MSG=\"Der Button geht nicht\"`",
+                  "- Weiterarbeiten lassen: `make tmux P=<name>`", ""]
+        report = "\n".join(lines)
+        write_text(self.ws / "TESTEN.md", report)
+        return report
+
+    def add_feedback(self, text: str) -> None:
+        """Hängt Nutzerfeedback an IDEAS.md an; der Agent plant beim nächsten Schleifendurchlauf neu."""
+        sec = "## Feedback aus Tests"
+        cur = self.ideas_path.read_text("utf-8") if self.ideas_path.exists() else ""
+        if sec not in cur:
+            cur = cur.rstrip() + f"\n\n{sec}\n"
+        write_text(self.ideas_path, cur.rstrip() + f"\n- {now()[:16]}: {text}\n")
 
     def status(self) -> str:
         c: dict[str, int] = {}
@@ -1346,6 +1428,12 @@ def main() -> None:
             p.add_argument("--config", help="Pfad zu einer config.json (siehe config.example.json)")
         else:
             p.add_argument("--project", help="Projektname (optional, wenn es nur ein Projekt gibt)")
+    p_try = sub.add_parser("try", help="Agent pausieren, Testversion bauen und Startanleitung ausgeben")
+    p_say = sub.add_parser("say", help="Feedback/Wunsch in IDEAS.md eintragen")
+    for q in (p_try, p_say):
+        q.add_argument("--projects-dir", default="projects")
+        q.add_argument("--project")
+    p_say.add_argument("--msg", required=True)
     p_list = sub.add_parser("list")
     p_list.add_argument("--projects-dir", default="projects")
     sub.add_parser("selftest")
@@ -1365,6 +1453,13 @@ def main() -> None:
         print(f"Projekt: {ws}")
         return Agent(ws).init(a.idea)
     ws = pick_project(root, a.project)
+    if a.cmd == "try":
+        print(Agent(ws).try_version())
+        return
+    if a.cmd == "say":
+        Agent(ws).add_feedback(a.msg)
+        print("Eingetragen in IDEAS.md. Der Agent plant beim nächsten Durchlauf neu.")
+        return
     if a.cmd == "stop":
         write_text(ws / "agent" / "STOP", "stop\n")
         print(f"STOP gesetzt für {ws.name}")

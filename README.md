@@ -26,6 +26,14 @@ make tmux P=rechnungen                                           # läuft im Hin
 ```
 Eigene Wünsche, Umsetzungshinweise und Umbauten schreibst du jederzeit (auch während des Laufs) in `projects/rechnungen/IDEAS.md`. Der Agent liest die Datei jede Iteration, plant bei Änderungen neu und gleicht sie alle 5 Merges mit dem Produkt ab.
 
+**Selbst testen, ohne den Agenten abzuwürgen**
+```bash
+make try P=rechnungen                      # wartet bis die aktuelle Aufgabe fertig ist, baut den Stand, schreibt projects/rechnungen/TESTEN.md
+make say P=rechnungen MSG="Der Button geht nicht"   # Feedback landet in IDEAS.md, der Agent plant neu
+make tmux P=rechnungen                     # danach weiterarbeiten lassen
+```
+`make try` erkennt .NET (`dotnet publish` → `dist/`), Rust, Go, Node und FastAPI und nennt dir den Startbefehl.
+
 **3. Bei Bedarf, einzeln**
 ```bash
 tmux attach -t agent-rechnungen              # zuschauen; Strg+B, dann D löst dich wieder
@@ -46,6 +54,7 @@ slop/
 ├─ tests/, .github/     Selftest und CI
 └─ projects/            pro Idee ein Ordner (nicht im Git)
    └─ <name>/
+      ├─ TESTEN.md      Startanleitung der letzten Testversion (von `make try`)
       ├─ IDEAS.md       deine Wünsche und Vorgaben (optional, vom Agenten laufend gelesen)
       ├─ repo/          das Produkt als eigenes Git-Repo inkl. docs/, CHANGELOG, README
       └─ agent/         Zustand und Gedächtnis dieses Projekts (außerhalb von repo/)

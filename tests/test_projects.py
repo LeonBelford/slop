@@ -37,5 +37,23 @@ class ReadIdeasTest(unittest.TestCase):
         self.assertIn("PDF Export", sa.read_ideas(p))
 
 
+class TryVersionTest(unittest.TestCase):
+    def test_try_and_say(self):
+        import tempfile
+        from pathlib import Path
+        import saas_agent as sa
+        ws = Path(tempfile.mkdtemp()) / "demo"
+        (ws / "agent").mkdir(parents=True)
+        sa.write_json(ws / "agent" / "config.json", {"preset": "minimal"})
+        a = sa.Agent(ws)
+        a.git.ensure()
+        a.git.run("commit", "-q", "--allow-empty", "-m", "x")
+        report = a.try_version()
+        self.assertIn("Testversion", report)
+        self.assertTrue((ws / "TESTEN.md").exists())
+        a.add_feedback("Button kaputt")
+        self.assertIn("Button kaputt", sa.read_ideas(ws / "IDEAS.md"))
+
+
 if __name__ == "__main__":
     unittest.main()

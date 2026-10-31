@@ -92,6 +92,15 @@ Alles Folgende **nur bei gestopptem Agenten**:
   `status` auf `pending` und `attempts` auf `0` setzen.
 - **Lessons korrigieren:** falsche Zeilen in `agent/memory/lessons.jsonl` löschen.
 
+## 6a. Zwischendurch testen (`make try`) und Feedback geben (`make say`)
+1. `make try P=<name>`: setzt STOP, wartet bis die aktuelle Aufgabe fertig ist, baut den letzten funktionierenden Stand von `main`
+   und schreibt `projects/<name>/TESTEN.md` mit dem Startbefehl (z. B. `dotnet run`, `cargo run --release`, `go run .`, `npm start`,
+   FastAPI: `.venv/bin/uvicorn app.main:app --reload`) und dem Ort der fertigen Binary (`dist/`, `target/release/`).
+2. Ausprobieren im Ordner `projects/<name>/repo`.
+3. Gefundene Fehler oder Wünsche: `make say P=<name> MSG="..."` (landet unter "Feedback aus Tests" in `IDEAS.md`; der Agent plant neu).
+   Das geht auch während der Agent läuft.
+4. `make tmux P=<name>` setzt die Arbeit fort.
+
 ## 7. Einstellungen
 Datei `projects/<name>/agent/config.json` (Vorlage: `config.example.json`, Wirkung ab dem nächsten Start). Wichtige Werte:
 ```json
