@@ -36,6 +36,9 @@ class BuildMixin:
     # ---- Coder (Aider)
     def code(self, tag: str, edit: list[str], read: list[str], prompt: str) -> str:
         prompt = self.handoff_text() + prompt
+        model_name = self.coder_for(tag) if not self.coder_mock else ""
+        if "qwen3" in model_name.lower() and self.feat("coder_no_think") and not prompt.startswith("/no_think"):
+            prompt = "/no_think\n" + prompt  # Qwen3 switch: the coder writes code instead of reasoning for minutes
         if self.coder_mock:
             return self.coder_mock(self.repo, tag, edit, read, prompt)
         pf = self.run_dir / f"{tag}.prompt.md"

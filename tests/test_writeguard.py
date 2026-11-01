@@ -74,3 +74,17 @@ class WriteGuardTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class NoThinkTests(unittest.TestCase):
+    def test_qwen3_coder_gets_no_think_prefix(self):
+        with tempfile.TemporaryDirectory() as d:
+            ag = Agent(d)
+            ag.coder_for = lambda tag: "ollama/qwen3:14b"
+            ag.feat = lambda n: True
+            (Path(d) / "a.py").write_text("x")
+            seen = []
+            with mock.patch.object(cfa_build, "sh_live", lambda *a, **k: (0, "")), mock.patch.object(cfa_build.perf, "fit_context", lambda e, r, p, repo: (e, r, [])), \
+                    mock.patch.object(cfa_build, "write_text", lambda p, t: seen.append(t)):
+                ag.code("implement", ["a.py"], [], "do it")
+            self.assertTrue(seen[0].startswith("/no_think"))
