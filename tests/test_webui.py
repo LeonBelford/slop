@@ -61,6 +61,13 @@ class ManageTests(unittest.TestCase):
         self.assertEqual(r["coder_live"], "")
         self.assertEqual(set(self.svc.tool_stream()), set(r))
 
+    def test_run_mode_validated_and_saved(self):
+        self.svc.act("demo", "settings", {"run": {"mode": "rounds", "rounds": 5}})
+        self.assertEqual(webui.sa.read_json(self.ws / "agent" / "config.json", {})["run"], {"mode": "rounds", "rounds": 5})
+        for bad in ({"mode": "x"}, {"mode": "rounds", "rounds": 0}, {"mode": "rounds", "rounds": "a"}):
+            with self.assertRaises(webui.UiError):
+                self.svc.act("demo", "settings", {"run": bad})
+
     def test_task_edit_and_reload_by_running_agent(self):
         self.svc.act("demo", "task-top", {"id": "T0001"})
         self.svc.act("demo", "task-cancel", {"id": "T0002"})
