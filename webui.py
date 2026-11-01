@@ -486,7 +486,7 @@ class Service:
         eff = sa.Agent(ws).cfg
         inst = self.installed_models(eff["llm_api"])
         return {"settings": {"models": eff["models"], "coder_model": eff["coder_model"],
-                             "limits": {k: eff["limits"][k] for k in SETTING_LIMITS}, "web_mode": eff["web"]["mode"], "scheduler": eff["scheduler"],
+                             "limits": {k: eff["limits"][k] for k in SETTING_LIMITS}, "web_mode": eff["web"]["mode"], "scheduler": eff["scheduler"], "run": eff["run"],
                              "doc_language": eff["doc_language"], "preset": conf.get("preset", eff["preset"]),
                              "routing": {k: eff["routing"].get(k, "") for k in ("mode", "light", "heavy", "final_reviewer")}},
                 "limit_bounds": SETTING_LIMITS, "installed_models": inst,
@@ -529,6 +529,17 @@ class Service:
             for k in ("light", "heavy", "final_reviewer"):
                 if k in rt:
                     conf["routing"][k] = self.model_name(rt[k]) if str(rt[k]).strip() else ""
+        rn = body.get("run")
+        if rn:
+            if rn.get("mode", "default") not in ("default", "rounds", "endless"):
+                raise UiError("Run mode must be default, rounds or endless")
+            try:
+                rounds = int(rn.get("rounds", 3))
+            except (TypeError, ValueError):
+                raise UiError("Rounds must be a whole number") from None
+            if not 1 <= rounds <= 1000:
+                raise UiError("Rounds must be between 1 and 1000")
+            conf["run"] = {"mode": rn.get("mode", "default"), "rounds": rounds}
         sc = body.get("scheduler")
         if sc:
             if sc.get("priority", "main") not in ("main", "side"):

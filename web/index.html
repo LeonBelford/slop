@@ -556,6 +556,8 @@ function settingsBody(d){
     <div class="panel" style="margin-top:16px"><h3>Limits and behaviour</h3><div class="grid2">${lim}
     <label class="fld">web access<select id="web-mode">${["off","sources","open"].map(m=>`<option ${m===st.web_mode?"selected":""}>${m}</option>`).join("")}</select></label>
     <label class="fld">documentation language<input id="doc-lang" value="${esc(st.doc_language)}"></label>
+    <label class="fld">run mode<select id="run-mode"><option value="default" ${st.run.mode==="default"?"selected":""}>default: stop when 3 idea rounds find nothing</option><option value="rounds" ${st.run.mode==="rounds"?"selected":""}>fixed number of idea rounds</option><option value="endless" ${st.run.mode==="endless"?"selected":""}>endless: build until I stop it</option></select></label>
+    <label class="fld">idea rounds (for "fixed")<input id="run-rounds" type="number" min="1" max="1000" value="${esc(st.run.rounds)}"></label>
     <label class="fld">GPU priority<select id="sc-prio"><option value="main" ${st.scheduler.priority==="main"?"selected":""}>main (keeps the GPU)</option><option value="side" ${st.scheduler.priority==="side"?"selected":""}>side (only while main is idle)</option></select></label>
     <label class="fld">side waits until main is idle for (s)<input id="sc-idle" type="number" min="0" max="3600" value="${esc(st.scheduler.min_idle)}"></label></div>
     <p class="hint">Run one project as <b>main</b> and others as <b>side</b>: side agents use the GPU only in the pauses of main (its builds, tests, waiting) and are stopped as soon as main needs the model again.</p>
@@ -575,7 +577,7 @@ function settingsBody(d){
 async function saveSettings(){
   const v=id=>$("#"+id).value,limits={};
   document.querySelectorAll("[id^=lim-]").forEach(e=>limits[e.id.slice(4)]=e.value);
-  try{const r=await api(`/api/project/${sel}/settings`,{models:{planner:v("m-planner"),reviewer:v("m-reviewer"),summarizer:v("m-summarizer")},coder_model:v("m-coder"),limits,web_mode:v("web-mode"),routing:{mode:v("rt-mode"),light:v("rt-light"),heavy:v("rt-heavy"),final_reviewer:v("rt-final")},doc_language:v("doc-lang"),scheduler:{priority:v("sc-prio"),min_idle:v("sc-idle")}});
+  try{const r=await api(`/api/project/${sel}/settings`,{models:{planner:v("m-planner"),reviewer:v("m-reviewer"),summarizer:v("m-summarizer")},coder_model:v("m-coder"),limits,web_mode:v("web-mode"),routing:{mode:v("rt-mode"),light:v("rt-light"),heavy:v("rt-heavy"),final_reviewer:v("rt-final")},doc_language:v("doc-lang"),run:{mode:v("run-mode"),rounds:v("run-rounds")},scheduler:{priority:v("sc-prio"),min_idle:v("sc-idle")}});
     dirty=false;toast(r.applies==="now"?"Settings saved":"Saved, applies at the next start");extra=null;await fetchExtra();lastBody="";renderProject()}catch(e){toast(e.message,true)}
 }
 async function renameProject(){
