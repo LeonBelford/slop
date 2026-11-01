@@ -5,8 +5,9 @@ import time
 from pathlib import Path
 
 import codefactory as sa
-from dash import chat as chatlib
+from dash import chat as chatlib, toolchat, toolmodels
 
+from webapi import common
 from webapi.common import UiError
 
 
@@ -36,6 +37,14 @@ class ChatMixin:
         names = self.chats.clean_links(body.get("projects"))
         return self.chats.create(body, self.chat_default_model(names))
 
+    def chat_tool(self) -> dict:
+        """The assistant chat about CodeFactory itself; its model defaults to the self-improve planner choice."""
+        saved = toolmodels.load(common.ROOT / "self_improve").get("planner", "")
+        return self.chats.tool_chat(saved or self.chat_default_model([]))
+
+    def tool_context(self, last_user: str) -> str:
+        return toolchat.context(common.ROOT, common.ROOT / "self_improve", common.alive("tool"), last_user)
+
     def chat_stream(self, cid: str, text: str, write) -> None:
         """Appends the user message, streams the answer through write(dict) and stores it (also when cut off)."""
         text = text.strip()
@@ -51,7 +60,7 @@ class ChatMixin:
         chat["updated"] = time.time()
         self.chats.save(chat)
         cfg = sa.DEFAULT_CONFIG
-        msgs = chatlib.build_messages(chat, self.chat_ws, cfg["llm_api"], cfg["api_key"])
+        msgs = chatlib.build_messages(chat, self.chat_ws, cfg["llm_api"], cfg["api_key"], self.tool_context)
         answer, err = "", ""
         try:
             for d in chatlib.stream_completion(cfg["llm_api"], cfg["api_key"], chat["model"], msgs):

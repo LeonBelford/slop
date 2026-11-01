@@ -331,6 +331,9 @@ def make_handler(svc: Service, port: int, token: str | None = None):
                     return svc.tool()
                 if path == "/api/tool/models":
                     return svc.tool_models()
+                if path == "/api/tool/chat":
+                    svc.require_chat()
+                    return svc.chat_tool()
                 if path == "/api/build":
                     return {"sha": BUILD["sha"], "head": head_sha(), "started": BUILD["started"]}
                 if path == "/api/tool/run":
