@@ -41,6 +41,7 @@ class BuildMixin:
         write_text(pf, prompt)
         model = self.coder_for(tag)
         write_json(self.dir / "coder_now.json", {"tag": tag, "files": edit[:12], "model": model, "since": time.time()})
+        read = read + [j for j in self.journal_file() if j not in read]
         edit, read, dropped = perf.fit_context(edit, read, prompt, self.repo)
         if dropped:
             self.log(f"Context budget: {len(dropped)} read-only file(s) left out of the {tag} call to stay inside the model window")
@@ -127,6 +128,8 @@ class BuildMixin:
         plan["new_files"] = plan.get("new_files", [])
         write_json(self.run_dir / "plan.json", plan)
         write_text(self.run_dir / "context.md", ctx)
+        self.note("plan", f"understanding: {plan.get('understanding', '')} | change: {plan.get('files_to_change')} new: {plan.get('new_files')} | "
+                          f"steps: {plan.get('steps')} | invariants: {plan.get('invariants')}")
         return plan
 
     def set_class(self, item: dict, plan: dict) -> None:
@@ -141,7 +144,7 @@ class BuildMixin:
         self.set_class(item, plan)
         if self.routes()["light"] or self.routes()["heavy"]:
             self.log(f"Task class: {self.task_class} -> coder {self.coder_for('implement')}")
-        read = [str(self.run_dir / "context.md")] + [f for f in plan.get("read_only_context", []) if (self.repo / f).exists()]
+        read = [str(self.run_dir / "context.md")] + self.journal_file() + [f for f in plan.get("read_only_context", []) if (self.repo / f).exists()]
         groups = self.step_groups(item, plan)
         for n, steps in enumerate(groups, 1):
             part = f"\nPass {n} of {len(groups)}: do ONLY these steps now: {steps}\nEarlier passes already did: {[s for g in groups[:n - 1] for s in g]}\n" if len(groups) > 1 else ""
@@ -169,6 +172,7 @@ class BuildMixin:
             if ok:
                 return True, report
             self.log(f"Debug round {n}: {report.splitlines()[0]}")
+            self.note("debug", f"round {n} failed: {clip(report.splitlines()[0], 200)}")
             self.phase(f"Debugging, round {n}", "build", report.splitlines()[0])
             mentioned = [f for f in re.findall(r"[\w./-]+\.(?:py|js|ts|html)", report) if (self.repo / f).exists()]
             files = sorted(set(self.git.changed_files()) | set(mentioned))[:self.lim["max_files_per_task"] + 4]
@@ -208,7 +212,7 @@ class BuildMixin:
         self.run_dir.mkdir(parents=True, exist_ok=True)
         previous: list[str] = []
         sigs: list[str] = []
-        self.force_heavy = False
+        self.journal_start(item)
         self.backlog.set(item, status="in_progress")
         self.cur_task = f"{item['id']} {item['title']}"
         t0 = time.time()
@@ -247,6 +251,7 @@ class BuildMixin:
             self.git.run("branch", "-D", branch)
             cls, sig = failures.classify(why), failures.signature(why)
             previous.append(f"Attempt {attempt} [{cls}]: {clip(why, 600)}")
+            self.note("failed", f"attempt {attempt} [{cls}]: {clip(why, 250)}")
             if failures.advice(cls):
                 previous.append(f"Hint for the next attempt: {failures.advice(cls)}")
             self.record_failure(item, why)
@@ -321,6 +326,7 @@ class BuildMixin:
         if not ok:
             return False, "Build/test red after debug rounds:\n" + report
         self.save_wip(item)
+        self.note("green", f"build and tests pass; changed files: {self.git.changed_files()[:12]}")
         self.coverage_check(item)
         if not self.mutation_check(item):
             return False, "Red after the mutation fix round"
@@ -331,6 +337,7 @@ class BuildMixin:
         if not ok:
             return False, "Security gate failed:\n" + report
         review = self.review(item, plan)
+        self.note("review", f"score {review.get('score')} {review.get('verdict')}: {clip(json.dumps(review.get('issues', [])), 300)}")
         if review.get("verdict") == "revise" or review.get("score", 10) < self.lim["min_review_score"]:
             self.log(f"Review requests revision (score {review.get('score')})")
             self.code("review_fix", sorted(set(self.git.changed_files()))[:self.lim["max_files_per_task"] + 4],

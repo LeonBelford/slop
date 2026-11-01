@@ -161,6 +161,8 @@ class LLM:
                  "The first answer can take several minutes while the model loads (see `ollama ps`).")
 
     def chat(self, tag: str, role: str, system: str, user: str, temperature: float = 0.2) -> str:
+        if getattr(self, "session_note", ""):
+            system += "\n\nTask journal (what already happened in this task; build on it, do not redo it):\n" + self.session_note
         if LLM.mock:
             mocked = LLM.mock(tag, role, system, user)
             self.record(tag, role, "mock", user, mocked)
