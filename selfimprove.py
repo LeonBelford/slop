@@ -25,6 +25,7 @@ import time
 from pathlib import Path
 
 import codefactory as sa
+import models
 import runledger
 import security
 
@@ -236,7 +237,10 @@ def _aider(model: str, timeout: int):
         rec.ctx = lambda: work.name
         rec.record("self-change", "coder", model, prompt, out, "", time.time() - t0)
         return out
-    run.big = _aider(sa.os.getenv("CODER_MODEL_BIG"), timeout) if sa.os.getenv("CODER_MODEL_BIG") and sa.os.getenv("CODER_MODEL_BIG") != model else None
+    cache: dict[str, object] = {}
+    run.use = lambda name: cache.setdefault(name, _aider(models.coder_string(name), timeout))  # coder on another installed model
+    run.model = model
+    run.routes = None
     return run
 
 
@@ -272,6 +276,9 @@ def main(projects: Path, dry_run: bool = False, repo: Path | None = None, llm=No
     cfg = json.loads(json.dumps(sa.DEFAULT_CONFIG))
     llm = llm or sa.LLM(cfg, log)
     coder = coder or _aider(cfg["coder_model"], cfg["limits"]["coder_timeout"])
+    routes = _route(llm)
+    if getattr(coder, "use", None) and getattr(coder, "routes", None) is None:
+        coder.routes = routes
     stamp = time.strftime("%Y%m%d-%H%M%S")
     out_dir = repo / "self_improve"
     out_dir.mkdir(exist_ok=True)
@@ -375,6 +382,28 @@ def _verify_requirements(repo: Path, base: str, branch: str, ledger, llm, log) -
 
 
 FIX_ROUNDS = 2  # repair rounds after the first attempt: the failure is diagnosed and handed back to the coder
+
+
+def _route(llm) -> dict:
+    """Which installed model does which job: light coder for docs, standard for normal steps, heavy for hard steps and the last
+    repair round, strongest reviewer for review/verification/diagnosis. Missing models fall back to the defaults, nothing is required."""
+    installed = getattr(llm, "installed", None) or set()
+    if isinstance(llm, sa.LLM) and not sa.LLM.mock and not installed:
+        installed = llm.installed = models.installed_from_ollama(sa.os.getenv("OLLAMA_HOST_URL", "http://localhost:11434")) or set()
+    r = models.resolve(installed, sa.DEFAULT_CONFIG["routing"], sa.DEFAULT_CONFIG["coder_model"])
+    big = sa.os.getenv("CODER_MODEL_BIG")
+    if big and not r["heavy"]:
+        r["heavy"] = big
+    if r["final_reviewer"] and isinstance(llm, sa.LLM):
+        llm.overrides["reviewer"] = r["final_reviewer"]  # review, plan critique and requirement checks use the strongest reviewer
+    return r
+
+
+def _coder_for(coder, cls: str):
+    """The coder function for a job class (light | standard | heavy); the default coder when no better model is installed."""
+    routes, use = getattr(coder, "routes", None), getattr(coder, "use", None)
+    name = (routes or {}).get({"light": "light", "heavy": "heavy"}.get(cls, ""))
+    return use(name) if name and use else coder
 
 
 def _lessons() -> str:
@@ -539,8 +568,14 @@ def _work_on(work: Path, p: dict, files: list[str], impact: str, llm, coder, log
     for rnd in range(FIX_ROUNDS + 1):
         _phase("implement", p["title"] if rnd == 0 else f"{p['title']} (repair round {rnd}: {stage})")
         ledger.stage(pi, "implement", "running")
-        run = getattr(coder, "big", None) if rnd >= 2 else None  # last round: a stronger model, if CODER_MODEL_BIG is set
-        (run or coder)(work, [f for f in dict.fromkeys(files + [l.split("\t")[-1] for l in _changes(work) if not l.split("\t")[-1].startswith("tests/")]) if (work / f).is_file()][:8], prompt)
+        cls = models.classify("feature", max(2, len(files)), rnd, complex_files=sa.DEFAULT_CONFIG["routing"]["complex_files"])
+        cls = "standard" if cls == "light" else cls  # real changes never go to the light model
+        run = _coder_for(coder, cls)
+        if run is not coder:
+            log(f"  model: {coder.routes['heavy']} (hard step / late repair round)")
+            ledger.d["proposals"][pi].setdefault("models", []).append(f"round {rnd + 1}: {coder.routes['heavy']}")
+            ledger.save()
+        run(work, [f for f in dict.fromkeys(files + [l.split("\t")[-1] for l in _changes(work) if not l.split("\t")[-1].startswith("tests/")]) if (work / f).is_file()][:8], prompt)
         ok, report, stage = _gates(work, p, files, llm, coder, log, ledger, pi, protected, directed, state)
         if ok or stage == "protected" and not directed:
             break
@@ -616,7 +651,7 @@ def _implement_run(repo: Path, proposals: list[dict], coder, stamp: str, out_dir
                 log("  kept (tests green)")
                 _phase("docs", "Updating README and docs")
                 ledger.stage(pi, "docs", "running")
-                _docs_pass(work, p, coder, log)
+                _docs_pass(work, p, _coder_for(coder, "light"), log)
                 ledger.stage(pi, "docs", "ok")
             else:
                 _git(work, "reset", "-q", "--hard", "HEAD")
@@ -664,6 +699,9 @@ def directed(instruction: str, repo: Path | None = None, llm=None, coder=None, l
     cfg = json.loads(json.dumps(sa.DEFAULT_CONFIG))
     llm = llm or sa.LLM(cfg, log)
     coder = coder or _aider(cfg["coder_model"], cfg["limits"]["coder_timeout"])
+    routes = _route(llm)
+    if getattr(coder, "use", None) and getattr(coder, "routes", None) is None:
+        coder.routes = routes
     stamp = time.strftime("%Y%m%d-%H%M%S")
     out_dir = repo / "self_improve"
     out_dir.mkdir(exist_ok=True)
