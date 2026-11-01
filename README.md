@@ -97,25 +97,28 @@ Two levels, both bounded:
 `make e2e-setup` installs Playwright and Chromium into `.venv`. For web products the agent then starts the app after the build is green, opens it in a real browser (localhost only), fails on console errors, JS exceptions, failed requests and broken links, writes a click-through test `e2e/e2e_<task>.py` from the acceptance criteria and the page's accessibility snapshot, and lets the coder fix failures (2 rounds). Without Playwright this step is skipped with a hint; set `features.e2e` to `"off"` to disable it.
 
 ## Chat (Web UI)
-**Chat** in the sidebar (or **Chat about this** in a project) opens a streaming chat with a local model. Link one or more projects: their goal, architecture, backlog, ideas and recent log are sent as context. Chats are stored in `projects/.ui/chats/`. Under each answer, **Add to ideas** and **Run as task** hand it to the linked project's agent.
+**Chat** in the sidebar (or **Chat about this** in a project) opens a streaming chat with a local model. Link one or more projects: their goal, architecture, backlog, ideas and recent log are sent as context. Chats are stored in `projects/.ui/chats/`. Enter sends (Shift+Enter = new line); a thinking animation shows while the model loads or reasons. Under each answer, **Add to ideas** and **Run as task** hand it to the linked project's agent.
+
+**Models** (sidebar): install any Ollama model by name or from the recommended list (live progress, cancel) and remove models you no longer need (blocked while a running project uses them). All model fields in Settings and Chat are dropdowns of installed models.
 
 ## Directed tasks, transparency and file changes (Web UI)
 - **Do a task** tab: write what you want ("add a dark mode toggle"); the agent does exactly that and nothing else, ahead of its own backlog. If the agent is running it is queued, otherwise it starts, finishes and stops. CLI: `make task P=<project> TASK="..."` or `python3 codefactory.py do --project P --task "..."`.
 - **Change the tool itself** (sidebar): describe a change to the tool (Makefile, UI, ...). It runs `improve --task` on a branch `self-improve/<timestamp>`, never merges, and keeps `webaccess.py`, `selfimprove.py`, `.github/`, `.env` off limits. Review with `git diff HEAD...<branch>` and merge yourself. Autonomous `make self-improve` stays CLI-only.
 - **Live "Now" panel:** current step (plan, implement, build, review, cleanup, docs, merge), task, attempt, whether the agent waits for the model or Aider is editing, and recent events. Backed by `agent/activity.json`, `events.jsonl`, `llm_now.json`, `coder_now.json`.
 - **AI activity** tab shows every prompt and answer (`agent/llm.log`); **File changes** shows uncommitted files, files by churn and per-commit diffs.
-- **Managing projects:** the **Settings** tab edits models (with suggestions from your installed Ollama models), limits, web mode and documentation language (saved to `agent/config.json`, applied at the next start), renames a project and deletes it (agent must be stopped; you type the name to confirm). The **Goal** tab is editable. In the backlog you can move a task to the top, cancel it or reopen blocked/cancelled ones; a running agent picks these changes up on its next task. The sidebar shows whether the model server is reachable.
+- **Managing projects:** the **Settings** tab edits models (dropdowns of your installed Ollama models), limits, web mode and documentation language (saved to `agent/config.json`, applied at the next start), renames a project and deletes it (agent must be stopped; you type the name to confirm). The **Goal** tab is editable. In the backlog you can move a task to the top, cancel it or reopen blocked/cancelled ones; a running agent picks these changes up on its next task. The sidebar shows whether the model server is reachable.
 
 ## Structure
 ```
 codefactory/
 ├─ codefactory.py        the complete loop (standard library only)
 ├─ webui.py, web/       local web interface (make ui, make ui-lan)
+├─ security.py          security rules, scanners and runtime probe
 ├─ models.py            optional model catalog and routing (make models)
 ├─ MASTER.md            global directives for all projects (picked up per session)
 ├─ Makefile, scripts/   quick-setup-popos.sh · setup.sh (venv + model only) · run.sh · Modelfile
 ├─ .env.example, config.example.json
-├─ docs/                GUIDE.md (usage) · ARCHITECTURE.md (technical details)
+├─ docs/                OVERVIEW.md (what it does) · GUIDE.md (usage) · ARCHITECTURE.md (technical) · SECURITY.md (security plan)
 ├─ tests/, .github/     selftest and CI
 └─ projects/            one folder per idea (not in Git)
    └─ <name>/
@@ -167,11 +170,6 @@ Tasks are classified from the plan (type, number of files, attempt); there is no
 ## Network access
 `make ui-lan` listens on all interfaces and prints a link with an access token (stored in `projects/.ui/token`). Open it once per device; a cookie keeps you logged in. It is plain HTTP, so use it on trusted networks only; the UI can start agents and delete projects. `make ui` stays local-only.
 
-## Rust engines?
-There is no "Rust model"; Rust lives in inference engines. Open source (checked on GitHub): mistral.rs (MIT), candle and burn
-(Apache-2.0). Switching away from Ollama is hardly worthwhile for this agent, since speed comes from the model and the GPU. It is possible via
-any OpenAI-compatible server (`LLM_API`, for Aider `CODER_MODEL=openai/<name>` + `OPENAI_API_BASE`), untested.
-
 ## Troubleshooting
 See [docs/GUIDE.md](docs/GUIDE.md#10-troubleshooting).
 
@@ -179,5 +177,7 @@ See [docs/GUIDE.md](docs/GUIDE.md#10-troubleshooting).
 - **"Cannot reach the model server" / "Model(s) not installed":** the agent now checks Ollama and the model names from `.env` before starting; follow the printed hint (`ollama serve`, `ollama list`).
 
 ## Security
+Every change passes a security gate (static rules, attacker-minded review, runtime probe) and the whole project is audited regularly; see [docs/SECURITY.md](docs/SECURITY.md).
+
 The agent works only in `projects/<name>/repo/`, but runs build and test commands there without a sandbox. Use a container or VM
 if needed. It publishes nothing and spends no money; review the code before deploying.
