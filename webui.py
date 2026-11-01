@@ -13,6 +13,7 @@ import json
 import os
 import re
 import secrets
+import shlex
 import shutil
 import socket
 import subprocess
@@ -444,7 +445,75 @@ class Service:
             name, date, subject = (line.split("\x1f") + ["", ""])[:3]
             stat = git(ROOT, "diff", "--stat", f"HEAD...{name}").strip().splitlines()
             branches.append({"name": name, "date": date, "subject": subject, "stat": stat[-12:]})
-        return {"running": alive("tool"), "log": tail(ROOT / "self_improve" / "ui.log", 60), "branches": branches}
+        return {"running": alive("tool"), "log": tail(ROOT / "self_improve" / "ui.log", 60), "branches": branches, "preview": self.preview_state()}
+
+    # ---- try a self-improve branch locally before merging: separate checkout, separate port, empty projects folder
+    PREVIEW = ROOT / "self_improve" / "preview"
+
+    def preview_state(self) -> dict:
+        info = sa.read_json(self.PREVIEW.parent / "preview.json", {})
+        rc = self.PREVIEW.parent / "preview-tests.rc"
+        if not alive("ptest") and rc.exists() and "tests_rc" not in info:
+            info["tests_rc"] = int((rc.read_text().strip() or "1"))
+            rc.unlink(missing_ok=True)
+            sa.write_json(self.PREVIEW.parent / "preview.json", info)
+        up = alive("preview")
+        return {"branch": info.get("branch") if up or alive("ptest") else None, "running": up, "port": info.get("port") if up else None,
+                "tests_running": alive("ptest"), "tests_rc": None if alive("ptest") else info.get("tests_rc"),
+                "log": tail(self.PREVIEW.parent / "preview.log", 40), "tests_log": tail(self.PREVIEW.parent / "preview-tests.log", 40)}
+
+    def preview_stop(self) -> dict:
+        for key in ("preview", "ptest"):
+            p = PROCS.get(key)
+            if p and p.poll() is None:
+                sa.force_stop_pid(p.pid, grace=2.0)
+        if self.PREVIEW.exists():
+            git(ROOT, "worktree", "remove", "--force", str(self.PREVIEW))
+            shutil.rmtree(self.PREVIEW, ignore_errors=True)
+        return self.preview_state()
+
+    def preview_start(self, body: dict) -> dict:
+        """Checks the branch out next to the running tool and starts its UI on a free port (never touches your projects or main)."""
+        branch = str(body.get("branch", ""))
+        if not BRANCH_RE.match(branch) or not git(ROOT, "rev-parse", "--verify", "-q", branch).strip():
+            raise UiError("Unknown branch")
+        self.preview_stop()
+        out = self.PREVIEW.parent
+        out.mkdir(parents=True, exist_ok=True)
+        git(ROOT, "worktree", "prune")
+        if "error" in git(ROOT, "worktree", "add", "--detach", str(self.PREVIEW), branch).lower() and not self.PREVIEW.exists():
+            raise UiError("Could not check the branch out")
+        with socket.socket() as s:
+            s.bind(("127.0.0.1", 0))
+            port = s.getsockname()[1]
+        sandbox = out / "preview-projects"
+        sandbox.mkdir(exist_ok=True)
+        log = open(out / "preview.log", "w", encoding="utf-8")
+        sa.write_json(out / "preview.json", {"branch": branch, "port": port})
+        PROCS["preview"] = subprocess.Popen([sys.executable, "webui.py", "--port", str(port), "--projects-dir", str(sandbox), "--no-browser"],
+                                            cwd=str(self.PREVIEW), stdin=subprocess.DEVNULL, stdout=log, stderr=subprocess.STDOUT,
+                                            start_new_session=True, env={**os.environ, "CODEFACTORY_GPU_DIR": str(out / "preview-gpu")})
+        if body.get("tests"):
+            self.preview_tests()
+        time.sleep(1.2)
+        return self.preview_state()
+
+    def preview_tests(self) -> dict:
+        if not self.PREVIEW.exists():
+            raise UiError("Start the preview first", 409)
+        if alive("ptest"):
+            return self.preview_state()
+        out = self.PREVIEW.parent
+        info = sa.read_json(out / "preview.json", {})
+        info.pop("tests_rc", None)
+        sa.write_json(out / "preview.json", info)
+        f = open(out / "preview-tests.log", "w", encoding="utf-8")
+        script = (f"{shlex.quote(sys.executable)} -m unittest discover -s tests && {shlex.quote(sys.executable)} codefactory.py selftest; "
+                  f"echo $? > {shlex.quote(str(out / 'preview-tests.rc'))}")
+        PROCS["ptest"] = subprocess.Popen(["bash", "-c", script], cwd=str(self.PREVIEW), stdin=subprocess.DEVNULL, stdout=f,
+                                          stderr=subprocess.STDOUT, start_new_session=True,
+                                          env={**os.environ, "CODEFACTORY_GPU_DIR": str(out / "preview-gpu")})
+        return self.preview_state()
 
     def tool_activity(self) -> dict:
         """Live state of a self-change: stage, streamed model output, Aider/test output and every recorded thought."""
@@ -1037,6 +1106,12 @@ def make_handler(svc: Service, port: int, token: str | None = None):
                     return svc.set_master(body)
                 if path == "/api/tool/task":
                     return svc.tool_task(body)
+                if path == "/api/tool/preview":
+                    return svc.preview_start(body)
+                if path == "/api/tool/preview/tests":
+                    return svc.preview_tests()
+                if path == "/api/tool/preview/stop":
+                    return svc.preview_stop()
                 if path == "/api/ui-settings":
                     return svc.set_ui_settings(body)
                 if path == "/api/chats":

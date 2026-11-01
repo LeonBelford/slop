@@ -87,3 +87,6 @@ Calls send `stream_options.include_usage`, so finished calls add exact `completi
 
 ## Reasoning log archive
 `thoughts.jsonl` keeps the newest 150 calls; older ones move (gzip, prompts cut to 1500 chars) to `agent/thoughts-archive/<first>-<last>.jsonl.gz`. The Reasoning tab always opens at the top.
+
+## Trying a self-improve branch before merging
+Tool → Changes tab → "Try it before you merge": `POST /api/tool/preview` checks the selected `self-improve/<ts>` branch out as a detached git worktree in `self_improve/preview/` and starts its `webui.py` on a free port with an empty projects folder and its own GPU-queue folder. Your running tool, projects and `main` are not touched. "Try + run tests" also runs the unit tests and selftest inside it and shows pass/fail. "Stop and remove" kills both and removes the worktree. Merge afterwards (PR from the branch) or delete the branch with `git branch -D`.

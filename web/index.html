@@ -710,7 +710,7 @@ function renderTool(){
   if(toolTab_==="changes"){
     const br=x.branches||[];if(!toolBranch&&br.length)toolBranch=br[0].name;
     const sel=`<select onchange="toolBranch=this.value;codeView=null;extra=null;lastBody='';refresh()">${br.map(b=>`<option ${b.name===toolBranch?"selected":""}>${esc(b.name)}</option>`).join("")}</select>`;
-    return setBody(br.length?`<div class="row" style="margin-bottom:12px">Result branch: ${sel}</div>${x.tree?codePanel(x):'<div class="hint">Loading…</div>'}${diffView?`<div class="panel" style="margin-top:16px"><h3>${esc(diffView.title)}</h3><pre>${fmtDiff(diffView.text)}</pre></div>`:""}`:'<div class="hint">No result branches yet. Start a task on the Task tab.</div>');
+    return setBody(br.length?`<div class="row" style="margin-bottom:12px">Result branch: ${sel}</div>${previewBox(x.preview)}${x.tree?codePanel(x):'<div class="hint">Loading…</div>'}${diffView?`<div class="panel" style="margin-top:16px"><h3>${esc(diffView.title)}</h3><pre>${fmtDiff(diffView.text)}</pre></div>`:""}`:'<div class="hint">No result branches yet. Start a task on the Task tab.</div>');
   }
   const body=`<div class="panel"><h3>What should change?</h3>
   <p class="hint">Examples: "Add a make target that prints the status of all projects", "Make the UI log tab show the last 500 lines", "Change the Makefile so make start-tmux also opens make thinking". Tests must stay green and docs are updated; guards for web fetching, CI and this feature itself cannot be changed.</p>
@@ -723,6 +723,23 @@ function renderTool(){
   setBody(body);
   reasoningLive();
 }
+function previewBox(pv){
+  if(!pv)return "";
+  const url=pv.running?`${location.protocol}//${location.hostname}:${pv.port}/`:"";
+  const rc=pv.tests_rc;
+  return `<div class="panel" style="margin-bottom:12px"><h3>Try it before you merge</h3>
+  <p class="hint">Checks the selected branch out in a separate folder and starts its UI on its own port with an empty projects folder. Your running tool, your projects and <code>main</code> stay untouched.</p>
+  <div class="row" style="flex-wrap:wrap">
+    <button class="primary" onclick="previewDo('/api/tool/preview',{branch:toolBranch})">${pv.running?"Restart preview":"Try this version"}</button>
+    <button onclick="previewDo('/api/tool/preview',{branch:toolBranch,tests:true})" title="Start the preview and run all unit tests plus the selftest in it">Try + run tests</button>
+    ${pv.running||pv.tests_running?`<button class="danger" onclick="previewDo('/api/tool/preview/stop',{})">Stop and remove</button>`:""}
+    ${url?`<a href="${esc(url)}" target="_blank" rel="noopener">Open preview (${esc(pv.branch)}) →</a>`:""}
+  </div>
+  ${pv.tests_running?`<div class="hint">Tests are running…</div>`:rc==null?"":`<div class="hint"><b class="${rc===0?"lg-ok":"lg-err"}">${rc===0?"Tests and selftest passed":"Tests failed (exit "+rc+")"}</b></div>`}
+  ${pv.tests_log&&(pv.tests_running||rc!=null)?`<details><summary>Test output</summary><div class="inner"><pre>${esc(pv.tests_log)}</pre></div></details>`:""}
+  <p class="hint" style="margin-top:8px">When it is good, merge it (open a PR from the branch). If not, delete the branch: <code>git branch -D ${esc(toolBranch||"self-improve/…")}</code>.</p></div>`;
+}
+async function previewDo(path,body){try{await api(path,body);lastBody="";await refresh()}catch(e){toast(e.message,true)}}
 async function runTool(){
   const v=$("#tool").value.trim();if(v.length<10){toast("Describe the change in a sentence or two",true);return}
   try{await api("/api/tool/task",{task:v});toast("Started. This can take several minutes.");dirty=false;await refresh()}catch(e){toast(e.message,true)}
