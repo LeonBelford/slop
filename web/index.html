@@ -84,6 +84,17 @@ details .inner{padding:0 12px 12px}
 .add{color:var(--ok)}.del{color:var(--bad)}.hunk{color:var(--info)}.meta{color:var(--mute)}
 .fl{font-family:ui-monospace,monospace;font-size:12.5px;display:flex;gap:10px;align-items:center;padding:2px 0}
 .fl a{color:var(--text);cursor:pointer;text-decoration:underline;text-decoration-color:#555}
+.chat{display:flex;flex-direction:column;gap:10px}
+.chatbar{display:flex;gap:8px;align-items:center;flex-wrap:wrap}
+.chatbar select{width:auto;max-width:260px}
+.chips{display:flex;gap:6px;flex-wrap:wrap;align-items:center}
+.chip{border:1px solid var(--line);border-radius:12px;padding:2px 10px;font-size:12.5px;cursor:pointer;color:var(--mute);user-select:none}
+.chip.on{border-color:#aaa;color:var(--text);background:var(--panel2)}
+.msgs{border:1px solid var(--line);border-radius:4px;background:#0c0c0c;padding:12px;height:52vh;overflow:auto;display:flex;flex-direction:column;gap:12px}
+.msg{max-width:88%;white-space:pre-wrap;word-break:break-word;line-height:1.5}
+.msg.user{align-self:flex-end;background:var(--panel2);border:1px solid var(--line);border-radius:8px;padding:8px 12px}
+.msg.assistant .acts{margin-top:6px;display:flex;gap:6px}
+.msg pre{background:#000;border:1px solid var(--line);padding:8px;border-radius:4px;overflow:auto;margin:6px 0}
 </style>
 </head>
 <body>
@@ -92,6 +103,7 @@ details .inner{padding:0 12px 12px}
   <div class="side-actions">
     <button class="primary" onclick="openNew()">+ New idea</button>
     <button onclick="openMaster()" title="Global instructions for all projects">Master prompt</button>
+    <button onclick="showChat()" title="Talk to a local model, optionally with a project as context">Chat</button>
   </div>
   <div id="ms" class="hint" style="padding:8px 16px"></div>
   <div id="plist"></div>
@@ -187,6 +199,7 @@ function renderProject(){
   const head=`<div class="top"><div><h1>${esc(d.name)} <span class="pill ${c==="run"?"ok":c==="stop"?"warn":""}">${t}</span> ${pillF}</h1><div class="idea">${esc(d.idea)}</div></div>
   <div class="btns">
     ${d.running?`<button class="danger" onclick="act('stop',{},'Will stop after the current task')" ${d.stopping?"disabled":""}>Stop</button><button class="danger" title="Kill switch: ends the agent and all its processes immediately; unfinished work is discarded" onclick="forceStop()">Force stop</button>`:`<button class="primary" onclick="act('start',{},'Agent started')">Start</button>`}
+    <button onclick="showChat(null,['${esc(d.name)}'])" title="Open a chat that knows this project">Chat about this</button>
     <button onclick="doTry()" ${d.try_running?"disabled":""}>${d.try_running?"Building test version…":"Test now"}</button>
   </div></div>
   <div class="stats">
@@ -315,6 +328,7 @@ async function deleteProject(){
 function setTab(k){tab=k;dirty=false;extra=null;lastBody="";$("#body").dataset.tab="";lastTabs="";renderProject();fetchExtra().then(renderProject)}
 async function fetchExtra(){
   try{
+    if(view==="chat")return;
     if(view==="tool"){extra={kind:"tool",...await api("/api/tool")};return}
     if(!sel)return;
     if(tab==="llm")extra={kind:"llm",...await api(`/api/project/${encodeURIComponent(sel)}/llm`)};
@@ -376,6 +390,87 @@ async function createProject(){
 async function openMaster(){try{$("#mText").value=(await api("/api/master")).text;dMaster.showModal()}catch(e){toast(e.message,true)}}
 async function saveMaster(){try{await api("/api/master",{text:$("#mText").value});toast("Master prompt saved (applies from the next start)");dMaster.close()}catch(e){toast(e.message,true)}}
 
+/* ---- chat (own DOM, never re-rendered by the poll so streaming is not interrupted) ---- */
+let chat={list:[],models:[],def:"",cur:null,ctrl:null};
+function mdLite(t){
+  return t.split(/```/).map((p,i)=>i%2?`<pre>${esc(p.replace(/^\w*\n/,""))}</pre>`:esc(p)).join("");
+}
+async function showChat(id,projects){
+  view="chat";tab="chat";dirty=false;extra=null;lastBody=lastHead=lastTabs="";renderList();
+  $("#now").innerHTML="";$("#now").className="";$("#tabs").innerHTML="";
+  $("#head").innerHTML=`<div class="top"><div><h1>Chat</h1><div class="idea">Talk to a local model. Link projects so it knows their goal, backlog and recent activity.</div></div></div>`;
+  try{
+    const r=await api("/api/chats");chat.list=r.chats;chat.models=r.installed_models;chat.def=r.default_model;
+    if(projects){chat.cur=await api("/api/chats",{projects})}
+    else if(id){chat.cur=await api("/api/chat/"+id)}
+    else if(chat.cur&&chat.list.some(c=>c.id===chat.cur.id)){chat.cur=await api("/api/chat/"+chat.cur.id)}
+    else chat.cur=chat.list[0]?await api("/api/chat/"+chat.list[0].id):null;
+    if(projects)chat.list=(await api("/api/chats")).chats;
+  }catch(e){toast(e.message,true)}
+  drawChat();
+}
+function drawChat(){
+  const c=chat.cur,b=$("#body");b.dataset.tab="chat";
+  const opts=chat.list.map(x=>`<option value="${x.id}" ${c&&x.id===c.id?"selected":""}>${esc(x.title)}</option>`).join("");
+  const models=[...new Set([...(c?[c.model]:[]),...chat.models])];
+  const names=list.projects.map(p=>p.name);
+  b.innerHTML=`<div class="chat">
+  <div class="chatbar"><select id="chSel" onchange="showChat(this.value)">${opts||"<option>No chats yet</option>"}</select>
+    <button onclick="newChat()">New chat</button>${c?`<button class="danger" onclick="delChat()">Delete</button>`:""}</div>
+  ${c?`<div class="chatbar"><label style="margin:0">Model</label><select id="chModel" onchange="chatUpdate({model:this.value})">${models.map(m=>`<option ${m===c.model?"selected":""}>${esc(m)}</option>`).join("")}</select>
+    <label style="margin:0">Projects</label><div class="chips">${names.map(n=>`<span class="chip ${c.projects.includes(n)?"on":""}" onclick="toggleLink('${esc(n)}')">${esc(n)}</span>`).join("")||'<span class="hint">no projects</span>'}</div></div>
+  <div class="msgs" id="msgs">${c.messages.map(msgHtml).join("")||'<div class="hint">Ask anything. With a project linked you can say "what should we build next?" or "plan the settings page".</div>'}</div>
+  <div class="chatbar"><textarea id="chIn" rows="3" placeholder="Message (Ctrl+Enter sends)" onkeydown="if(event.key==='Enter'&&(event.ctrlKey||event.metaKey)){event.preventDefault();chatSend()}"></textarea></div>
+  <div class="chatbar"><button class="primary" id="chSend" onclick="chatSend()">Send</button><button id="chStop" onclick="chat.ctrl&&chat.ctrl.abort()" disabled>Stop</button>
+    <span class="hint" style="margin:0 0 0 auto">Answer buttons use:</span><select id="chTarget">${c.projects.map(n=>`<option>${esc(n)}</option>`).join("")||"<option value=''>(link a project)</option>"}</select></div>`
+  :`<div class="hint">Create a chat to start.</div>`}</div>`;
+  const m=$("#msgs");if(m)m.scrollTop=m.scrollHeight;
+}
+function msgHtml(m,i){
+  return m.role==="user"?`<div class="msg user">${esc(m.content)}</div>`
+   :`<div class="msg assistant" data-i="${i}">${mdLite(m.content)}<div class="acts"><button class="small" onclick="fromChat(${i},'say')">Add to ideas</button><button class="small" onclick="fromChat(${i},'do')">Run as task</button></div></div>`;
+}
+async function newChat(){const p=chat.cur?chat.cur.projects:[];chat.cur=null;await showChat(null,p)}
+async function delChat(){if(!confirm("Delete this chat?"))return;try{await api(`/api/chat/${chat.cur.id}/delete`,{});chat.cur=null;await showChat()}catch(e){toast(e.message,true)}}
+async function chatUpdate(b){try{chat.cur=await api(`/api/chat/${chat.cur.id}/update`,b);if(b.projects){drawChat()}}catch(e){toast(e.message,true)}}
+function toggleLink(n){const p=chat.cur.projects.slice(),i=p.indexOf(n);i<0?p.push(n):p.splice(i,1);chatUpdate({projects:p})}
+async function fromChat(i,kind){
+  const t=$("#chTarget").value,m=chat.cur.messages[i];
+  if(!t){toast("Link a project to this chat first",true);return}
+  if(kind==="do"&&!confirm(`Send this answer to the agent of "${t}" as a task?`))return;
+  try{await api(`/api/project/${t}/${kind}`,kind==="do"?{task:m.content}:{msg:m.content});toast(kind==="do"?"Task sent":"Added to ideas")}catch(e){toast(e.message,true)}
+}
+async function chatSend(){
+  const inp=$("#chIn"),text=inp.value.trim();if(!text||chat.ctrl)return;
+  inp.value="";const box=$("#msgs");
+  if(box.querySelector(".hint"))box.innerHTML="";
+  box.insertAdjacentHTML("beforeend",`<div class="msg user">${esc(text)}</div><div class="msg assistant" id="live">…</div>`);
+  const live=$("#live");box.scrollTop=box.scrollHeight;
+  chat.ctrl=new AbortController();$("#chSend").disabled=true;$("#chStop").disabled=false;
+  const id=chat.cur.id;let acc="";
+  try{
+    const r=await fetch(`/api/chat/${id}/send`,{method:"POST",headers:{"X-UI":"1","Content-Type":"application/json"},body:JSON.stringify({content:text}),signal:chat.ctrl.signal});
+    if(!r.ok){let j={};try{j=await r.json()}catch(e){}throw new Error(j.error||r.statusText)}
+    const rd=r.body.getReader(),dec=new TextDecoder();let buf="";
+    for(;;){
+      const {done,value}=await rd.read();if(done)break;
+      buf+=dec.decode(value,{stream:true});
+      let k;while((k=buf.indexOf("\n\n"))>=0){
+        const ev=buf.slice(0,k).replace(/^data: /,"");buf=buf.slice(k+2);
+        if(ev==="[DONE]")continue;
+        const j=JSON.parse(ev);
+        if(j.delta){acc+=j.delta;live.innerHTML=mdLite(acc);if(box.scrollHeight-box.scrollTop-box.clientHeight<120)box.scrollTop=box.scrollHeight}
+        if(j.error)toast(j.error,true);
+      }
+    }
+  }catch(e){if(e.name!=="AbortError")toast(e.message,true)}
+  chat.ctrl=null;
+  if(view==="chat"&&chat.cur&&chat.cur.id===id){
+    try{chat.cur=await api("/api/chat/"+id);chat.list=(await api("/api/chats")).chats}catch(e){}
+    drawChat();
+  }
+}
+
 let shownErr=false;
 async function refresh(){
   try{
@@ -384,6 +479,7 @@ async function refresh(){
     renderList();
     if(view==="project"&&sel)detail=await api("/api/project/"+encodeURIComponent(sel));
     await fetchExtra();
+    if(view==="chat"){renderNow();return}
     if(view==="tool")renderTool();else renderProject();
     renderNow();
   }catch(e){if(!shownErr){shownErr=true;toast(e.message,true)}}

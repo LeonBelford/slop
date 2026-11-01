@@ -62,6 +62,9 @@ class SelfImproveTest(unittest.TestCase):
             diff = subprocess.run(["git", "diff", "--name-only", f"HEAD...{res['branch']}"], cwd=repo, capture_output=True, text=True).stdout
             self.assertEqual(sorted(diff.split()), ["README.md", "codefactory.py", "docs/SELF_IMPROVEMENTS.md"])
             self.assertTrue((repo / "self_improve").glob("proposals-*.md"))
+            tags = subprocess.run(["git", "tag", "-l", "backup/pre-self-improve-*"], cwd=repo, capture_output=True, text=True).stdout
+            self.assertTrue(tags.strip())
+            self.assertTrue(list((repo / "self_improve" / "backups").glob("*.bundle")))
         finally:
             shutil.rmtree(tmp, ignore_errors=True)
 

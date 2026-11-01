@@ -25,6 +25,7 @@ import webbrowser
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 
+import chat as chatlib
 import codefactory as sa
 import models
 
@@ -99,6 +100,7 @@ class Service:
     def __init__(self, projects: Path):
         self.projects = projects.resolve()
         self.master = ROOT / "MASTER.md"
+        self.chats = chatlib.ChatStore(self.projects, lambda n: bool(NAME_RE.match(n or "")) and (self.projects / n / "agent" / "GOAL.md").exists())
 
     def ws(self, name: str) -> Path:
         if not NAME_RE.match(name or "") or not (self.projects / name / "agent" / "GOAL.md").exists():
@@ -404,6 +406,65 @@ class Service:
                 raise UiError("Only open tasks can be moved up")
             bl.set(item, priority=max(i["priority"] for i in bl.items) + 1)
 
+    def chat_ws(self, name: str) -> Path | None:
+        try:
+            return self.ws(name)
+        except UiError:
+            return None
+
+    def chat_default_model(self, projects: list[str]) -> str:
+        for n in projects:
+            ws = self.chat_ws(n)
+            if ws:
+                return sa.Agent(ws).cfg["models"]["planner"]
+        return sa.DEFAULT_CONFIG["models"]["planner"]
+
+    def chat_list(self) -> dict:
+        out = self.chats.list()
+        out["installed_models"] = self.installed_models(sa.DEFAULT_CONFIG["llm_api"])
+        out["default_model"] = self.chat_default_model([])
+        return out
+
+    def chat_create(self, body: dict) -> dict:
+        names = self.chats.clean_links(body.get("projects"))
+        return self.chats.create(body, self.chat_default_model(names))
+
+    def chat_stream(self, cid: str, text: str, write) -> None:
+        """Appends the user message, streams the answer through write(dict) and stores it (also when cut off)."""
+        text = text.strip()
+        if not text:
+            raise UiError("Message is empty")
+        if len(text) > chatlib.MAX_USER_CHARS:
+            raise UiError("Message too long")
+        chat = self.chats.load(cid)
+        chat["messages"].append({"role": "user", "content": text, "t": time.time()})
+        if chat["title"] == "New chat":
+            chat["title"] = text.replace("\n", " ")[:50]
+        chat["messages"] = chat["messages"][-chatlib.MAX_MESSAGES:]
+        chat["updated"] = time.time()
+        self.chats.save(chat)
+        msgs = chatlib.build_messages(chat, self.chat_ws)
+        cfg = sa.DEFAULT_CONFIG
+        answer, err = "", ""
+        try:
+            for d in chatlib.stream_completion(cfg["llm_api"], cfg["api_key"], chat["model"], msgs):
+                answer += d
+                write({"delta": d})
+        except OSError as e:  # includes a closed browser connection: keep the partial answer
+            err = f"Model server not reachable or connection closed: {e}"
+        except Exception as e:  # noqa: BLE001
+            err = f"{type(e).__name__}: {e}"
+        finally:
+            if answer:
+                chat["messages"].append({"role": "assistant", "content": answer, "t": time.time(), "model": chat["model"]})
+                chat["updated"] = time.time()
+                self.chats.save(chat)
+        if err:
+            try:
+                write({"error": err})
+            except OSError:
+                pass
+
     def languages(self) -> dict:
         return {"stacks": sa.stacks.availability()}
 
@@ -470,14 +531,39 @@ def make_handler(svc: Service, port: int, token: str | None = None):
                     if n > MAX_BODY:
                         raise UiError("Request too large", 413)
                     body = json.loads(self.rfile.read(n) or b"{}")
+                ms = re.fullmatch(r"/api/chat/([a-f0-9]{12})/send", path)
+                if method == "POST" and ms:
+                    return self.chat_send(ms.group(1), body)  # streams for minutes, so it must not hold LOCK
                 with LOCK:
                     self.send(200, self.route(method, path, body, q))
+            except chatlib.ChatError as e:
+                self.send(e.code, {"error": str(e)})
             except UiError as e:
                 self.send(e.code, {"error": str(e)})
             except (ValueError, KeyError) as e:
                 self.send(400, {"error": f"Invalid request: {e}"})
             except Exception as e:  # noqa: BLE001
                 self.send(500, {"error": f"{type(e).__name__}: {e}"})
+
+        def chat_send(self, cid: str, body: dict) -> None:
+            svc.chats.load(cid)  # 404 before the stream starts
+            self.send_response(200)
+            self.send_header("Content-Type", "text/event-stream; charset=utf-8")
+            self.send_header("Cache-Control", "no-store")
+            self.send_header("Connection", "close")
+            self.end_headers()
+            self.close_connection = True
+
+            def write(obj) -> None:
+                self.wfile.write(b"data: " + json.dumps(obj, ensure_ascii=False).encode() + b"\n\n")
+                self.wfile.flush()
+            try:
+                svc.chat_stream(cid, str(body.get("content", "")), write)
+                write("[DONE]")
+            except (UiError, chatlib.ChatError) as e:
+                write({"error": str(e)})
+            except OSError:
+                pass
 
         def route(self, method: str, path: str, body: dict, q: dict):
             if method == "GET":
@@ -491,6 +577,11 @@ def make_handler(svc: Service, port: int, token: str | None = None):
                     return svc.languages()
                 if path == "/api/tool":
                     return svc.tool()
+                if path == "/api/chats":
+                    return svc.chat_list()
+                m = re.fullmatch(r"/api/chat/([a-f0-9]{12})", path)
+                if m:
+                    return svc.chats.load(m.group(1))
                 if path == "/api/tool/diff":
                     return svc.tool_diff(q.get("branch", ""))
                 m = re.fullmatch(r"/api/project/([^/]+)", path)
@@ -513,6 +604,14 @@ def make_handler(svc: Service, port: int, token: str | None = None):
                     return svc.set_master(body)
                 if path == "/api/tool/task":
                     return svc.tool_task(body)
+                if path == "/api/chats":
+                    return svc.chat_create(body)
+                m = re.fullmatch(r"/api/chat/([a-f0-9]{12})/(update|delete)", path)
+                if m:
+                    if m.group(2) == "delete":
+                        svc.chats.delete(m.group(1))
+                        return {"ok": True}
+                    return svc.chats.update(m.group(1), body)
                 m = re.fullmatch(r"/api/project/([^/]+)/([a-z-]+)", path)
                 if m:
                     return svc.act(m.group(1), m.group(2), body)

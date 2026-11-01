@@ -1,7 +1,7 @@
 P ?=
 
 .DEFAULT_GOAL := help
-.PHONY: models ui-lan force-stop kill help setup selftest init start run status stop list ui start-tmux tmux attach watch thinking logs task do self-improve improve test-build try feedback say
+.PHONY: e2e-setup models ui-lan force-stop kill help setup selftest init start run status stop list ui start-tmux tmux attach watch thinking logs task do self-improve improve test-build try feedback say
 
 help:
 	@echo "First time:   make setup"
@@ -12,6 +12,7 @@ help:
 	@echo "Status/Stop:  make status P=myproj / make stop P=myproj (after the task) / make force-stop P=myproj (immediately) / make list"
 	@echo "Web UI:       make ui                 (http://127.0.0.1:8765, can start/stop too)"
 	@echo "Models:       make models             (optional extra models to download, installed ones are used automatically)"
+	@echo "Browser tests: make e2e-setup        (optional Playwright, lets the agent click through web products)"
 	@echo "Web UI (LAN): make ui-lan             (reachable from other devices, token link is printed)"
 	@echo "Feedback:     make feedback P=myproj MSG=\"...\"   Test build: make test-build P=myproj"
 
@@ -61,6 +62,13 @@ ui:
 # Web UI for your whole network (token-protected): open the printed link on any device
 ui-lan:
 	bash scripts/run.sh ui --lan
+
+# Optional: Playwright + Chromium so the agent can test web products in a real browser
+e2e-setup:
+	test -d .venv || python3 -m venv .venv
+	.venv/bin/pip install playwright
+	.venv/bin/playwright install chromium
+	@echo "If Chromium fails to start on a fresh Linux: sudo .venv/bin/playwright install-deps chromium"
 
 # Optional models to download (and which ones are already installed)
 models:

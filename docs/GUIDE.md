@@ -112,6 +112,10 @@ Everything below **only while the agent is stopped**:
   (takes a few minutes, progress at the top left). The UI uses the same files and commands as the CLI; you can mix both.
   It listens only on 127.0.0.1 and checks the host and origin of requests; do not forward it to the network.
 
+## 6b2. Chat and browser tests
+- **Chat:** sidebar button *Chat*; link projects as chips so the model knows them. Pick the model per chat (installed Ollama models). *Add to ideas* / *Run as task* under an answer sends it to the linked project.
+- **Browser tests:** `make e2e-setup` once (on a fresh Linux also `sudo .venv/bin/playwright install-deps chromium`). Web products are then clicked through in headless Chromium after the build; generated tests are kept in the product repo under `e2e/`.
+
 ## 6c. Self-improvement
 - **Automatic, per project:** nothing to do. Every few merges (`limits.reflect_every`, default 6) or after 3 failed tasks the agent writes
   `projects/<name>/agent/playbook.md` (rules learned from its own failures, used in every prompt) and may adjust a few limits within fixed bounds
@@ -119,7 +123,7 @@ Everything below **only while the agent is stopped**:
 - **The tool itself, on demand:** after a few projects have run for a while, run `make self-improve ARGS=--dry-run` to see proposals, or `make self-improve`
   to let the agent implement them on a branch `self-improve/<timestamp>` (needs Ollama + Aider running). Only changes that keep `selftest`
   and the unit tests green survive; each one gets a follow-up commit that updates README/docs and `docs/SELF_IMPROVEMENTS.md`. Review with `git diff main...self-improve/<timestamp>`, merge with `git merge self-improve/<timestamp>`
-  or ignore it. Nothing changes in the code you are running unless you merge.
+  or ignore it. Nothing changes in the code you are running unless you merge. A backup (tag `backup/pre-self-improve-<timestamp>` plus a bundle in `self_improve/backups/`) is always made first; undo with `git reset --hard <tag>`.
 
 ## 7. Settings
 File `projects/<name>/agent/config.json` (template: `config.example.json`, takes effect from the next start). Key values:

@@ -144,9 +144,27 @@ def main(projects: Path, dry_run: bool = False, repo: Path | None = None, llm=No
     return _implement(repo, proposals, coder, stamp, out_dir, log, PROTECTED)
 
 
+def make_backup(repo: Path, stamp: str, out_dir: Path, log) -> str:
+    """Safety net before any self-change: a tag on the current code plus a self-contained git bundle outside the work tree."""
+    tag = f"backup/pre-self-improve-{stamp}"
+    rc, out = _git(repo, "tag", tag, "HEAD")
+    if rc != 0:
+        raise RuntimeError(f"Backup failed, nothing changed: {out}")
+    bdir = out_dir / "backups"
+    bdir.mkdir(parents=True, exist_ok=True)
+    bundle = bdir / f"codefactory-{stamp}.bundle"
+    rc, out = _git(repo, "bundle", "create", str(bundle), "HEAD")
+    if rc != 0:
+        _git(repo, "tag", "-d", tag)
+        raise RuntimeError(f"Backup failed, nothing changed: {out}")
+    log(f"Backup created: tag {tag} and {bundle}. Restore: git reset --hard {tag}")
+    return tag
+
+
 def _implement(repo: Path, proposals: list[dict], coder, stamp: str, out_dir: Path, log, protected: tuple) -> dict:
     """Implements proposals one by one in a worktree on a new branch; keeps only green, non-protected changes."""
     branch, work = f"self-improve/{stamp}", out_dir / "work" / stamp
+    make_backup(repo, stamp, out_dir, log)  # always, before the new version can be merged or pushed
     rc, out = _git(repo, "worktree", "add", "-b", branch, str(work), "HEAD")
     if rc != 0:
         raise RuntimeError(f"git worktree failed: {out}")

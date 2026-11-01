@@ -48,6 +48,7 @@ import urllib.parse
 import urllib.request
 from pathlib import Path
 
+import e2e
 import models
 import stacks
 from webaccess import Web, WebError
@@ -94,7 +95,7 @@ DEFAULT_CONFIG = {
     "web": {"mode": "sources", "refresh_hours": 24, "max_chars": 20000, "timeout": 20, "research_every": 4,
             "queries_per_research": 3, "results_per_query": 2, "max_new_pages_per_session": 40,
             "search_url": "https://html.duckduckgo.com/html/?q={q}", "blocked_domains": []},
-    "features": {"cleanup_pass": True, "require_tests": True, "plan_critique": True},
+    "features": {"cleanup_pass": True, "require_tests": True, "plan_critique": True, "e2e": "auto"},
     "commands": {},  # filled by the preset, overridable in config.json
     "source_exts": [".py", ".js", ".ts", ".tsx", ".jsx", ".html", ".css", ".sql", ".toml", ".yml", ".yaml"],
     "src_dirs": ["app"],
@@ -1209,12 +1210,80 @@ class Agent:
             lesson = clip(why, 300)
         self.mem.add_lesson(lesson, [], item["id"])
 
+    def e2e_check(self, item: dict) -> tuple[bool, str]:
+        """Real-browser check of web products: smoke test plus a generated Playwright script. Skipped when unavailable."""
+        feat = self.cfg["features"].get("e2e", "auto")
+        url = e2e.extract_url(self.detect_run_plan().get("url", ""))
+        if feat in (False, "off") or not url or item["type"] == "docs":
+            return True, ""
+        py = e2e.find_python()
+        if not py:
+            if not getattr(self, "e2e_hinted", False):
+                self.e2e_hinted = True
+                self.log("Browser tests skipped. " + e2e.INSTALL_HELP)
+            return True, ""
+        if e2e.port_busy(url):
+            self.log(f"Browser tests skipped: {url} is already in use.")
+            return True, ""
+        self.phase("Starting the app for the browser test", "e2e", url)
+        proc, err = e2e.start_app(PRESETS[self.cfg["preset"]]["run"], self.repo, url)
+        if not proc:
+            return False, "[e2e] " + err
+        out = self.run_dir / "e2e"
+        script = self.repo / "e2e" / f"e2e_{item['id'].lower()}.py"
+        try:
+            for rnd in range(1, 3):
+                self.phase(f"Browser test, round {rnd}", "e2e", "smoke + user flow")
+                rep = e2e.smoke(py, url, out)
+                if rep.get("error") or not rep.get("ok"):
+                    problems = rep.get("error") or "\n".join(rep.get("problems", []))
+                    fail = f"[e2e smoke] {problems}"
+                else:
+                    if not script.exists():
+                        code = e2e.extract_script(self.llm.chat(
+                            "e2e_test", "planner",
+                            "You write one Playwright (sync, Python) UI test. Define `def run(page, base):` that opens base, "
+                            "performs the user flow with real clicks/typing and asserts the visible result with expect(). "
+                            "Use only role/text/label locators. Output only a python code block.",
+                            f"Task: {item['title']}\n{item['description']}\nAcceptance: {item.get('acceptance')}\n\n"
+                            f"Page (aria snapshot):\n{rep.get('snapshot', '')}"))
+                        if not code:
+                            return True, ""
+                        script.parent.mkdir(exist_ok=True)
+                        write_text(script, code)
+                    res = e2e.run_script(py, script, url, out)
+                    if res.get("ok"):
+                        self.log(f"Browser test passed ({script.name}).")
+                        return True, ""
+                    fail = f"[e2e script] {res.get('error') or ''}\n" + "\n".join(res.get("problems", [])) \
+                        + f"\nPage now:\n{res.get('snapshot', '')[:2000]}"
+                self.log("Browser test failed: " + fail.splitlines()[0][:150])
+                if rnd == 2:
+                    return False, fail
+                files = sorted(set(self.git.changed_files()) | ({f"e2e/{script.name}"} if script.exists() else set()))
+                e2e.stop_app(proc)
+                self.code("e2e_fix", files[:self.lim["max_files_per_task"] + 4], [str(self.run_dir / "context.md")],
+                          f"A real-browser test failed. The product code or the test script e2e/{script.name} is wrong; "
+                          f"fix whichever is at fault (never just weaken the assertion).\nTask: {item['title']}\n\n{fail}\n\n{self.RULES}")
+                vok, vrep = self.verify()
+                if not vok:
+                    return False, "Build red after e2e fix:\n" + vrep
+                proc, err = e2e.start_app(PRESETS[self.cfg["preset"]]["run"], self.repo, url)
+                if not proc:
+                    return False, "[e2e] " + err
+            return True, ""
+        finally:
+            e2e.stop_app(proc)
+
     def attempt(self, item: dict, previous: list[str], branch: str, base_sha: str) -> tuple[bool, str]:
         plan = self.impact_analysis(item, previous)
         self.implement(item, plan)
         ok, report = self.debug_loop(item)
         if not ok:
             return False, "Build/test red after debug rounds:\n" + report
+        ok, report = self.e2e_check(item)
+        if not ok:
+            return False, "Browser test failed:\n" + report
         review = self.review(item, plan)
         if review.get("verdict") == "revise" or review.get("score", 10) < self.lim["min_review_score"]:
             self.log(f"Review requests revision (score {review.get('score')})")
