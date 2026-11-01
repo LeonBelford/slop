@@ -287,3 +287,65 @@ class NoEditTests(unittest.TestCase):
         self.assertIn("did not output an edit block", rep)
         self.assertIn("changed no file", rep)
         self.assertTrue(res["branch"])
+
+
+class SpeedTests(unittest.TestCase):
+    def test_analyse_finds_cpu_offload_ctx_mismatch_and_multi_load(self):
+        import perf
+        ps = {"models": [{"name": "a:14b", "size": 100, "size_vram": 70, "context_length": 4096}, {"name": "b:7b", "size": 50, "size_vram": 50}]}
+        texts = " ".join(f["text"] for f in perf.analyse(ps, {"a:14b": {"parameters": "num_ctx 12288"}}, 16384))
+        for needle in ("30% runs on the CPU", "reloads", "loaded at the same time", "num_ctx 12288"):
+            self.assertIn(needle, texts)
+        self.assertEqual(perf.analyse({"models": []}, {}, 16384)[0]["level"], "ok")
+        self.assertEqual(perf.analyse(None, {})[0]["level"], "warn")
+
+    def test_aider_args_pin_context_for_ollama_only(self):
+        import perf
+        with tempfile.TemporaryDirectory() as d:
+            a = perf.aider_args("ollama_chat/x", Path(d))
+            self.assertIn("--model-settings-file", a)
+            cfg = json.loads((Path(d) / "aider_models.json").read_text())
+            self.assertEqual(cfg[0]["extra_params"]["num_ctx"], perf.NUM_CTX)
+            self.assertNotIn("--model-settings-file", perf.aider_args("gpt-4o", Path(d)))
+
+    def test_endless_reasoning_is_cut_and_asked_again_directly(self):
+        llm = sa.LLM({"limits": {"think_chars": 50}, "models": {}}, lambda m: None)
+        self.assertEqual(llm.think_cap, 50)
+
+        class R:
+            headers = {"Content-Type": "text/event-stream"}
+            def __iter__(self):
+                for _ in range(100):
+                    yield ('data: ' + json.dumps({"choices": [{"delta": {"reasoning": "hmm " * 10}}]})).encode()
+        llm.sched = type("S", (), {"check": lambda s: None, "waiting": False})()
+        llm._publish = lambda *a, **k: None
+        answer, thinking = llm._read(R(), "t", "planner", "m", 0)
+        self.assertEqual(answer, "")
+        self.assertLess(len(thinking), 200)
+        self.assertTrue(llm.cut_thinking)
+
+    def test_review_runs_while_full_tests_run(self):
+        order = []
+
+        def coder(work, files, prompt):
+            if not prompt.startswith(("Add tests", "Documentation update")):
+                (work / "app.py").write_text("X = 9\n")
+        import time as _t
+        sa.LLM.mock = lambda tag, *a: json.dumps({"files": ["app.py"]}) if tag == "tool_files" else (order.append("review_start") or _t.sleep(0.3) or order.append("review_end") or json.dumps({"approve": True, "issues": []}) if tag == "tool_review" else "{}")
+
+        def green(w, t):
+            order.append("tests_start")
+            _t.sleep(0.5)
+            order.append("tests_end")
+            return True, "ok"
+        with tempfile.TemporaryDirectory() as d:
+            repo = make_repo(Path(d))
+            real = selfimprove._tests_green
+            selfimprove._tests_green = green
+            try:
+                selfimprove.directed("Change X to 9", repo=repo, coder=coder, log=lambda m: None)
+            finally:
+                sa.LLM.mock = None
+                selfimprove._tests_green = real
+        self.assertLess(order.index("review_start"), order.index("tests_end"))
+        self.assertLess(order.index("tests_start"), order.index("review_end"))
