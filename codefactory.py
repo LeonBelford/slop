@@ -190,6 +190,34 @@ def sh(cmd, cwd: Path, timeout: int = 900, shell: bool = False, env: dict | None
         return 127, f"Command not found: {e}"
 
 
+def sh_live(cmd, cwd: Path, timeout: int, live: Path, env: dict | None = None, shell: bool = False):
+    """Like sh(), but mirrors the output into `live` while the command runs so the UI can show it as it is written."""
+    try:
+        p = subprocess.Popen(cmd, cwd=str(cwd), stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True, errors="replace", shell=shell,
+                             env={**os.environ, **(env or {})})
+    except FileNotFoundError as e:
+        return 127, f"Command not found: {e}"
+    chunks: list[str] = []
+
+    def pump() -> None:
+        with open(live, "w", encoding="utf-8") as f:
+            for line in p.stdout:
+                chunks.append(line)
+                f.write(line)
+                f.flush()
+
+    th = threading.Thread(target=pump, daemon=True)
+    th.start()
+    try:
+        p.wait(timeout=timeout)
+    except subprocess.TimeoutExpired:
+        force_stop_pid(p.pid, grace=2.0)
+        th.join(2)
+        return 124, f"TIMEOUT after {timeout}s: {cmd}"
+    th.join(5)
+    return p.returncode, "".join(chunks)
+
+
 def _children() -> dict[int, list[int]]:
     tree: dict[int, list[int]] = {}
     for d in Path("/proc").iterdir():
@@ -333,6 +361,16 @@ def read_ideas(path: Path) -> str:
 # --------------------------------------------------------------------------- LLM
 
 
+def _strip_think(text: str) -> str:
+    """Removes finished <think>...</think> blocks and an unfinished trailing one."""
+    return re.sub(r"<think>.*?(</think>|$)", "", text, flags=re.S)
+
+
+def _open_think(text: str) -> str:
+    """Reasoning text found inside <think> tags so far (shown live)."""
+    return "".join(re.findall(r"<think>(.*?)(?:</think>|$)", text, flags=re.S))
+
+
 class LLM:
     """Thin OpenAI-compatible client. `mock(tag, role, system, user) -> str` replaces it in the selftest."""
 
@@ -344,6 +382,56 @@ class LLM:
         self.overrides: dict[str, str] = {}  # role -> model chosen by routing
         self.live: Path | None = None  # file describing the model call in progress (for the UI)
         self.trace: Path | None = None  # set by Agent: every model call is appended here so you can watch the "thinking"
+        self.thoughts: Path | None = None  # full, untruncated record of every call incl. the model's reasoning (thoughts.jsonl)
+        self.stream: Path | None = None  # the answer being written right now, updated while it streams (llm_stream.json)
+        self.seq = 0
+        self.ctx = lambda: ""  # returns the current task id (set by Agent)
+
+    def record(self, tag: str, role: str, model: str, user: str, answer: str, thinking: str = "", seconds: float = 0.0) -> None:
+        """Appends the complete thought (prompt, reasoning, answer) to thoughts.jsonl for the UI."""
+        if not self.thoughts:
+            return
+        if not self.seq and self.thoughts.exists():
+            self.seq = sum(1 for _ in open(self.thoughts, "rb"))
+        self.seq += 1
+        row = {"n": self.seq, "time": now(), "task": self.ctx(), "role": role, "tag": tag, "model": model, "seconds": round(seconds, 1),
+               "prompt": user[-8000:], "thinking": thinking[-40000:], "answer": answer[:30000]}
+        with open(self.thoughts, "a", encoding="utf-8") as f:
+            f.write(json.dumps(row, ensure_ascii=False) + "\n")
+
+    def _publish(self, tag: str, role: str, model: str, since: float, thinking: str, answer: str) -> None:
+        if self.stream:
+            write_json(self.stream, {"tag": tag, "role": role, "model": model, "since": since,
+                                     "thinking": thinking[-12000:], "answer": answer[-12000:], "updated": time.time()})
+
+    def _read(self, r, tag: str, role: str, model: str, since: float) -> tuple[str, str]:
+        """Reads a streamed (SSE) or plain JSON answer. Returns (answer, reasoning); <think> blocks count as reasoning."""
+        ctype = r.headers.get("Content-Type", "")
+        if "event-stream" not in ctype:
+            msg = json.loads(r.read())["choices"][0]["message"]
+            content, thinking = msg.get("content") or "", msg.get("reasoning") or msg.get("reasoning_content") or ""
+        else:
+            content, thinking, last_pub = "", "", 0.0
+            for raw in r:
+                line = raw.decode("utf-8", "replace").strip()
+                if not line.startswith("data:"):
+                    continue
+                payload = line[5:].strip()
+                if payload == "[DONE]":
+                    break
+                try:
+                    delta = json.loads(payload)["choices"][0].get("delta", {})
+                except (ValueError, KeyError, IndexError):
+                    continue
+                content += delta.get("content") or ""
+                thinking += delta.get("reasoning") or delta.get("reasoning_content") or ""
+                if time.time() - last_pub > 0.4:
+                    last_pub = time.time()
+                    self._publish(tag, role, model, since, thinking + _open_think(content), _strip_think(content))
+        m = re.search(r"<think>(.*?)</think>", content, re.S)
+        if m:
+            thinking += m.group(1)
+        return _strip_think(content).strip() if m or "<think>" in content else content, thinking
 
     def _traced(self, tag: str, role: str, user: str, answer: str) -> str:
         if self.trace:
@@ -377,16 +465,23 @@ class LLM:
 
     def chat(self, tag: str, role: str, system: str, user: str, temperature: float = 0.2) -> str:
         if LLM.mock:
-            return self._traced(tag, role, user, LLM.mock(tag, role, system, user))
+            mocked = LLM.mock(tag, role, system, user)
+            self.record(tag, role, "mock", user, mocked)
+            return self._traced(tag, role, user, mocked)
+        model = self.overrides.get(role) or self.cfg["models"].get(role) or self.cfg["models"]["reviewer"]
         body = json.dumps({
-            "model": self.overrides.get(role) or self.cfg["models"].get(role) or self.cfg["models"]["reviewer"],
+            "model": model,
             "messages": [{"role": "system", "content": system}, {"role": "user", "content": user}],
             "temperature": temperature,
+            "stream": True,
         }).encode()
+        t_start = time.time()
         last = None
         done = threading.Event()
         if self.live:
-            write_json(self.live, {"role": role, "tag": tag, "model": self.cfg["models"].get(role, ""), "since": time.time()})
+            write_json(self.live, {"role": role, "tag": tag, "model": model, "since": t_start})
+        self._publish(tag, role, model, t_start, "", "")
+        self.log(f"🧠 [{role}/{tag}] asking {model} ...")
 
         def heartbeat():
             t0 = time.time()
@@ -400,18 +495,24 @@ class LLM:
                     self.cfg["llm_api"], data=body,
                     headers={"Content-Type": "application/json", "Authorization": "Bearer " + self.cfg["api_key"]})
                 with urllib.request.urlopen(req, timeout=self.cfg["limits"]["llm_timeout"]) as r:
-                    answer = json.loads(r.read())["choices"][0]["message"]["content"]
+                    answer, thinking = self._read(r, tag, role, model, t_start)
                 done.set()
                 if self.live:
                     self.live.unlink(missing_ok=True)
+                if self.stream:
+                    self.stream.unlink(missing_ok=True)
+                self.record(tag, role, model, user, answer, thinking, time.time() - t_start)
+                self.log(f"🧠 [{role}/{tag}] answered in {time.time() - t_start:.0f}s"
+                         + (f", reasoned {len(thinking)} chars" if thinking else "") + f": {clip(' '.join(answer.split()), 160)}")
                 return self._traced(tag, role, user, answer)
             except Exception as e:  # network/model briefly unavailable: wait and retry
                 last = e
                 self.log(f"LLM error ({tag}), attempt {attempt + 1}: {e}")
                 time.sleep(5 * (attempt + 1))
         done.set()
-        if self.live:
-            self.live.unlink(missing_ok=True)
+        for f in (self.live, self.stream):
+            if f:
+                f.unlink(missing_ok=True)
         raise RuntimeError(f"LLM unreachable: {last}")
 
     def json(self, tag: str, role: str, system: str, user: str):
@@ -1057,6 +1158,9 @@ class Agent:
         self.llm = LLM(self.cfg, self.log)
         self.llm.trace = self.dir / "llm.log"
         self.llm.live = self.dir / "llm_now.json"
+        self.llm.thoughts = self.dir / "thoughts.jsonl"
+        self.llm.stream = self.dir / "llm_stream.json"
+        self.llm.ctx = lambda: self.cur_task
         self.cur_task, self.cur_attempt = "", 0
         self.git = Git(self.repo)
         self.backlog = Backlog(self.dir / "backlog.json")
@@ -1225,14 +1329,17 @@ class Agent:
         write_text(pf, prompt)
         model = self.coder_for(tag)
         write_json(self.dir / "coder_now.json", {"tag": tag, "files": edit[:12], "model": model, "since": time.time()})
-        cmd = ["aider", "--yes-always", "--no-auto-commits", "--no-pretty", "--no-stream", "--no-check-update",
+        cmd = ["aider", "--yes-always", "--no-auto-commits", "--no-pretty", "--no-check-update",
                "--model", model, "--message-file", str(pf)]
         for r in read:
             cmd += ["--read", r]
         cmd += edit
-        env = {"OLLAMA_API_BASE": os.getenv("OLLAMA_API_BASE", "http://localhost:11434")}
-        rc, out = sh(cmd, self.repo, self.lim["coder_timeout"], env=env)
+        env = {"OLLAMA_API_BASE": os.getenv("OLLAMA_API_BASE", "http://localhost:11434"), "PYTHONUNBUFFERED": "1"}
+        t0 = time.time()
+        rc, out = sh_live(cmd, self.repo, self.lim["coder_timeout"], self.dir / "coder_live.txt", env=env)
         (self.dir / "coder_now.json").unlink(missing_ok=True)
+        (self.dir / "coder_live.txt").unlink(missing_ok=True)
+        self.llm.record(tag, "coder", model, prompt, out, "", time.time() - t0)
         write_text(self.run_dir / f"{tag}.aider.log", out)
         if rc != 0:
             self.log(f"Aider exit code {rc} for {tag}: {tail(out, 300)}")
@@ -1253,7 +1360,10 @@ class Agent:
             c = cmds.get(name)
             if not c:
                 continue
-            rc, out = sh(c, self.repo, t, shell=True)
+            self.log(f"▶ running {name}: {c}")
+            write_json(self.dir / "cmd_now.json", {"name": name, "cmd": c, "since": time.time()})
+            rc, out = sh_live(c, self.repo, t, self.dir / "cmd_live.txt", shell=True)
+            (self.dir / "cmd_now.json").unlink(missing_ok=True)
             if rc:
                 return False, f"[{name}] FAILED rc={rc}\n$ {c}\n{tail(out, 6000)}"
         return True, "build + tests ok"
@@ -2124,7 +2234,7 @@ class Agent:
             pid = 0
         killed = force_stop_pid(pid) if pid else []
         sh(["tmux", "kill-session", "-t", f"agent-{self.ws.name}"], self.dir)
-        for f in ("agent.pid", "llm_now.json", "coder_now.json"):
+        for f in ("agent.pid", "llm_now.json", "coder_now.json", "llm_stream.json", "coder_live.txt", "cmd_now.json"):
             (self.dir / f).unlink(missing_ok=True)
         self.cur_task, self.cur_attempt = "", 0
         self.phase("Force-stopped", None, "kill switch used; unfinished work is discarded on the next start")

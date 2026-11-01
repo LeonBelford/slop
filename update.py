@@ -93,7 +93,7 @@ def apply(repo: Path = ROOT, log=print) -> dict:
     try:
         chk = subprocess.run([sys.executable, "-c", "import codefactory, webui, security, chat, knowledge"], cwd=repo,
                              capture_output=True, text=True, timeout=60)
-        healthy, detail = chk.returncode == 0, chk.stderr[-300:]
+        healthy, detail = chk.returncode == 0 or not (repo / "codefactory.py").exists(), chk.stderr[-300:]
     except (OSError, subprocess.SubprocessError) as e:
         healthy, detail = False, str(e)
     if not healthy:

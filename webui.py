@@ -38,6 +38,8 @@ MODEL_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_./:@-]{0,99}$")
 SETTING_LIMITS = {"max_hours": (1, 720), "max_iterations": (1, 5000), "max_attempts_per_task": (1, 8),
                   "max_debug_rounds": (1, 8), "max_consecutive_failures": (1, 20), "min_review_score": (1, 10)}
 NAME_RE = re.compile(r"^[a-z0-9][a-z0-9-]{0,60}$")
+EMPTY_TREE = "4b825dc642cb6eb9a060e54bf8d69288fbee4904"
+MAX_FILE = 400_000
 SHA_RE = re.compile(r"^[0-9a-f]{4,40}$")
 BRANCH_RE = re.compile(r"^self-improve/[0-9]{8}-[0-9]{6}$")
 MAX_DIFF = 200_000
@@ -209,7 +211,7 @@ class Service:
                 except ValueError:
                     pass
         return {"running": running, "now": sa.read_json(a / "activity.json", None) if running else None,
-                "llm": read_live(a / "llm_now.json", running), "coder": read_live(a / "coder_now.json", running),
+                "llm": read_live(a / "llm_now.json", running), "coder": read_live(a / "coder_now.json", running), "cmd": read_live(a / "cmd_now.json", running),
                 "events": events, "queued_user_tasks": [i["title"] for i in sa.read_json(a / "backlog.json", [])
                                                           if i.get("source") == "user" and i["status"] in ("pending", "in_progress")]}
 
@@ -221,6 +223,78 @@ class Service:
             prompt, _, answer = rest.partition("\n-- answer --\n")
             entries.append({"head": head, "prompt": prompt.replace("-- prompt (end) --\n", "", 1), "answer": answer.strip()})
         return {"entries": entries[::-1]}
+
+    def thoughts(self, name: str, limit: int = 60) -> dict:
+        """Every model call in full (prompt, reasoning, answer), plus what is being streamed right now."""
+        a = self.ws(name) / "agent"
+        rows = []
+        for line in tail(a / "thoughts.jsonl", 400, 3_000_000).splitlines()[-limit:]:
+            try:
+                rows.append(json.loads(line))
+            except ValueError:
+                pass
+        running = pid_alive(a / "agent.pid") or alive(f"run:{name}") or alive(f"do:{name}")
+        live = tail(a / "coder_live.txt", 120, 60_000) if running else ""
+        return {"entries": rows[::-1], "stream": read_live(a / "llm_stream.json", running), "coder_live": live,
+                "cmd": read_live(a / "cmd_now.json", running), "cmd_live": tail(a / "cmd_live.txt", 120, 60_000) if running else ""}
+
+    def _base(self, repo: Path, base: str) -> str:
+        """Maps the UI's comparison choice to a git revision ('head' = uncommitted work, 'last:N' = last N commits)."""
+        if not git(repo, "rev-parse", "--verify", "-q", "HEAD").strip():
+            return EMPTY_TREE
+        m = re.fullmatch(r"last:(\d{1,3})", base or "")
+        if not m:
+            return "HEAD"
+        n = int(m.group(1))
+        return f"HEAD~{n}" if git(repo, "rev-parse", "--verify", "-q", f"HEAD~{n}").strip() else EMPTY_TREE
+
+    def tree(self, name: str, base: str = "head") -> dict:
+        """All files of the product repo with what changed relative to the chosen base."""
+        repo = self.ws(name) / "repo"
+        if not (repo / ".git").exists():
+            return {"files": [], "base": base}
+        rev = self._base(repo, base)
+        names = git(repo, "ls-files", "-z", "-c", "-o", "--exclude-standard", limit=4_000_000).split("\0")
+        files = {n: {"path": n, "status": "", "add": 0, "del": 0} for n in names if n and not n.startswith(".git/")}
+        for line in git(repo, "diff", "--numstat", "--no-renames", rev, limit=4_000_000).splitlines():
+            parts = line.split("\t")
+            if len(parts) == 3 and parts[2] in files:
+                f = files[parts[2]]
+                f["add"] = int(parts[0]) if parts[0].isdigit() else 0
+                f["del"] = int(parts[1]) if parts[1].isdigit() else 0
+                f["status"] = "M"
+        tracked = set(git(repo, "ls-files", "-z", limit=4_000_000).split("\0"))
+        for line in git(repo, "diff", "--name-status", "--no-renames", rev, limit=4_000_000).splitlines():
+            st, _, path = line.partition("\t")
+            if path in files and st.startswith("A"):
+                files[path]["status"] = "A"
+        for path, f in files.items():
+            if path not in tracked:
+                f["status"] = "A"
+                f["add"] = -1  # untracked: the whole file is new
+        return {"files": sorted(files.values(), key=lambda f: f["path"])[:5000], "base": base}
+
+    def file(self, name: str, path: str, base: str = "head") -> dict:
+        """Contents of one file with the line numbers that are new or changed relative to the base."""
+        repo = (self.ws(name) / "repo").resolve()
+        target = (repo / path).resolve()
+        if not path or target == repo or repo not in target.parents or ".git" in Path(path).parts or not target.is_file():
+            raise UiError("File not found")
+        size = target.stat().st_size
+        data = target.read_bytes()[:MAX_FILE]
+        if b"\0" in data[:8000]:
+            return {"path": path, "binary": True, "size": size}
+        text = data.decode("utf-8", "replace")
+        rel = target.relative_to(repo).as_posix()
+        tracked = bool(git(repo, "ls-files", "--", rel).strip())
+        changed: list[int] = []
+        if not tracked:
+            changed = list(range(1, text.count("\n") + 2))
+        else:
+            for m in re.finditer(r"^@@ -\S+ \+(\d+)(?:,(\d+))? @@", git(repo, "diff", "-U0", "--no-renames", self._base(repo, base), "--", rel), re.M):
+                start, cnt = int(m.group(1)), int(m.group(2) or 1)
+                changed.extend(range(start, start + cnt))
+        return {"path": path, "text": text, "size": size, "truncated": size > MAX_FILE, "changed": changed, "new_file": not tracked}
 
     def changes(self, name: str) -> dict:
         repo = self.ws(name) / "repo"
@@ -741,8 +815,14 @@ def make_handler(svc: Service, port: int, token: str | None = None):
                 m = re.fullmatch(r"/api/project/([^/]+)/settings", path)
                 if m:
                     return svc.settings(m.group(1))
-                m = re.fullmatch(r"/api/project/([^/]+)/(llm|changes|diff)", path)
+                m = re.fullmatch(r"/api/project/([^/]+)/(llm|changes|diff|thoughts|tree|file)", path)
                 if m:
+                    if m.group(2) == "thoughts":
+                        return svc.thoughts(m.group(1))
+                    if m.group(2) == "tree":
+                        return svc.tree(m.group(1), q.get("base", "head"))
+                    if m.group(2) == "file":
+                        return svc.file(m.group(1), q.get("path", ""), q.get("base", "head"))
                     if m.group(2) == "llm":
                         return svc.llm_log(m.group(1))
                     if m.group(2) == "changes":

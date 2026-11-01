@@ -1,7 +1,10 @@
 P ?=
 
 .DEFAULT_GOAL := help
-.PHONY: e2e-setup models ui-lan force-stop kill help setup selftest init start run status stop list ui start-tmux tmux attach watch thinking logs task do self-improve improve test-build try feedback say
+.PHONY: update e2e-setup models ui-lan force-stop kill help setup selftest init start run status stop list ui start-tmux tmux attach watch thinking logs task do self-improve improve test-build try feedback say
+
+update:
+	@python3 update.py
 
 help:
 	@echo "First time:   make setup"
@@ -13,6 +16,7 @@ help:
 	@echo "Web UI:       make ui                 (http://127.0.0.1:8765, can start/stop too)"
 	@echo "Models:       make models             (optional extra models to download, installed ones are used automatically)"
 	@echo "Browser tests: make e2e-setup        (optional Playwright, lets the agent click through web products)"
+	@echo "Update:        make update              (pulls the latest version from GitHub, with backup tag and rollback)"
 	@echo "Web UI (LAN): make ui-lan             (reachable from other devices, token link is printed)"
 	@echo "Feedback:     make feedback P=myproj MSG=\"...\"   Test build: make test-build P=myproj"
 
