@@ -10,6 +10,7 @@ from infra import perf
 import re
 import shutil
 import time
+from core import failures
 from core.cfa_flow import removed_tests
 from core.cfutil import PRESETS, clip, sh, sh_live, sha, tail, write_json, write_text
 
@@ -23,7 +24,7 @@ class BuildMixin:
         r, default = self.routes(), self.cfg["coder_model"]
         light, heavy = r["light"], r["heavy"]
         cls = getattr(self, "task_class", "standard")
-        if tag == "review_fix" or tag.startswith("debug") and tag != "debug1":
+        if tag == "review_fix" or tag.startswith("debug") and tag != "debug1" or getattr(self, "force_heavy", False):
             cls = "heavy"
         elif tag == "cleanup":
             cls = "light"
@@ -38,6 +39,9 @@ class BuildMixin:
         write_text(pf, prompt)
         model = self.coder_for(tag)
         write_json(self.dir / "coder_now.json", {"tag": tag, "files": edit[:12], "model": model, "since": time.time()})
+        edit, read, dropped = perf.fit_context(edit, read, prompt, self.repo)
+        if dropped:
+            self.log(f"Context budget: {len(dropped)} read-only file(s) left out of the {tag} call to stay inside the model window")
         cmd = ["aider", "--yes-always", "--no-auto-commits", "--no-pretty", "--no-check-update",
                "--model", model, "--message-file", str(pf)]
         for r in read:
@@ -147,10 +151,13 @@ class BuildMixin:
                       + (f"Tests already written for this task (make them pass, change them only if they are wrong): {tests}\n" if tests else "")
                       + f"{part}\n{self.RULES}")
             self.code("implement" if len(groups) == 1 else f"implement{n}", edit, read + tests, prompt)
+        if not self.coder_mock and not self.git.changed_files():
+            raise RuntimeError("the coder made no usable edit")
 
     def debug_loop(self, item: dict) -> tuple[bool, str]:
         self.phase("Building and running tests", "build")
         ok, report = self.verify_stage()
+        last_sig = failures.signature(report)
         for n in range(1, self.lim["max_debug_rounds"] + 1):
             if ok and self.cfg["features"]["require_tests"] and item["type"] in ("feature", "bug") \
                     and not any("test" in f.lower() for f in self.git.changed_files()):
@@ -168,6 +175,12 @@ class BuildMixin:
                       f"The task was: {item['title']}\n\nError report:\n{report}\n\n{self.RULES}\n"
                       "Do not delete or weaken tests just to make them pass.")
             ok, report = self.verify_stage()
+            sig = failures.signature(report)
+            if not ok and n >= 2 and sig == last_sig:
+                self.log(f"Debug loop stalled: round {n} failed exactly like round {n - 1}, stopping early")
+                self.metric(kind="stalled", item=item["id"], where="debug", sig=sig[:80])
+                return False, report
+            last_sig = sig
         return ok, report
 
     def review(self, item: dict, plan: dict) -> dict:
@@ -192,6 +205,8 @@ class BuildMixin:
         self.run_dir = self.dir / "runs" / f"{self.state['iteration']:04d}-{item['id']}"
         self.run_dir.mkdir(parents=True, exist_ok=True)
         previous: list[str] = []
+        sigs: list[str] = []
+        self.force_heavy = False
         self.backlog.set(item, status="in_progress")
         self.cur_task = f"{item['id']} {item['title']}"
         t0 = time.time()
@@ -216,16 +231,32 @@ class BuildMixin:
                 estimate.record(self.dir / "durations.jsonl", item["title"], time.time() - t0, item["type"], item["attempts"], True,
                                 desc=item.get("description", ""))
                 self.backlog.set(item, status="done")
+                self.force_heavy = False
+                self.last_light = item["type"] in ("docs", "test")
                 self.cur_task, self.cur_attempt = "", 0
                 self.phase("Task finished and merged, picking the next one", None, item["title"])
                 return True
             self.git.hard_reset()
             self.git.run("checkout", "-q", "main")
             self.git.run("branch", "-D", branch)
-            previous.append(f"Attempt {attempt}: {clip(why, 600)}")
+            cls, sig = failures.classify(why), failures.signature(why)
+            previous.append(f"Attempt {attempt} [{cls}]: {clip(why, 600)}")
+            if failures.advice(cls):
+                previous.append(f"Hint for the next attempt: {failures.advice(cls)}")
             self.record_failure(item, why)
             self.metric(kind="attempt_failed", item=item["id"], title=item["title"], type=item["type"], attempt=attempt,
-                        why=clip(why, 300))
+                        why=clip(why, 300), cls=cls)
+            same = sum(1 for x in sigs if x == sig)
+            sigs.append(sig)
+            if same >= 1:
+                self.force_heavy = True
+                self.log(f"The same failure ({cls}) happened again: escalating to the stronger model and a different approach")
+                previous.append("The same failure repeated. Do NOT repeat the previous approach; change the approach fundamentally.")
+            if same >= 2:
+                self.log("Three identical failures: stopping this task instead of repeating it")
+                self.metric(kind="stalled", item=item["id"], where="task", sig=sig[:80])
+                break
+        self.force_heavy = False
         self.backlog.set(item, status="blocked")
         self.phase("Task blocked after repeated failures", None, item["title"])
         return False

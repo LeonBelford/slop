@@ -118,12 +118,19 @@ class Backlog:
     def pending(self) -> list[dict]:
         return [i for i in self.items if i["status"] == "pending"]
 
-    def next(self):
+    def next(self, prefer_light: bool | None = None):
+        """Highest priority first (user tasks, then bugs). Among near-equal priorities the task that suits the model already
+        loaded (light = docs/tests, else regular) wins, which saves model switches on a small GPU."""
         self.reload()
         p = self.pending()
         if not p:
             return None
-        return max(p, key=lambda i: i["priority"] + (1000 if i["type"] == "bug" else 0) + (2000 if i.get("source") == "user" else 0))
+
+        def score(i):
+            base = i["priority"] + (1000 if i["type"] == "bug" else 0) + (2000 if i.get("source") == "user" else 0)
+            light = i["type"] in ("docs", "test")
+            return base + (0.75 if prefer_light is not None and light == prefer_light else 0)
+        return max(p, key=score)
 
     def set(self, item: dict, **kw) -> None:
         item.update(kw)

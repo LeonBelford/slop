@@ -359,7 +359,7 @@ class Agent(BuildMixin, FlowMixin, VerifyMixin, SecurityMixin, ResearchMixin, Op
             if self.reflect_due():
                 self.reflect()
             self.schedule_hygiene()
-            item = self.backlog.next()
+            item = self.backlog.next(getattr(self, "last_light", None))
             if not item:
                 run = self.cfg["run"]
                 if run["mode"] == "rounds" and self.state.get("rounds_run", 0) >= int(run["rounds"]):
