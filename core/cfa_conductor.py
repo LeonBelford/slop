@@ -84,6 +84,14 @@ class ConductorMixin:
     def replan_if_stuck(self) -> bool:
         """When several tasks are blocked or failing, re-think the plan (strategist) instead of grinding on; at most every few merges."""
         blocked = sum(1 for i in self.backlog.items if i["status"] == "blocked")
+        if self.state.pop("milestone_replan", False):  # the milestone review found the product drifting from the vision
+            self.state["auto_replan_at"] = self.state["merged"]
+            self.log("Conductor: the milestone review asks for a new plan")
+            try:
+                self.reevaluate()
+            except Exception as e:  # noqa: BLE001
+                self.log(f"Conductor: re-evaluation failed ({e})")
+            return True
         stuck = blocked >= 3 or self.state.get("consecutive_failures", 0) >= 3
         if not stuck or self.state["merged"] - self.state.get("auto_replan_at", -REPLAN_EVERY_MERGES) < REPLAN_EVERY_MERGES:
             return False

@@ -321,6 +321,11 @@ class BuildMixin:
                       + "\n".join(previous[-3:]) + f"\n\n{self.RULES}")
         else:
             plan = self.impact_analysis(item, previous)
+            if self.spike_due(item, plan):
+                worked, finding = self.spike(item, plan)
+                if not worked:
+                    previous.append(f"A throwaway spike of the planned approach failed: {finding}. Choose a different approach.")
+                    plan = self.impact_analysis(item, previous)
             self.implement(item, plan)
         ok, report = self.debug_loop(item)
         if not ok:

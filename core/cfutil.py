@@ -75,7 +75,7 @@ DEFAULT_CONFIG = {
                   "hits_per_kind": {"code": 4, "decision": 4, "lesson": 5, "web": 3, "feature": 3}},
     "features": {"cleanup_pass": True, "require_tests": True, "plan_critique": True, "e2e": "auto", "security": "on",
                  "test_first": "auto", "step_by_step": "auto", "acceptance_check": True, "retry_replan": True, "protect_tests": True,
-                 "targeted_tests": True, "flaky_retry": True, "verify_cache": True, "coverage_gate": "off", "mutation_check": False},
+                 "targeted_tests": True, "flaky_retry": True, "verify_cache": True, "coverage_gate": "off", "mutation_check": False, "spike": True},
     "commands": {},  # filled by the preset, overridable in config.json
     "source_exts": [".py", ".js", ".ts", ".tsx", ".jsx", ".html", ".css", ".sql", ".toml", ".yml", ".yaml"],
     "src_dirs": ["app"],
