@@ -26,6 +26,7 @@ import time
 from pathlib import Path
 
 import codefactory as sa
+import estimate
 import models
 import perf
 import runledger
@@ -685,6 +686,9 @@ def _implement_run(repo: Path, proposals: list[dict], coder, stamp: str, out_dir
     """Implements proposals one by one in a worktree on a new branch; keeps only green, non-protected changes."""
     ledger.status("working")
     branch, work = f"self-improve/{stamp}", out_dir / "work" / stamp
+    problems = estimate.write_problems([out_dir, out_dir / "work", out_dir / "backups", repo / ".git"])
+    if problems:
+        raise RuntimeError("self-improve needs write access: " + "; ".join(problems))
     _phase("backup", "Saving a backup of the current version")
     make_backup(repo, stamp, out_dir, log)  # always, before the new version can be merged or pushed
     rc, out = _git(repo, "worktree", "add", "-b", branch, str(work), "HEAD")
@@ -697,6 +701,10 @@ def _implement_run(repo: Path, proposals: list[dict], coder, stamp: str, out_dir
         for p in proposals:
             pi = ledger.add_proposal(p["title"])
             ledger.proposal(pi, "running")
+            t0 = time.time()
+            est = estimate.estimate(estimate.load(out_dir / "durations.jsonl"), p["title"], "feature", p.get("rationale", ""))
+            if est["seconds"]:
+                log(f"  estimate: ~{round(est['seconds'] / 60)} min ({est['basis']}, {est['n']} comparable steps)")
             files = [f for f in p.get("files", []) if isinstance(f, str) and (work / f).is_file()
                      and not f.startswith(protected)]
             log(f"▶ [implement] {p['title']}")
@@ -716,6 +724,7 @@ def _implement_run(repo: Path, proposals: list[dict], coder, stamp: str, out_dir
                      f"self-improve: {p['title']}\n\n{p.get('rationale', '')}")
                 kept.append(p["title"])
                 ledger.proposal(pi, "kept")
+                estimate.record(out_dir / "durations.jsonl", p["title"], time.time() - t0, "feature", 1, True, "self", p.get("rationale", ""))
                 log("  kept (tests green)")
                 _phase("docs", "Updating README and docs")
                 ledger.stage(pi, "docs", "running")

@@ -374,7 +374,7 @@ class Service:
             Service._oll = oc = (time.time(), perf.diagnose())
         sysinfo = diagnostics.system(oc[1])
         res = {"time": time.time(), "projects": projects, "system": sysinfo, "findings": diagnostics.findings(projects, sysinfo),
-               "tool": runledger.stats(ROOT / "self_improve")}
+               "tool": {**runledger.stats(ROOT / "self_improve"), "durations": diagnostics.tool_durations(ROOT / "self_improve")}}
         self._diag = (time.time(), res)
         return res
 
