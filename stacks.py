@@ -6,9 +6,12 @@ Custom stacks can be added in a project's agent/config.json by overriding "comma
 """
 from __future__ import annotations
 
+import glob
+import os
 import re
 import shutil
 import subprocess
+from pathlib import Path
 
 # Install help per tool: Debian/Ubuntu/Pop!_OS command and an official page for everything else.
 TOOLS = {
@@ -404,10 +407,37 @@ def public_stacks() -> list[str]:
     return [k for k, v in STACKS.items() if not v.get("hidden")]
 
 
+def extra_bin_dirs() -> list[str]:
+    """Typical install locations that shells add to PATH only via ~/.profile or ~/.bashrc (rustup, Go, .NET, nvm, Homebrew, snap).
+    A server started from a launcher, service or non-login shell does not see them, although the tools are installed."""
+    homes = {str(Path.home())}
+    if os.environ.get("SUDO_USER"):
+        homes.add(f"/home/{os.environ['SUDO_USER']}")
+    cand: list[str] = [os.path.join(os.environ["CARGO_HOME"], "bin")] if os.environ.get("CARGO_HOME") else []
+    for h in sorted(homes):
+        cand += [f"{h}/.cargo/bin", f"{h}/.local/bin", f"{h}/go/bin", f"{h}/.dotnet", f"{h}/.dotnet/tools", f"{h}/.deno/bin", f"{h}/.bun/bin"]
+        cand += sorted(glob.glob(f"{h}/.nvm/versions/node/*/bin"), reverse=True)[:1]
+    cand += ["/usr/local/go/bin", "/usr/local/bin", "/usr/share/dotnet", "/usr/lib/dotnet", "/snap/bin",
+             "/home/linuxbrew/.linuxbrew/bin", "/opt/homebrew/bin"]
+    return [d for d in cand if os.path.isdir(d)]
+
+
+def extend_path() -> None:
+    """Appends the existing extra directories to PATH (also inherited by every subprocess the agent starts)."""
+    cur = os.environ.get("PATH", "").split(os.pathsep)
+    add = [d for d in extra_bin_dirs() if d not in cur]
+    if add:
+        os.environ["PATH"] = os.pathsep.join([p for p in cur if p] + add)
+
+
+extend_path()
+
+
 def missing_tools(key: str) -> list[dict]:
     """Tools required by the stack that are not on PATH, each with install help."""
     if key not in STACKS:  # "auto" before the stack was chosen
         return []
+    extend_path()  # tools installed while the UI is running are found without a restart
     return [{"tool": t, **TOOLS[t]} for t in STACKS[key]["tools"] if shutil.which(t) is None]
 
 
