@@ -338,6 +338,52 @@ class Service:
             branches.append({"name": name, "date": date, "subject": subject, "stat": stat[-12:]})
         return {"running": alive("tool"), "log": tail(ROOT / "self_improve" / "ui.log", 60), "branches": branches}
 
+    def tool_activity(self) -> dict:
+        """Live state of a self-change: stage, streamed model output, Aider/test output and every recorded thought."""
+        d = ROOT / "self_improve"
+        running = alive("tool")
+        rows = []
+        for line in tail(d / "thoughts.jsonl", 400, 3_000_000).splitlines()[-60:]:
+            try:
+                rows.append(json.loads(line))
+            except ValueError:
+                pass
+        return {"running": running, "phase": read_live(d / "phase.json", running), "llm": read_live(d / "llm_now.json", running),
+                "coder": read_live(d / "coder_now.json", running), "cmd": read_live(d / "cmd_now.json", running),
+                "stream": read_live(d / "llm_stream.json", running), "entries": rows[::-1],
+                "coder_live": tail(d / "coder_live.txt", 120, 60_000) if running else "",
+                "cmd_live": tail(d / "cmd_live.txt", 120, 60_000) if running else ""}
+
+    def tool_tree(self, branch: str) -> dict:
+        """Files a result branch changes compared with the running version."""
+        if not BRANCH_RE.match(branch or ""):
+            raise UiError("Invalid branch")
+        files = {}
+        for line in git(ROOT, "diff", "--numstat", "--no-renames", f"HEAD...{branch}", limit=2_000_000).splitlines():
+            parts = line.split("\t")
+            if len(parts) == 3:
+                files[parts[2]] = {"path": parts[2], "status": "M", "add": int(parts[0]) if parts[0].isdigit() else 0,
+                                   "del": int(parts[1]) if parts[1].isdigit() else 0}
+        for line in git(ROOT, "diff", "--name-status", "--no-renames", f"HEAD...{branch}").splitlines():
+            st, _, path = line.partition("\t")
+            if path in files and st.startswith("A"):
+                files[path]["status"] = "A"
+        return {"files": sorted(files.values(), key=lambda f: f["path"]), "base": branch}
+
+    def tool_file(self, branch: str, path: str) -> dict:
+        if not BRANCH_RE.match(branch or "") or not path or path.startswith("-") or ".." in Path(path).parts:
+            raise UiError("File not found")
+        ref = f"{branch}:{path}"
+        if git(ROOT, "cat-file", "-t", ref).strip() != "blob":
+            raise UiError("File not found")
+        text = git(ROOT, "show", ref, limit=MAX_FILE)
+        changed: list[int] = []
+        for m in re.finditer(r"^@@ -\S+ \+(\d+)(?:,(\d+))? @@", git(ROOT, "diff", "-U0", "--no-renames", f"HEAD...{branch}", "--", path), re.M):
+            start, cnt = int(m.group(1)), int(m.group(2) or 1)
+            changed.extend(range(start, start + cnt))
+        return {"path": path, "text": text, "size": len(text), "truncated": False, "changed": changed,
+                "new_file": not git(ROOT, "cat-file", "-t", f"HEAD:{path}").strip()}
+
     def tool_diff(self, branch: str) -> dict:
         if not BRANCH_RE.match(branch or ""):
             raise UiError("Invalid branch")
@@ -807,6 +853,12 @@ def make_handler(svc: Service, port: int, token: str | None = None):
                 m = re.fullmatch(r"/api/chat/([a-f0-9]{12})", path)
                 if m:
                     return svc.chats.load(m.group(1))
+                if path == "/api/tool/activity":
+                    return svc.tool_activity()
+                if path == "/api/tool/tree":
+                    return svc.tool_tree(q.get("branch", ""))
+                if path == "/api/tool/file":
+                    return svc.tool_file(q.get("branch", ""), q.get("path", ""))
                 if path == "/api/tool/diff":
                     return svc.tool_diff(q.get("branch", ""))
                 m = re.fullmatch(r"/api/project/([^/]+)", path)

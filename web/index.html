@@ -23,6 +23,15 @@ aside header{padding:16px;font-weight:600;font-size:15px;letter-spacing:.04em;te
 .side-actions button{flex:1}
 .side-foot{padding:12px;border-top:1px solid var(--line)}
 .side-foot button{width:100%}
+.chat-switch{display:flex;align-items:center;justify-content:space-between;gap:10px;margin:10px 2px;padding:8px 10px;border:1px solid var(--line);border-radius:8px;cursor:pointer;font-size:13px;color:var(--text);transition:border-color .15s}
+.chat-switch:hover{border-color:#555}
+.sw{position:relative;display:inline-block;width:38px;height:22px;flex:0 0 auto}
+.sw input{position:absolute;opacity:0;width:100%;height:100%;margin:0;cursor:pointer;z-index:1}
+.sw-track{position:absolute;inset:0;background:#3a3a3a;border-radius:999px;transition:background .2s}
+.sw-thumb{position:absolute;top:2px;left:2px;width:18px;height:18px;border-radius:50%;background:#ccc;transition:transform .2s,background .2s;box-shadow:0 1px 2px rgba(0,0,0,.4)}
+.sw input:checked+.sw-track{background:#2e7d4f}
+.sw input:checked+.sw-track .sw-thumb{transform:translateX(16px);background:#56d364}
+.sw input:focus-visible+.sw-track{outline:2px solid #56d364;outline-offset:2px}
 #plist{flex:1;overflow:auto;padding:0 8px 12px}
 .card{padding:9px 10px;border-left:2px solid transparent;cursor:pointer}
 .card:hover{background:var(--panel2)}
@@ -123,7 +132,10 @@ button.ghost.danger{color:var(--bad)}
 .loglegend{display:flex;gap:14px;font-size:12px;margin-bottom:8px}
 .loglegend .lg-step,.loglegend .lg-ok,.loglegend .lg-sec,.loglegend .lg-warn,.loglegend .lg-err{padding:1px 8px;border:1px solid currentColor;border-radius:10px}
 .think{display:flex;align-items:center;gap:12px;color:var(--mute)}
-.stream pre{max-height:240px;margin-top:4px}.thinktxt{color:#b8a8d8;font-style:italic}
+.stream pre{max-height:240px;margin-top:4px}
+.reason-card pre[data-p],.reason-card .fold{cursor:zoom-in;transition:max-height .2s}
+.reason-card pre[data-p].big,.reason-card .fold.big{max-height:85vh!important;cursor:zoom-out;border-color:#56d364}
+.reason-card .fold{max-height:260px;overflow:auto}.thinktxt{color:#b8a8d8;font-style:italic}
 .caret{display:inline-block;width:7px;height:14px;background:var(--mute);margin-left:2px;vertical-align:-2px;animation:blink 1s steps(2) infinite}
 @keyframes blink{50%{opacity:0}}
 .codewrap{display:grid;grid-template-columns:minmax(220px,320px) 1fr;gap:12px;align-items:start}
@@ -172,7 +184,10 @@ button.ghost.danger{color:var(--bad)}
   <div id="ms" class="hint" style="padding:8px 16px"></div>
   <div id="plist"></div>
   <div class="side-foot"><button id="updBtn" onclick="openUpdate()" title="Check for a new version on GitHub and install it">Update</button>
-  <label class="hint" style="display:flex;gap:8px;align-items:center;margin:8px 0;cursor:pointer" title="The chat uses the same Ollama server as the agent. Turn it off so it never competes with the agent for the GPU."><input type="checkbox" id="chatOn" onchange="setChatEnabled(this.checked)"> Chat AI enabled</label>
+  <label class="chat-switch" title="The chat uses the same Ollama server as the agent. Turn it off so it never competes with the agent for the GPU.">
+    <span>Chat AI</span>
+    <span class="sw"><input type="checkbox" id="chatOn" onchange="setChatEnabled(this.checked)"><span class="sw-track"><span class="sw-thumb"></span></span></span>
+  </label>
   <button onclick="showTool()" title="Tell the tool itself what to change (Makefile, UI, loop ...)">Change the tool itself</button></div>
 </aside>
 <main id="main">
@@ -205,7 +220,7 @@ button.ghost.danger{color:var(--bad)}
 const $=s=>document.querySelector(s);
 const esc=s=>String(s??"").replace(/[&<>"]/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c]));
 let sel=localStorage.getItem("sel")||null, view="project", tab="overview", list={projects:[],init_jobs:[]}, detail=null, extra=null, dirty=false, langs=[];
-let codeBase="head",codeOpen=new Set(),codeView=null,codeInit=false;
+let toolTab_="tool",toolBranch="",codeBase="head",codeOpen=new Set(),codeView=null,codeInit=false;
 let diffView=null, lastBody="", lastHead="", lastTabs="", openKeys=new Set();
 const EDITABLE=["ideas","sources","task","tool","settings","goal"];
 const STEPS=[["plan","Plan"],["implement","Implement"],["build","Build & test"],["e2e","Browser test"],["security","Security"],["review","Review"],["cleanup","Cleanup"],["docs","Docs & memory"],["merge","Merge"]];
@@ -235,7 +250,7 @@ function renderList(){
     return `<div class="card ${view==="project"&&p.name===sel?"sel":""}" onclick="select('${esc(p.name)}')"><div class="n"><span class="dot ${c}"></span>${esc(p.name)}</div><div class="s">${t} · ${p.merged} features · ${p.backlog.pending||0} open</div></div>`}).join("")||(jobs?"":'<div class="hint" style="padding:10px">No projects yet.</div>'));
 }
 function select(n){view="project";sel=n;localStorage.setItem("sel",n);tab="overview";dirty=false;detail=null;extra=null;diffView=null;codeView=null;codeOpen=new Set();codeInit=false;lastBody=lastHead=lastTabs="";renderList();refresh()}
-function showTool(){view="tool";tab="tool";dirty=false;extra=null;diffView=null;lastBody=lastHead=lastTabs="";renderList();refresh()}
+function showTool(){view="tool";tab="tool";toolTab_="tool";codeView=null;codeInit=false;codeOpen=new Set();dirty=false;extra=null;diffView=null;lastBody=lastHead=lastTabs="";renderList();refresh()}
 
 /* ---- live status panel (re-rendered every second from the last data) ---- */
 function colorLog(t){
@@ -251,7 +266,9 @@ function colorLog(t){
 }
 const REASON_TAGS={impact:["lg-step","Plan"],plan_critique:["lg-warn","Plan check"],security_review:["lg-sec","Security"],
   review:["lg-ok","Review"],reflect:["lg-step","Reflection"],decision:["lg-warn","Decision"],product_review:["lg-sec","Product audit"],
-  ideate_critic:["lg-warn","Idea check"],replan:["lg-step","Replan"]};
+  ideate_critic:["lg-warn","Idea check"],replan:["lg-step","Replan"],tool_impact:["lg-step","Plan"],tool_plan_critique:["lg-warn","Plan check"],
+  tool_review:["lg-ok","Review"],tool_files:["lg-step","Pick files"],improve_plan:["lg-step","Plan"]};
+let bigPre=new Set(),liveHtml="";
 function rv(v){
   if(v===null||v===undefined||v==="")return `<span class="meta">-</span>`;
   if(Array.isArray(v))return v.length?`<ul>${v.map(x=>`<li>${rv(x)}</li>`).join("")}</ul>`:`<span class="meta">-</span>`;
@@ -260,12 +277,23 @@ function rv(v){
 }
 const tagInfo=t=>REASON_TAGS[t]||(t==="coder"||/^(code|fix|edit)/.test(t)?["lg-step","Code"]:["lg-step",t]);
 const pillCls=c=>c==="lg-err"?"bad":c==="lg-warn"?"warn":c==="lg-sec"?"info":"ok";
-function liveBox(label,text,cls){return text?`<div class="stream"><div class="meta">${label}</div><pre class="${cls||""}">${esc(text)}<span class="caret"></span></pre></div>`:""}
+function liveBox(label,text,cls){return text?`<div class="stream"><div class="meta">${label}</div><pre data-p="live-${esc(label)}" class="${cls||""} ${bigPre.has("live-"+label)?"big":""}">${esc(text)}<span class="caret"></span></pre></div>`:""}
 function reasoningLive(){
   const el=$("#reasonlive");if(!el)return;
-  const a=detail&&detail.activity;
+  if(view==="tool")return liveInto(el,extra&&extra.act,extra&&extra.act);
+  liveInto(el,detail&&detail.activity,extra&&extra.kind==="reasoning"?extra:{});
+}
+function liveInto(el,a,x){
+  const main=$("#main"),h0=main.scrollHeight,top=main.scrollTop;
+  const keep={};el.querySelectorAll("pre[data-p]").forEach(p=>{keep[p.dataset.p]={t:p.scrollTop,end:p.scrollHeight-p.scrollTop-p.clientHeight<30}});
+  liveBuild(el,a,x);
+  el.querySelectorAll("pre[data-p]").forEach(p=>{const k=keep[p.dataset.p];p.scrollTop=!k||k.end?p.scrollHeight:k.t});
+  liveHtml=el.innerHTML;
+  if(top>20)main.scrollTop=top+(main.scrollHeight-h0);
+}
+function liveBuild(el,a,x){
   if(!a||!a.running){el.innerHTML="";return}
-  const x=extra&&extra.kind==="reasoning"?extra:{};
+  x=x||{};
   const st=x.stream,cl=x.coder_live;
   if(a.llm){
     const [cls,label]=tagInfo(a.llm.tag),s=Math.round(Date.now()/1000-a.llm.since);
@@ -283,21 +311,23 @@ function reasoningLive(){
       <span>Running <b class="lg-warn">${esc(a.cmd.name)}</b>: <code>${esc(a.cmd.cmd)}</code> · ${s}s (no model involved, this is your project's own build/tests)</span></div>${liveBox("Output",x.cmd_live)}</div>`;
   } else el.innerHTML="";
 }
+const bp=(k,cls,html)=>`<pre data-p="${k}" class="${cls} ${bigPre.has(k)?"big":""}">${html}</pre>`;
 function thoughtCard(e,i){
   const [cls,label]=tagInfo(e.tag);
   let obj=null;try{obj=JSON.parse(e.answer)}catch(_){}
   const sec=(k,title,body,open)=>body?`<details data-k="th-${e.n}-${k}" ${open?"open":""}><summary>${title}</summary><div class="inner">${body}</div></details>`:"";
   return `<div class="msg assistant reason-card" style="max-width:100%;animation-delay:${Math.min(i,6)*0.04}s">
     <div class="row" style="justify-content:space-between;margin-bottom:6px"><span><span class="pill ${pillCls(cls)}">${esc(label)}</span> <span class="meta">#${e.n} · ${esc(e.role)} · <code>${esc(e.model)}</code>${e.seconds?` · ${e.seconds}s`:""}${e.task?` · task ${esc(e.task)}`:""}</span></span><span class="meta">${esc(e.time)}</span></div>
-    ${sec("t","Model reasoning (thinking)",e.thinking?`<pre class="thinktxt">${esc(e.thinking)}</pre>`:"")}
-    ${sec("a","Answer",obj?rv(obj):`<pre>${esc(e.answer)}</pre>`,true)}
-    ${sec("p","What it was asked (prompt)",`<pre>${esc(e.prompt)}</pre>`)}</div>`;
+    ${sec("t","Model reasoning (thinking)",e.thinking?bp(e.n+"t","thinktxt",esc(e.thinking)):"")}
+    ${sec("a","Answer",obj?`<div class="fold ${bigPre.has(e.n+"a")?"big":""}" data-p="${e.n}a">${rv(obj)}</div>`:bp(e.n+"a","",esc(e.answer)),true)}
+    ${sec("p","What it was asked (prompt)",bp(e.n+"p","",esc(e.prompt)))}</div>`;
 }
 function reasoningBody(){
-  if(!extra||extra.kind!=="reasoning")return `<div class="hint">Loading…</div>`;
-  const cards=extra.entries.map(thoughtCard).join("");
+  const src=view==="tool"?(extra&&extra.act):(extra&&extra.kind==="reasoning"?extra:null);
+  if(!src)return `<div class="hint">Loading…</div>`;
+  const cards=src.entries.map(thoughtCard).join("");
   return `<p class="hint">Every model call in full, live: the reasoning, the answer and the prompt, plus what Aider is writing (newest first). Models that think (deepseek-r1, qwen3, ...) show their reasoning too.</p>
-  <div id="reasonlive"></div>
+  <div id="reasonlive">${liveHtml}</div>
   <div class="reason-list">${cards||'<div class="hint">Nothing recorded yet. Every thought appears here as soon as the agent works.</div>'}</div>`;
 }
 
@@ -321,9 +351,11 @@ function treeHtml(node,prefix,depth){
     return `<div class="tr file ${cur?"cur":""} ${f.status?"chg":""}" style="padding-left:${depth*14+16}px" onclick="openFile('${jsq(f.path)}')">${esc(f.name)}${badge}</div>`}).join("");
   return dirs+files;
 }
-function toggleDir(p){codeOpen.has(p)?codeOpen.delete(p):codeOpen.add(p);lastBody="";renderProject()}
+function toggleDir(p){codeOpen.has(p)?codeOpen.delete(p):codeOpen.add(p);lastBody="";view==="tool"?renderTool():renderProject()}
 async function openFile(path){
-  try{const r=await api(`/api/project/${encodeURIComponent(sel)}/file?path=${encodeURIComponent(path)}&base=${encodeURIComponent(codeBase)}`);codeView=r;lastBody="";renderProject()}catch(e){toast(e.message,true)}
+  try{const r=view==="tool"?await api(`/api/tool/file?branch=${encodeURIComponent(toolBranch)}&path=${encodeURIComponent(path)}`)
+      :await api(`/api/project/${encodeURIComponent(sel)}/file?path=${encodeURIComponent(path)}&base=${encodeURIComponent(codeBase)}`);
+    codeView=r;lastBody="";view==="tool"?renderTool():renderProject()}catch(e){toast(e.message,true)}
 }
 function setBase(v){codeBase=v;extra=null;lastBody="";renderProject();fetchExtra().then(()=>{if(codeView)openFile(codeView.path);else renderProject()})}
 function fileViewer(){
@@ -336,6 +368,8 @@ function fileViewer(){
 }
 function codePanel(x){
   const root=buildTree(x.tree.files);
+  if(view==="tool")return `<div class="panel"><h3>Changes in <code>${esc(toolBranch)}</code> <button class="small" onclick="codeOpen=new Set(${JSON.stringify([...new Set(x.tree.files.flatMap(f=>f.path.split("/").slice(0,-1).map((_,i,a)=>a.slice(0,i+1).join("/"))))])});lastBody='';renderTool()">expand all</button></h3>
+    <div class="codewrap"><div class="tree">${x.tree.files.length?treeHtml(root,"",0):'<div class="hint">No changed files.</div>'}</div><div class="viewer">${fileViewer()}</div></div></div>`;
   const bases=[["head","Uncommitted changes"],["last:1","Last commit"],["last:5","Last 5 commits"],["last:20","Last 20 commits"],["last:200","Everything recent"]];
   return `<div class="panel"><h3>Code <select onchange="setBase(this.value)" style="margin-left:10px">${bases.map(([v,l])=>`<option value="${v}" ${v===codeBase?"selected":""}>New since: ${l}</option>`).join("")}</select>
     <button class="small" onclick="codeOpen=new Set(${JSON.stringify([...new Set(x.tree.files.flatMap(f=>f.path.split("/").slice(0,-1).map((_,i,a)=>a.slice(0,i+1).join("/"))))])});lastBody='';renderProject()">expand all</button>
@@ -344,6 +378,18 @@ function codePanel(x){
 }
 function renderNow(){
   const box=$("#now");
+  if(view==="tool"){
+    const a=extra&&extra.act;
+    if(!a||!a.running){box.className="now";box.innerHTML=`<div class="what">No self-change running</div>`;return}
+    const t=Date.now()/1000,ph=a.phase,idx=ph?TOOL_STEPS.findIndex(s=>s[0]===ph.step):-1;
+    const call=a.coder?`<div class="call">Aider (<code>${esc(a.coder.model)}</code>) is editing ${esc(a.coder.files.join(", ")||"files")}, ${fmtDur(t-a.coder.since)}</div>`
+      :a.cmd?`<div class="call">Running <b>${esc(a.cmd.name)}</b> (<code>${esc(a.cmd.cmd)}</code>), ${fmtDur(t-a.cmd.since)}</div>`
+      :a.llm?`<div class="call">Waiting for the <b>${esc(a.llm.role)}</b> model (<code>${esc(a.llm.model)}</code>) on <b>${esc(a.llm.tag)}</b>, ${fmtDur(t-a.llm.since)}</div>`:"";
+    box.className="now live";
+    box.innerHTML=`<div class="what">Changing the tool: ${ph?esc(ph.step):"starting"}</div><div class="sub">${ph?esc(ph.detail)+` · ${fmtDur(t-ph.since)} in this step`:""}</div>
+      <div class="steps">${TOOL_STEPS.map(([k,l],i)=>`<div class="step ${i<idx?"done":i===idx?"cur":""}">${l}</div>`).join("")}</div>${call}`;
+    reasoningLive();return;
+  }
   if(view!=="project"||!detail){box.innerHTML="";return}
   const a=detail.activity||{},n=a.now,t=Date.now()/1000;
   if(!a.running){box.className="now";box.innerHTML=`<div class="what">Agent is not running</div><div class="sub">Press Start for autonomous work, or give it one concrete job on the "Do a task" tab.</div>${a.queued_user_tasks&&a.queued_user_tasks.length?`<div class="sub">Queued for you: ${a.queued_user_tasks.map(esc).join("; ")}</div>`:""}${timeline(a.events)}`;return}
@@ -393,10 +439,11 @@ function setBody(html){
   const b=$("#body"),el=document.activeElement;
   if(EDITABLE.includes(tab)&&(dirty||(el&&["INPUT","TEXTAREA"].includes(el.tagName)&&b.contains(el)))&&b.dataset.tab===tab)return;
   if(html===lastBody&&b.dataset.tab===tab)return;
-  const keep=$("#main").scrollTop,lb=$("#logbox"),stick=lb&&lb.scrollHeight-lb.scrollTop-lb.clientHeight<40;
+  const keep=$("#main").scrollTop,h0=$("#main").scrollHeight,lb=$("#logbox"),stick=lb&&lb.scrollHeight-lb.scrollTop-lb.clientHeight<40;
+  const anchored=tab==="reasoning"||(view==="tool"&&toolTab_==="reason");
   b.innerHTML=html;b.dataset.tab=tab;lastBody=html;if(tab==="settings")loadModels();
   b.querySelectorAll("details[data-k]").forEach(x=>{if(openKeys.has(x.dataset.k))x.open=true;x.addEventListener("toggle",()=>{x.open?openKeys.add(x.dataset.k):openKeys.delete(x.dataset.k)})});
-  $("#main").scrollTop=keep;
+  $("#main").scrollTop=anchored&&keep>20?keep+Math.max(0,$("#main").scrollHeight-h0):keep;
   const nb=$("#logbox");if(nb&&(stick||!lb))nb.scrollTop=nb.scrollHeight;
 }
 function projectBody(d){
@@ -505,7 +552,13 @@ function setTab(k){tab=k;dirty=false;extra=null;lastBody="";$("#body").dataset.t
 async function fetchExtra(){
   try{
     if(view==="chat")return;
-    if(view==="tool"){extra={kind:"tool",...await api("/api/tool")};return}
+    if(view==="tool"){
+      const [t,act]=await Promise.all([api("/api/tool"),api("/api/tool/activity")]);
+      extra={kind:"tool",...t,act};
+      if(toolTab_==="changes"){if(!toolBranch&&t.branches.length)toolBranch=t.branches[0].name;
+        if(toolBranch){extra.tree=await api("/api/tool/tree?branch="+encodeURIComponent(toolBranch));
+          if(!codeInit&&extra.tree.files.length){codeInit=true;extra.tree.files.forEach(f=>f.path.split("/").slice(0,-1).forEach((_,i,a)=>codeOpen.add(a.slice(0,i+1).join("/"))))}}}
+      return}
     if(!sel)return;
     if(tab==="llm")extra={kind:"llm",...await api(`/api/project/${encodeURIComponent(sel)}/llm`)};
     else if(tab==="settings"){if(!extra||extra.kind!=="settings")extra={kind:"settings",...await api(`/api/project/${encodeURIComponent(sel)}/settings`)}}
@@ -531,19 +584,31 @@ async function runTask(){
 }
 
 /* ---- tool view ---- */
+const TOOL_STEPS=[["plan","Plan"],["backup","Backup"],["impact","Impact"],["implement","Implement"],["security","Security"],["test","Test"],["review","Review"],["docs","Docs"]];
+function toolTab(k){toolTab_=k;dirty=false;lastBody=lastTabs="";extra=null;codeView=null;renderTool();refresh()}
 function renderTool(){
   $("#head").innerHTML=`<div class="top"><div><h1>Change the tool itself</h1><div class="idea">Tell it what to change in this program (Makefile, scripts, web UI, agent loop, docs). It does only what you write, on a separate git branch, and never merges by itself.</div></div></div>`;
-  $("#tabs").innerHTML="";
+  const tabs=[["tool","Task"],["reason","Reasoning"],["changes","Changes"],["log","Live log"]];
+  const tb=`<div class="tabs">${tabs.map(([k,l])=>`<div class="tab ${toolTab_===k?"on":""}" onclick="toolTab('${k}')">${l}</div>`).join("")}</div>`;
+  if(tb!==lastTabs){$("#tabs").innerHTML=tb;lastTabs=tb}
   const x=extra&&extra.kind==="tool"?extra:{running:false,log:"",branches:[]};
+  if(toolTab_==="reason"){setBody(reasoningBody());reasoningLive();return}
+  if(toolTab_==="log")return setBody(`<div class="panel"><h3>Live log</h3><div class="loglegend"><span class="lg-step">step</span><span class="lg-ok">ok</span><span class="lg-sec">security</span><span class="lg-warn">warning</span><span class="lg-err">error</span></div><pre>${x.log?colorLog(x.log):"Nothing yet."}</pre></div>`);
+  if(toolTab_==="changes"){
+    const br=x.branches||[];if(!toolBranch&&br.length)toolBranch=br[0].name;
+    const sel=`<select onchange="toolBranch=this.value;codeView=null;extra=null;lastBody='';refresh()">${br.map(b=>`<option ${b.name===toolBranch?"selected":""}>${esc(b.name)}</option>`).join("")}</select>`;
+    return setBody(br.length?`<div class="row" style="margin-bottom:12px">Result branch: ${sel}</div>${x.tree?codePanel(x):'<div class="hint">Loading…</div>'}${diffView?`<div class="panel" style="margin-top:16px"><h3>${esc(diffView.title)}</h3><pre>${fmtDiff(diffView.text)}</pre></div>`:""}`:'<div class="hint">No result branches yet. Start a task on the Task tab.</div>');
+  }
   const body=`<div class="panel"><h3>What should change?</h3>
   <p class="hint">Examples: "Add a make target that prints the status of all projects", "Make the UI log tab show the last 500 lines", "Change the Makefile so make start-tmux also opens make thinking". Tests must stay green and docs are updated; guards for web fetching, CI and this feature itself cannot be changed.</p>
   <textarea id="tool" rows="6" oninput="dirty=true" ${x.running?"disabled":""}></textarea>
   <div class="row" style="justify-content:flex-end;margin-top:10px"><button class="primary" onclick="runTool()" ${x.running?"disabled":""}>${x.running?"Working…":"Do this"}</button></div>
-  ${x.log?`<h4>Progress</h4><pre>${esc(x.log)}</pre>`:""}</div>
-  <div class="panel" style="margin-top:16px"><h3>Result branches</h3><p class="hint">Review in the terminal with <code>git diff HEAD...&lt;branch&gt;</code>, then <code>git merge &lt;branch&gt;</code> if you like it, or ignore it. Nothing changes in the running program until you merge.</p>
+  ${x.log?`<h4>Progress</h4><pre>${colorLog(x.log)}</pre>`:""}</div>
+  <div class="panel" style="margin-top:16px"><h3>Result branches</h3><p class="hint">Open the <b>Changes</b> tab to browse every changed file with new lines highlighted. Review in the terminal with <code>git diff HEAD...&lt;branch&gt;</code>, then <code>git merge &lt;branch&gt;</code> if you like it, or ignore it. Nothing changes in the running program until you merge.</p>
   ${x.branches.length?x.branches.map(b=>`<details data-k="${esc(b.name)}"><summary><code>${esc(b.name)}</code> ${esc(b.subject)} <span class="meta">${esc(b.date.slice(0,16))}</span></summary><div class="inner"><pre>${esc(b.stat.join("\n")||"no changes")}</pre><div style="margin-top:8px"><button class="small" onclick="toolDiff('${esc(b.name)}')">Show full diff</button></div></div></details>`).join(""):'<div class="hint">No branches yet.</div>'}</div>
   ${diffView?`<div class="panel" style="margin-top:16px"><h3>${esc(diffView.title)}</h3><pre>${fmtDiff(diffView.text)}</pre></div>`:""}`;
   setBody(body);
+  reasoningLive();
 }
 async function runTool(){
   const v=$("#tool").value.trim();if(v.length<10){toast("Describe the change in a sentence or two",true);return}
@@ -745,8 +810,16 @@ async function refresh(){
     renderNow();
   }catch(e){if(!shownErr){shownErr=true;toast(e.message,true)}}
 }
+document.addEventListener("click",e=>{
+  const el=e.target.closest(".reason-card pre[data-p], .reason-card .fold[data-p]");
+  if(!el||(getSelection()&&String(getSelection()).length))return;
+  const on=el.classList.toggle("big");on?bigPre.add(el.dataset.p):bigPre.delete(el.dataset.p);
+  lastBody="";
+});
 refresh(); setInterval(refresh,3000); setInterval(renderNow,1000);
-setInterval(async()=>{if(view!=="project"||tab!=="reasoning"||!sel||!detail||!detail.running)return;
+setInterval(async()=>{
+  if(view==="tool"&&toolTab_==="reason"&&extra&&extra.act&&extra.act.running){try{const act=await api("/api/tool/activity");const n=extra.act.entries.length;extra.act=act;if(act.entries.length!==n)renderTool();else reasoningLive()}catch(e){}return}
+  if(view!=="project"||tab!=="reasoning"||!sel||!detail||!detail.running)return;
   try{const r=await api(`/api/project/${encodeURIComponent(sel)}/thoughts`);const n=extra&&extra.entries?extra.entries.length:-1;extra={kind:"reasoning",...r};if(r.entries.length!==n)renderProject();else reasoningLive()}catch(e){}},1000);
 </script>
 </body>
