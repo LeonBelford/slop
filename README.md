@@ -30,7 +30,7 @@ make selftest                                # verify the mechanics without a mo
 **Web interface (optional, the CLI remains)**
 ```bash
 make ui                                      # opens http://127.0.0.1:8765
-make ui-lan                                  # reachable from other devices in your network (token link is printed)
+make ui-lan                                  # reachable from other devices in your network (token link is printed; the "📱 Phone link" button in the sidebar shows it as a QR code)
 ```
 Create projects, start/stop them, "Test now", give feedback, edit `IDEAS.md`, `SOURCES.md` and the master prompt, view the backlog and live log.
 Runs locally only (127.0.0.1); agents keep running when you close the UI.

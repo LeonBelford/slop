@@ -29,6 +29,7 @@ from pathlib import Path
 import chat as chatlib
 import codefactory as sa
 import models
+import qr
 import update
 
 ROOT = Path(__file__).resolve().parent
@@ -880,6 +881,11 @@ def make_handler(svc: Service, port: int, token: str | None = None):
                     return svc.languages()
                 if path == "/api/ui-settings":
                     return {"chat_enabled": svc.chat_enabled()}
+                if path == "/api/lan":  # only in LAN mode: the phone link as a QR code (the request itself already needed the token)
+                    if not token:
+                        return {"lan": False}
+                    url = f"http://{lan_ip()}:{port}/?token={token}"
+                    return {"lan": True, "url": url, "svg": qr.svg(url)}
                 if path == "/api/tool":
                     return svc.tool()
                 if path == "/api/chats":

@@ -68,3 +68,6 @@ Stdlib-only core, unit tests (`make test`), end-to-end selftest with a stub mode
 
 ## Run mode
 `run.mode` in the config: `default` (3 empty idea rounds = saturated), `rounds` (`run.rounds` idea rounds, counted in `state.rounds_run` per run) or `endless` (no iteration/hour limit, idle wait instead of stopping; STOP file and the consecutive-failure guard still apply).
+
+## Phone link (LAN mode)
+In `make ui-lan` the sidebar shows a small "Phone link" button that opens a QR code of the token URL (`/api/lan`, rendered server-side by the dependency-free `qr.py`, byte mode, level M, up to ~210 bytes). Without `--lan` the endpoint answers `lan:false` and the button stays hidden.
