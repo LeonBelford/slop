@@ -260,3 +260,30 @@ class LeanContextTests(unittest.TestCase):
             sa.LLM.mock = None
         self.assertEqual(calls.count("tool_impact"), 1)
         self.assertEqual(calls.count("tool_plan_critique"), 0)  # one file, no dependents: no critique round
+
+
+class NoEditTests(unittest.TestCase):
+    def test_no_edit_report_contains_coder_output_and_repair_hint(self):
+        prompts = []
+
+        def coder(work, files, prompt):
+            prompts.append(prompt)
+            if prompt.startswith("Repair round"):
+                (work / "app.py").write_text("X = 7\n")
+                return "ok"
+            return "I would change X to 7 but did not output an edit block"
+
+        with tempfile.TemporaryDirectory() as d:
+            repo = make_repo(Path(d))
+            sa.LLM.mock = lambda tag, *a: json.dumps({"files": ["app.py"]}) if tag == "tool_files" else "{}"
+            real = selfimprove._tests_green
+            selfimprove._tests_green = lambda w, t: (True, "ok")
+            try:
+                res = selfimprove.directed("Change X to 7", repo=repo, coder=coder, log=lambda m: None)
+            finally:
+                sa.LLM.mock = None
+                selfimprove._tests_green = real
+        rep = next(p for p in prompts if p.startswith("Repair round 1"))
+        self.assertIn("did not output an edit block", rep)
+        self.assertIn("changed no file", rep)
+        self.assertTrue(res["branch"])

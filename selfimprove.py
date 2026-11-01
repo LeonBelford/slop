@@ -553,7 +553,8 @@ def _gates(work: Path, p: dict, files: list[str], llm, coder, log, ledger, pi: i
     if bad:
         return False, f"touches protected files: {bad}", "protected"
     if not changes:
-        return False, "the coder made no usable edit", "implement"
+        out = sa.tail(str(state.get("coder_out") or ""), 700).strip()
+        return False, "the coder made no usable edit" + (f". Last Aider output: {out}" if out else ""), "implement"
     code, has_tests = _needs_tests(changes)
     if code and not has_tests and not state["tests_round"]:
         state["tests_round"] = True
@@ -620,7 +621,7 @@ def _work_on(work: Path, p: dict, files: list[str], impact: str, llm, coder, log
             log(f"  model: {coder.routes['heavy']} (hard step / late repair round)")
             ledger.d["proposals"][pi].setdefault("models", []).append(f"round {rnd + 1}: {coder.routes['heavy']}")
             ledger.save()
-        run(work, [f for f in dict.fromkeys(files + [l.split("\t")[-1] for l in _changes(work) if not l.split("\t")[-1].startswith("tests/")]) if (work / f).is_file()][:8], prompt)
+        state["coder_out"] = run(work, [f for f in dict.fromkeys(files + [l.split("\t")[-1] for l in _changes(work) if not l.split("\t")[-1].startswith("tests/")]) if (work / f).is_file()][:8], prompt)
         ok, report, stage = _gates(work, p, files, llm, coder, log, ledger, pi, protected, directed, state)
         ledger.d["proposals"][pi].setdefault("attempts", []).append({"round": rnd + 1, "model": used, "class": cls, "ok": ok, "stage": stage})
         ledger.save()
@@ -640,7 +641,9 @@ def _work_on(work: Path, p: dict, files: list[str], impact: str, llm, coder, log
         last = (p["title"], stage, report, diag)
         prompt = (f"Repair round {rnd + 1}. Your previous change failed at the '{stage}' stage.\nProblem:\n{sa.clip(report, 2500)}\n"
                   f"{diag}\nFix the code so every check passes. The original task is still:\n{p['change']}\n{test_rule}"
-                  "Never remove or loosen a safeguard to make a check pass. Standard library only.")
+                  "Never remove or loosen a safeguard to make a check pass. Standard library only."
+                  + (" Your last answer changed no file: reply only with edit blocks in the requested format, no explanations, "
+                     "and copy the SEARCH lines exactly from the file." if stage == "implement" else ""))
     if last and ok:
         _remember(*last, fixed=True)
     elif last:
