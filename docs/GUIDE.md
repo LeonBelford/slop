@@ -107,7 +107,7 @@ Everything below **only while the agent is stopped**:
 - **Master prompt:** `MASTER.md` in the main folder (next to the Makefile). Applies to all projects, e.g. language, style rules, "always tests".
   It is copied to `agent/master_session.md` at the start of each session (`make start-tmux` or `run`) and feeds into planning, ideation,
   replanning and every change context. Changes only take effect from the next start. The template itself (comments only) is ignored.
-- **Web UI:** `make ui`, then `http://127.0.0.1:8765`. Projects on the left (green dot = running), on the right status, backlog, finished features,
+- **Web UI:** `make ui` (only this machine) or `make ui-lan` (whole network, token link), then then `http://127.0.0.1:8765`. Projects on the left (green dot = running), on the right status, backlog, finished features,
   ideas/feedback, test build, live log and goal. At the top: start/stop and "Test now". "+ New idea" creates a project
   (takes a few minutes, progress at the top left). The UI uses the same files and commands as the CLI; you can mix both.
   It listens only on 127.0.0.1 and checks the host and origin of requests; do not forward it to the network.

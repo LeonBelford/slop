@@ -48,6 +48,7 @@ import urllib.parse
 import urllib.request
 from pathlib import Path
 
+import models
 import stacks
 from webaccess import Web, WebError
 
@@ -64,6 +65,9 @@ DEFAULT_CONFIG = {
         "summarizer": os.getenv("SUMMARIZER_MODEL", "qwen2.5-coder:14b"),
     },
     "coder_model": os.getenv("CODER_MODEL", "ollama_chat/qwen2.5-coder:14b"),  # Aider model string
+    # Optional model routing (see models.py): installed extra models are detected and used automatically.
+    # mode "auto" = use what is installed, "off" = always the models above. light/heavy/final_reviewer force a model name.
+    "routing": {"mode": "auto", "light": "", "heavy": "", "final_reviewer": "", "heavy_from_attempt": 2, "complex_files": 4},
     "limits": {
         "max_iterations": 500,
         "max_hours": 24,
@@ -328,6 +332,8 @@ class LLM:
 
     def __init__(self, cfg: dict, log):
         self.cfg, self.log = cfg, log
+        self.installed: set[str] = set()  # model names reported by Ollama (set by preflight)
+        self.overrides: dict[str, str] = {}  # role -> model chosen by routing
         self.live: Path | None = None  # file describing the model call in progress (for the UI)
         self.trace: Path | None = None  # set by Agent: every model call is appended here so you can watch the "thinking"
 
@@ -350,8 +356,9 @@ class LLM:
         except Exception as e:  # noqa: BLE001
             sys.exit(f"Cannot reach the model server at {u.scheme}://{u.netloc} ({e}).\n"
                      "Start Ollama (`ollama serve`, or `systemctl start ollama`) and check LLM_API in .env.")
+        self.installed = set(have)
         have |= {n.removesuffix(":latest") for n in have}
-        need = set(self.cfg["models"].values())
+        need = {n for n in self.cfg["models"].values() if n}
         missing = sorted(n for n in need if n not in have and n.removesuffix(":latest") not in have)
         if missing:
             sys.exit(f"Model(s) not installed in Ollama: {', '.join(missing)}\nInstalled: {', '.join(sorted(have)) or 'none'}\n"
@@ -364,7 +371,7 @@ class LLM:
         if LLM.mock:
             return self._traced(tag, role, user, LLM.mock(tag, role, system, user))
         body = json.dumps({
-            "model": self.cfg["models"][role],
+            "model": self.overrides.get(role) or self.cfg["models"].get(role) or self.cfg["models"]["reviewer"],
             "messages": [{"role": "system", "content": system}, {"role": "user", "content": user}],
             "temperature": temperature,
         }).encode()
@@ -1010,15 +1017,31 @@ class Agent:
         self.save_state()
         self.log(f"Initialized: {len(self.backlog.items)} MVP tasks in the backlog.")
 
+    # ---- Model routing (optional, uses only installed models)
+    def routes(self) -> dict:
+        return models.resolve(self.llm.installed, self.cfg["routing"], self.cfg["coder_model"])
+
+    def coder_for(self, tag: str) -> str:
+        r, default = self.routes(), self.cfg["coder_model"]
+        light, heavy = r["light"], r["heavy"]
+        cls = getattr(self, "task_class", "standard")
+        if tag == "review_fix" or tag.startswith("debug") and tag != "debug1":
+            cls = "heavy"
+        elif tag == "cleanup":
+            cls = "light"
+        pick = light if cls == "light" else heavy if cls == "heavy" else None
+        return models.coder_string(pick) if pick else default
+
     # ---- Coder (Aider)
     def code(self, tag: str, edit: list[str], read: list[str], prompt: str) -> str:
         if self.coder_mock:
             return self.coder_mock(self.repo, tag, edit, read, prompt)
         pf = self.run_dir / f"{tag}.prompt.md"
         write_text(pf, prompt)
-        write_json(self.dir / "coder_now.json", {"tag": tag, "files": edit[:12], "model": self.cfg["coder_model"], "since": time.time()})
+        model = self.coder_for(tag)
+        write_json(self.dir / "coder_now.json", {"tag": tag, "files": edit[:12], "model": model, "since": time.time()})
         cmd = ["aider", "--yes-always", "--no-auto-commits", "--no-pretty", "--no-stream", "--no-check-update",
-               "--model", self.cfg["coder_model"], "--message-file", str(pf)]
+               "--model", model, "--message-file", str(pf)]
         for r in read:
             cmd += ["--read", r]
         cmd += edit
@@ -1098,6 +1121,10 @@ class Agent:
                   f"Risks: {plan.get('risks')}\nAffected callers: {plan.get('affected_dependents')}\n"
                   f"Tests to write: {plan.get('tests_to_add')}\nNew files: {plan.get('new_files')}\n\n{self.RULES}")
         edit = plan["files_to_change"] + plan["new_files"]
+        rt = self.cfg["routing"]
+        self.task_class = models.classify(item["type"], len(edit), self.cur_attempt, int(rt["heavy_from_attempt"]), int(rt["complex_files"]))
+        if self.routes()["light"] or self.routes()["heavy"]:
+            self.log(f"Task class: {self.task_class} -> coder {self.coder_for('implement')}")
         read = [str(self.run_dir / "context.md")] + [f for f in plan.get("read_only_context", []) if (self.repo / f).exists()]
         self.code("implement", edit, read, prompt)
 
@@ -1124,9 +1151,12 @@ class Agent:
     def review(self, item: dict, plan: dict) -> dict:
         self.phase("Independent review of the diff", "review")
         diff = self.git.diff()
+        final = self.routes()["final_reviewer"]
+        if final:
+            self.llm.overrides["final_reviewer"] = final
         try:
             return self.llm.json(
-                "review", "reviewer", "You are a strict code reviewer (correctness, security, readability, tests, invariants).",
+                "review", "final_reviewer" if final else "reviewer", "You are a strict code reviewer (correctness, security, readability, tests, invariants).",
                 f"Task: {item['title']}\nAcceptance: {item.get('acceptance')}\nInvariants: {plan.get('invariants')}\n"
                 f"Diff:\n{clip(diff, 14000)}\nSchema: "
                 '{"score": 1-10, "verdict": "approve|revise", "summary": "2-3 sentences: what was changed and why", '

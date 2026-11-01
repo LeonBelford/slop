@@ -287,6 +287,13 @@ function settingsBody(d){
     <label class="fld">web access<select id="web-mode">${["off","sources","open"].map(m=>`<option ${m===st.web_mode?"selected":""}>${m}</option>`).join("")}</select></label>
     <label class="fld">documentation language<input id="doc-lang" value="${esc(st.doc_language)}"></label></div>
     <div class="row" style="justify-content:space-between;margin-top:10px"><span class="hint">Stack: <b>${esc(st.preset)}</b> (fixed after creation). ${d.running?"Changes apply at the next start.":""}</span><button class="primary" onclick="saveSettings()">Save settings</button></div></div>
+    <div class="panel" style="margin-top:16px"><h3>Smart model routing (optional)</h3>
+    <p class="hint">Simple tasks go to a small fast coder, complex tasks and retries to a stronger one, and a strong model does the final review of every change. Models from the list below are used <b>automatically once installed</b>; nothing is required. Leave a field empty to auto-detect.</p>
+    <div class="grid2"><label class="fld">mode<select id="rt-mode">${["auto","off"].map(m=>`<option ${m===st.routing.mode?"selected":""}>${m}</option>`).join("")}</select></label>
+    ${model("rt-light","Light coder (override)",st.routing.light)}${model("rt-heavy","Heavy coder (override)",st.routing.heavy)}${model("rt-final","Final reviewer (override)",st.routing.final_reviewer)}</div>
+    <p class="hint" style="margin-top:10px">Detected now: light <b>${esc(x.resolved.light||"none (uses default)")}</b> · heavy <b>${esc(x.resolved.heavy||"none (uses default)")}</b> · final reviewer <b>${esc(x.resolved.final_reviewer||"none (uses the reviewer model)")}</b></p>
+    <table><tr><th>Model</th><th>Role</th><th>Size</th><th>Fits a 12 GB GPU?</th><th>Download</th></tr>${x.catalog.map(m=>`<tr><td>${esc(m.name)} ${m.installed?'<span class="pill ok">installed</span>':""}</td><td>${esc(m.tier)}</td><td>~${m.gb} GB</td><td>${esc(m.fit)}<div class="hint">${esc(m.note)}</div></td><td>${m.installed?"":`<code>${esc(m.pull)}</code>`}</td></tr>`).join("")}</table>
+    <p class="hint">Sizes are approximate. Larger models than your VRAM spill into RAM and run slower. Switching models costs a few seconds of load time per switch.</p></div>
     <div class="panel" style="margin-top:16px"><h3>Rename project</h3><div class="row"><input id="newname" value="${esc(d.name)}"><button onclick="renameProject()" ${d.running?"disabled":""}>Rename</button></div></div>
     <div class="panel" style="margin-top:16px;border-color:var(--bad)"><h3>Delete project</h3>
     <p class="hint">Permanently deletes <code>projects/${esc(d.name)}</code>: code, git history, memory and logs. The agent must be stopped. Type the project name to confirm.</p>
@@ -295,7 +302,7 @@ function settingsBody(d){
 async function saveSettings(){
   const v=id=>$("#"+id).value,limits={};
   document.querySelectorAll("[id^=lim-]").forEach(e=>limits[e.id.slice(4)]=e.value);
-  try{const r=await api(`/api/project/${sel}/settings`,{models:{planner:v("m-planner"),reviewer:v("m-reviewer"),summarizer:v("m-summarizer")},coder_model:v("m-coder"),limits,web_mode:v("web-mode"),doc_language:v("doc-lang")});
+  try{const r=await api(`/api/project/${sel}/settings`,{models:{planner:v("m-planner"),reviewer:v("m-reviewer"),summarizer:v("m-summarizer")},coder_model:v("m-coder"),limits,web_mode:v("web-mode"),routing:{mode:v("rt-mode"),light:v("rt-light"),heavy:v("rt-heavy"),final_reviewer:v("rt-final")},doc_language:v("doc-lang")});
     dirty=false;toast(r.applies==="now"?"Settings saved":"Saved, applies at the next start");extra=null;await fetchExtra();lastBody="";renderProject()}catch(e){toast(e.message,true)}
 }
 async function renameProject(){

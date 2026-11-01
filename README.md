@@ -22,6 +22,7 @@ make selftest                                # verify the mechanics without a mo
 **Web interface (optional, the CLI remains)**
 ```bash
 make ui                                      # opens http://127.0.0.1:8765
+make ui-lan                                  # reachable from other devices in your network (token link is printed)
 ```
 Create projects, start/stop them, "Test now", give feedback, edit `IDEAS.md`, `SOURCES.md` and the master prompt, view the backlog and live log.
 Runs locally only (127.0.0.1); agents keep running when you close the UI.
@@ -96,7 +97,8 @@ Two levels, both bounded:
 ```
 codefactory/
 ├─ codefactory.py        the complete loop (standard library only)
-├─ webui.py, web/       local web interface (make ui)
+├─ webui.py, web/       local web interface (make ui, make ui-lan)
+├─ models.py            optional model catalog and routing (make models)
 ├─ MASTER.md            global directives for all projects (picked up per session)
 ├─ Makefile, scripts/   quick-setup-popos.sh · setup.sh (venv + model only) · run.sh · Modelfile
 ├─ .env.example, config.example.json
@@ -139,6 +141,18 @@ Rough guidelines, not measured on your hardware; check tags and licenses at [oll
 
 Set `num_ctx` (the Modelfile does this), otherwise the context is truncated. The biggest quality lever: point `models.planner`/`reviewer`
 at a stronger model via `LLM_API`; the code still comes from the local coder.
+
+### Optional smart model routing
+No extra model is required. `make models` (or Settings in the UI) lists optional models with their `ollama pull` command and marks the installed ones.
+Installed models are detected and used automatically (`routing.mode` = `auto`, set `off` to disable):
+- **light** (`qwen2.5-coder:7b`/`3b`/`1.5b`): docs, tests, single-file edits and the cleanup pass.
+- **standard**: your configured `coder_model`, used for normal tasks.
+- **heavy** (`qwen3-coder:30b`, `devstral:24b`, `qwen2.5-coder:32b`, `codestral:22b`): tasks touching 4+ files, retries after a failed attempt and debug rounds 2+.
+- **final reviewer** (strongest installed of the heavy list, else `deepseek-r1:14b`/`phi4:14b`): the last independent review of every change.
+Tasks are classified from the plan (type, number of files, attempt); there is no extra model call. Each switch costs a model load (seconds to a minute on 12 GB VRAM), models above ~12 GB spill into RAM and run slower. Force specific models with `routing.light`/`heavy`/`final_reviewer` in `config.json`. Logic in `models.py`.
+
+## Network access
+`make ui-lan` listens on all interfaces and prints a link with an access token (stored in `projects/.ui/token`). Open it once per device; a cookie keeps you logged in. It is plain HTTP, so use it on trusted networks only; the UI can start agents and delete projects. `make ui` stays local-only.
 
 ## Rust engines?
 There is no "Rust model"; Rust lives in inference engines. Open source (checked on GitHub): mistral.rs (MIT), candle and burn

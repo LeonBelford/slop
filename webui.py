@@ -7,10 +7,14 @@ The CLI stays fully usable; the UI calls the same commands (scripts/run.sh) and 
 from __future__ import annotations
 
 import argparse
+import hmac
+import http.cookies
 import json
 import os
 import re
+import secrets
 import shutil
+import socket
 import subprocess
 import sys
 import threading
@@ -22,6 +26,7 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 
 import codefactory as sa
+import models
 
 ROOT = Path(__file__).resolve().parent
 INDEX = ROOT / "web" / "index.html"
@@ -303,10 +308,14 @@ class Service:
         ws = self.ws(name)
         conf = sa.read_json(ws / "agent" / "config.json", {})
         eff = sa.Agent(ws).cfg
+        inst = self.installed_models(eff["llm_api"])
         return {"settings": {"models": eff["models"], "coder_model": eff["coder_model"],
                              "limits": {k: eff["limits"][k] for k in SETTING_LIMITS}, "web_mode": eff["web"]["mode"],
-                             "doc_language": eff["doc_language"], "preset": conf.get("preset", eff["preset"])},
-                "limit_bounds": SETTING_LIMITS, "installed_models": self.installed_models(eff["llm_api"])}
+                             "doc_language": eff["doc_language"], "preset": conf.get("preset", eff["preset"]),
+                             "routing": {k: eff["routing"].get(k, "") for k in ("mode", "light", "heavy", "final_reviewer")}},
+                "limit_bounds": SETTING_LIMITS, "installed_models": inst,
+                "resolved": models.resolve(set(inst), eff["routing"], eff["coder_model"]),
+                "catalog": models.catalog_view(set(inst))}
 
     @staticmethod
     def installed_models(api: str) -> list[str]:
@@ -336,6 +345,14 @@ class Service:
             if not lo <= v <= hi:
                 raise UiError(f"{k} must be between {lo} and {hi}")
             conf.setdefault("limits", {})[k] = v
+        rt = body.get("routing")
+        if rt:
+            if rt.get("mode", "auto") not in ("auto", "off"):
+                raise UiError("Routing mode must be auto or off")
+            conf["routing"] = {**conf.get("routing", {}), "mode": rt.get("mode", "auto")}
+            for k in ("light", "heavy", "final_reviewer"):
+                if k in rt:
+                    conf["routing"][k] = self.model_name(rt[k]) if str(rt[k]).strip() else ""
         if "web_mode" in body:
             if body["web_mode"] not in ("off", "sources", "open"):
                 raise UiError("Web mode must be off, sources or open")
@@ -398,7 +415,7 @@ class Service:
         return {"ok": True}
 
 
-def make_handler(svc: Service, port: int):
+def make_handler(svc: Service, port: int, token: str | None = None):
     hosts = {f"127.0.0.1:{port}", f"localhost:{port}", f"[::1]:{port}"}
 
     class H(BaseHTTPRequestHandler):
@@ -416,14 +433,26 @@ def make_handler(svc: Service, port: int):
             self.end_headers()
             self.wfile.write(data)
 
+        def authed(self) -> bool:
+            cookie = http.cookies.SimpleCookie(self.headers.get("Cookie", ""))
+            got = cookie["cf_token"].value if "cf_token" in cookie else ""
+            return hmac.compare_digest(got.encode(), token.encode())
+
         def guard(self, post: bool) -> bool:
-            # Protects against DNS rebinding and foreign websites posting to localhost
-            if self.headers.get("Host", "") not in hosts:
-                self.send(403, {"error": "Host not allowed"})
-                return False
+            host = self.headers.get("Host", "")
+            if token:  # LAN mode: every request needs the access token (cookie), any Host name is fine
+                if not self.authed():
+                    self.send(401, {"error": "Not authorised: open the link with ?token=... printed by `make ui-lan`"})
+                    return False
+                allowed = {host}
+            else:  # Protects against DNS rebinding and foreign websites posting to localhost
+                if host not in hosts:
+                    self.send(403, {"error": "Host not allowed"})
+                    return False
+                allowed = hosts
             if post:
                 origin = self.headers.get("Origin")
-                if (origin and origin.split("://", 1)[-1] not in hosts) or self.headers.get("X-UI") != "1":
+                if (origin and origin.split("://", 1)[-1] not in allowed) or self.headers.get("X-UI") != "1":
                     self.send(403, {"error": "Request rejected"})
                     return False
             return True
@@ -489,7 +518,21 @@ def make_handler(svc: Service, port: int):
                     return svc.act(m.group(1), m.group(2), body)
             raise UiError("Not found", 404)
 
+        def login(self) -> bool:
+            """LAN mode: /?token=... sets the cookie and redirects to the clean URL."""
+            q = urllib.parse.parse_qs(urllib.parse.urlsplit(self.path).query)
+            given = (q.get("token") or [""])[0]
+            if not token or not given or not hmac.compare_digest(given.encode(), token.encode()):
+                return False
+            self.send_response(302)
+            self.send_header("Set-Cookie", f"cf_token={token}; Path=/; HttpOnly; SameSite=Strict; Max-Age=2592000")
+            self.send_header("Location", "/")
+            self.end_headers()
+            return True
+
         def do_GET(self):
+            if token and self.path.split("?", 1)[0] == "/" and self.login():
+                return
             if self.path.split("?", 1)[0] == "/":
                 if not self.guard(False):
                     return
@@ -503,11 +546,39 @@ def make_handler(svc: Service, port: int):
     return H
 
 
-def serve(projects: Path, port: int, open_browser: bool = True) -> None:
+def lan_ip() -> str:
+    try:
+        with socket.socket(socket.AF_INET, socket.SOCK_DGRAM) as c:
+            c.connect(("10.255.255.255", 1))  # no packet is sent, it only selects the outgoing interface
+            return c.getsockname()[0]
+    except OSError:
+        return "<this-machine-ip>"
+
+
+def load_token(projects: Path) -> str:
+    f = projects / ".ui" / "token"
+    if f.exists() and f.read_text("utf-8").strip():
+        return f.read_text("utf-8").strip()
+    f.parent.mkdir(parents=True, exist_ok=True)
+    tok = secrets.token_urlsafe(24)
+    fd = os.open(f, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
+    with os.fdopen(fd, "w") as fh:
+        fh.write(tok)
+    return tok
+
+
+def serve(projects: Path, port: int, open_browser: bool = True, lan: bool = False) -> None:
     svc = Service(projects)
-    srv = ThreadingHTTPServer(("127.0.0.1", port), make_handler(svc, port))
+    token = load_token(projects.resolve()) if lan else None
+    srv = ThreadingHTTPServer(("0.0.0.0" if lan else "127.0.0.1", port), make_handler(svc, port, token))
     url = f"http://127.0.0.1:{port}"
-    print(f"Web UI running at {url}  (stop with Ctrl+C; running agents keep going)")
+    if lan:
+        print(f"Web UI reachable in your network (plain HTTP, trusted networks only).\n"
+              f"  This machine: {url}/?token={token}\n  Other devices: http://{lan_ip()}:{port}/?token={token}\n"
+              f"  (the token is stored in {projects}/.ui/token; stop with Ctrl+C; running agents keep going)")
+        open_browser = False
+    else:
+        print(f"Web UI running at {url}  (stop with Ctrl+C; running agents keep going)")
     if open_browser:
         threading.Timer(0.5, lambda: webbrowser.open(url)).start()
     try:
@@ -521,8 +592,9 @@ def main() -> None:
     ap.add_argument("--port", type=int, default=8765)
     ap.add_argument("--projects-dir", default="projects")
     ap.add_argument("--no-browser", action="store_true")
+    ap.add_argument("--lan", action="store_true", help="listen on all interfaces (other devices in your network), protected by an access token")
     a = ap.parse_args()
-    serve(Path(a.projects_dir), a.port, not a.no_browser)
+    serve(Path(a.projects_dir), a.port, not a.no_browser, a.lan)
 
 
 if __name__ == "__main__":
