@@ -638,12 +638,17 @@ function projectBody(d){
     <textarea id="goal" rows="20" oninput="dirty=true">${esc(d.goal||"")}</textarea>
     <div class="row" style="justify-content:flex-end;margin-top:10px"><button class="primary" onclick="saveFile('goal','GOAL.md')">Save</button></div></div>`;
 }
-const CAPS=[["plan_critique","Plan review","A second look at multi-file plans before coding starts"],["require_tests","Tests required","Features and bug fixes without tests are rejected"],["cleanup_pass","Cleanup pass","A short tidy-up of every change before review"]];
+const AUTO=["auto","on","off"];
+const CAP_GROUPS=[["Before coding",[["plan_critique","Plan review","A second look at multi-file plans before coding starts"],["test_first","Tests first","Writes the failing tests before the code, so a small model has a concrete target. auto = features and bug fixes",AUTO]]],
+ ["While coding",[["step_by_step","Step by step","Splits a big plan into up to 3 coding passes. auto = plans with 4+ files or steps",AUTO],["require_tests","Tests required","Features and bug fixes without tests are rejected"],["protect_tests","Protect existing tests","Rejects a change that deletes tests instead of fixing the code"]]],
+ ["Before merging",[["acceptance_check","Acceptance check","Ticks off every acceptance criterion against the diff, one fix round if one is unmet"],["cleanup_pass","Cleanup pass","A short tidy-up of every change before review"],["security","Security gate","Static rules, scanners and a runtime probe before every merge",["on","off"]],["e2e","Browser tests","Real-browser check for web products (needs Playwright)",AUTO]]],
+ ["After a failure",[["retry_replan","Retry strategy","Before a retry, analyses why the last attempt failed and picks a different approach"]]]];
+const CAPS=CAP_GROUPS.flatMap(g=>g[1]);
 function profileBody(d){
   const x=extra&&extra.kind==="profile"?extra:null;
   if(!x)return `<div class="hint">Loading…</div>`;
   const p=x.profile,F=x.features,sw=(id,on)=>`<label class="sw"><input type="checkbox" id="${id}" ${on?"checked":""} onchange="dirty=true"><span class="sw-track"><span class="sw-thumb"></span></span></label>`;
-  const cap=CAPS.map(([k,l,s])=>`<div class="cap"><div>${l}<small>${s}</small></div>${sw("cap-"+k,F[k])}</div>`).join("");
+  const cap=CAP_GROUPS.map(([g,list])=>`<h4 style="margin:14px 0 4px">${g}</h4>`+list.map(([k,l,sub,opts])=>`<div class="cap"><div>${l}<small>${sub}</small></div>${opts?`<select id="cap-${k}" style="width:auto" onchange="dirty=true">${opts.map(t=>`<option ${t===F[k]?"selected":""}>${t}</option>`).join("")}</select>`:sw("cap-"+k,F[k])}</div>`).join("")).join("");
   return `<div class="panel"><h3>${esc(p.title||d.name)}</h3><p class="hint">${esc(p.description||d.idea)}</p>
     <div class="row" style="flex-wrap:wrap;gap:6px"><span class="pill info">${x.context.length} knowledge file(s)</span><span class="pill info">web: ${esc(x.web_mode)}</span><span class="pill info">security gate: ${esc(F.security)}</span><span class="pill info">browser tests: ${esc(F.e2e)}</span></div></div>
   <div class="panel" style="margin-top:16px"><h3>Details</h3><div class="grid2"><label class="fld">Name shown for the agent<input id="pf-title" value="${esc(p.title)}" maxlength="80" oninput="dirty=true" placeholder="${esc(d.name)}"></label>
@@ -652,14 +657,12 @@ function profileBody(d){
   <div class="panel" style="margin-top:16px"><h3>Instructions</h3><p class="hint">Rules the agent follows in every task of this project: tech choices, code style, things to avoid, how to word commit messages. Added to every build prompt.</p>
     <textarea id="pf-instructions" rows="12" maxlength="8000" oninput="dirty=true" placeholder="- Use TypeScript and Tailwind&#10;- Never add a new dependency without a reason in the commit message&#10;- Keep functions under 40 lines">${esc(p.instructions)}</textarea></div>
   <div class="panel" style="margin-top:16px"><h3>Capabilities</h3>${cap}
-    <div class="cap"><div>Security gate<small>Static rules, scanners and a runtime probe before every merge</small></div><select id="cap-security" style="width:auto" onchange="dirty=true">${["on","off"].map(t=>`<option ${t===F.security?"selected":""}>${t}</option>`).join("")}</select></div>
-    <div class="cap"><div>Browser tests<small>Real-browser check for web products (needs Playwright)</small></div><select id="cap-e2e" style="width:auto" onchange="dirty=true">${["auto","on","off"].map(t=>`<option ${t===F.e2e?"selected":""}>${t}</option>`).join("")}</select></div>
     <p class="hint">Models, limits, web access and run mode are under <a onclick="setTab('settings')" style="cursor:pointer;text-decoration:underline">Models &amp; limits</a>; files and sources under <a onclick="setTab('knowledge')" style="cursor:pointer;text-decoration:underline">Knowledge files</a>. ${d.running?"Capabilities apply at the next start.":""}</p></div>
   <div class="row" style="justify-content:flex-end;margin-top:12px"><button class="primary" onclick="saveProfile()">Save</button></div>`;
 }
 async function saveProfile(){
-  const v=id=>$("#"+id).value,features={security:v("cap-security"),e2e:v("cap-e2e")};
-  CAPS.forEach(([k])=>features[k]=$("#cap-"+k).checked);
+  const v=id=>$("#"+id).value,features={};
+  CAPS.forEach(([k,,,o])=>features[k]=o?v("cap-"+k):$("#cap-"+k).checked);
   try{await api(`/api/project/${sel}/profile`,{title:v("pf-title"),description:v("pf-description"),tone:v("pf-tone"),instructions:v("pf-instructions"),features});dirty=false;toast("Saved");extra=null;await fetchExtra();lastBody="";renderProject()}catch(e){toast(e.message,true)}
 }
 let ctxView=null;
@@ -711,10 +714,15 @@ function settingsBody(d){
     if(cur&&!names.includes(cur))names.unshift(cur);
     return `<label class="fld">${l}<select id="${id}" data-pre="${esc(pre)}">${o.empty?`<option value="">(auto-detect)</option>`:""}${names.map(n=>`<option value="${esc(pre+n)}" ${n===cur?"selected":""}>${esc(n)}${x.installed_models.includes(n)?"":" (not installed)"}</option>`).join("")}</select></label>`};
   const lim=Object.entries(lb).map(([k,[lo,hi]])=>`<label class="fld">${esc(k.replace(/_/g," "))} <span class="meta">${lo}–${hi}</span><input id="lim-${k}" type="number" min="${lo}" max="${hi}" value="${st.limits[k]}"></label>`).join("");
+  const auto=st.routing.mode!=="off",rs=x.resolved,sug=x.catalog.filter(m=>!m.installed&&m.tier!=="light").slice(0,6);
   return `<div class="panel"><h3>Models</h3>
-    <p class="hint">${x.installed_models.length?"Pick from your installed Ollama models.":"Ollama is not reachable, so the list is empty."} Install or remove models below.</p>
-    <div class="grid2">${model("m-planner","Planner (plans, ideas)",st.models.planner)}${model("m-reviewer","Reviewer",st.models.reviewer)}${model("m-summarizer","Summarizer (notes, docs)",st.models.summarizer)}${model("m-coder","Coder (Aider)",st.coder_model,{prefix:"ollama_chat/"})}</div></div>
-    <div class="panel" style="margin-top:16px"><h3>Install a model</h3><div class="row"><input id="mdlName" placeholder="e.g. qwen2.5-coder:7b (any name from ollama.com/library)" onkeydown="if(event.key==='Enter')pullModel($('#mdlName').value)"><button class="primary" onclick="pullModel($('#mdlName').value)">Install</button></div></div>
+    <p class="hint">${x.installed_models.length?"Pick from your installed Ollama models.":"Ollama is not reachable, so the list is empty."}</p>
+    <label class="fld">Model selection<select id="rt-mode" onchange="dirty=true;$('#rt-auto').style.display=this.value==='off'?'none':''">${[["auto","Automatic: the best installed model for each task"],["off","Fixed: always the models below"]].map(([m,l])=>`<option value="${m}" ${(m==="auto")===auto?"selected":""}>${l}</option>`).join("")}</select></label>
+    <p class="hint">Automatic: simple tasks go to a small fast coder, complex tasks and retries to a stronger one, and the strongest model does the final review. It uses what is installed; the coder below is the standard one. Fixed: every task uses exactly the models you pick.</p>
+    <div class="grid2" style="margin-top:10px">${model("m-planner","Planner (plans, ideas)",st.models.planner)}${model("m-reviewer","Reviewer",st.models.reviewer)}${model("m-summarizer","Summarizer (notes, docs)",st.models.summarizer)}${model("m-coder","Coder (Aider), standard",st.coder_model,{prefix:"ollama_chat/"})}</div>
+    <div id="rt-auto" style="${auto?"":"display:none"}"><div class="grid2" style="margin-top:10px">${model("rt-light","Light coder (simple tasks)",st.routing.light,{empty:true})}${model("rt-heavy","Heavy coder (complex tasks, retries)",st.routing.heavy,{empty:true})}${model("rt-final","Final reviewer",st.routing.final_reviewer,{empty:true})}</div>
+    <p class="hint" style="margin-top:8px">Leave a field on (auto-detect) to let the tool choose. Picked now: light <b>${esc(rs.light||"none (uses the coder)")}</b> · heavy <b>${esc(rs.heavy||"none (uses the coder)")}</b> · final reviewer <b>${esc(rs.final_reviewer||"none (uses the reviewer)")}</b>. Switching models costs a few seconds of load time.</p></div></div>
+    <div class="panel" style="margin-top:16px"><h3>Install a model</h3><div class="row"><input id="mdlName" placeholder="e.g. qwen2.5-coder:7b (any name from ollama.com/library)" onkeydown="if(event.key==='Enter')pullModel($('#mdlName').value)"><button class="primary" onclick="pullModel($('#mdlName').value)">Install</button></div>${sug.length?`<div class="chips" style="margin-top:8px">${sug.map(m=>`<span class="chip" title="${esc(m.note)} · ~${m.gb} GB · ${esc(m.fit)}" onclick="$('#mdlName').value='${esc(m.name)}'">${esc(m.name)}</span>`).join("")}</div><p class="hint">Suggestions for automatic selection (hover for size and fit). Larger models than your VRAM spill into RAM and run slower.</p>`:""}</div>
     <div id="mlist" style="margin-top:16px"></div>
     <div class="panel" style="margin-top:16px"><h3>Limits and behaviour</h3><div class="grid2">${lim}
     <label class="fld">web access<select id="web-mode">${["off","sources","open"].map(m=>`<option ${m===st.web_mode?"selected":""}>${m}</option>`).join("")}</select></label>
@@ -726,13 +734,6 @@ function settingsBody(d){
     <label class="fld">Parallel model calls (same model only)<input id="sc-slots" type="number" min="1" max="4" value="${esc(st.scheduler.slots||2)}"></label></div>
     <p class="hint">Run one project as <b>main</b> and others as <b>side</b>: side agents use the GPU only in the pauses of main (its builds, tests, waiting) and are stopped as soon as main needs the model again.</p>
     <div class="row" style="justify-content:space-between;margin-top:10px"><span class="hint">Stack: <b>${esc(st.preset)}</b> (fixed after creation). ${d.running?"Changes apply at the next start.":""}</span><button class="primary" onclick="saveSettings()">Save settings</button></div></div>
-    <div class="panel" style="margin-top:16px"><h3>Smart model routing (optional)</h3>
-    <p class="hint">Simple tasks go to a small fast coder, complex tasks and retries to a stronger one, and a strong model does the final review of every change. Models from the list below are used <b>automatically once installed</b>; nothing is required. Leave a field empty to auto-detect.</p>
-    <div class="grid2"><label class="fld">mode<select id="rt-mode">${["auto","off"].map(m=>`<option ${m===st.routing.mode?"selected":""}>${m}</option>`).join("")}</select></label>
-    ${model("rt-light","Light coder (override)",st.routing.light,{empty:true})}${model("rt-heavy","Heavy coder (override)",st.routing.heavy,{empty:true})}${model("rt-final","Final reviewer (override)",st.routing.final_reviewer,{empty:true})}</div>
-    <p class="hint" style="margin-top:10px">Detected now: light <b>${esc(x.resolved.light||"none (uses default)")}</b> · heavy <b>${esc(x.resolved.heavy||"none (uses default)")}</b> · final reviewer <b>${esc(x.resolved.final_reviewer||"none (uses the reviewer model)")}</b></p>
-    <table><tr><th>Model</th><th>Role</th><th>Size</th><th>Fits a 12 GB GPU?</th><th>Download</th></tr>${x.catalog.map(m=>`<tr><td>${esc(m.name)} ${m.installed?'<span class="pill ok">installed</span>':""}</td><td>${esc(m.tier)}</td><td>~${m.gb} GB</td><td>${esc(m.fit)}<div class="hint">${esc(m.note)}</div></td><td>${m.installed?"":`<code>${esc(m.pull)}</code>`}</td></tr>`).join("")}</table>
-    <p class="hint">Sizes are approximate. Larger models than your VRAM spill into RAM and run slower. Switching models costs a few seconds of load time per switch.</p></div>
     <div class="panel" style="margin-top:16px"><h3>Rename project</h3><div class="row"><input id="newname" value="${esc(d.name)}"><button onclick="renameProject()" ${d.running?"disabled":""}>Rename</button></div></div>
     <div class="panel" style="margin-top:16px;border-color:var(--bad)"><h3>Delete project</h3>
     <p class="hint">Permanently deletes <code>projects/${esc(d.name)}</code>: code, git history, memory and logs. The agent must be stopped. Type the project name to confirm.</p>

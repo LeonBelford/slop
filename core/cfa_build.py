@@ -10,6 +10,7 @@ from infra import perf
 import re
 import shutil
 import time
+from core.cfa_flow import removed_tests
 from core.cfutil import PRESETS, clip, sh, sh_live, sha, tail, write_json, write_text
 
 
@@ -94,7 +95,7 @@ class BuildMixin:
         schema = ('{"understanding": "", "files_to_change": ["existing paths"], "new_files": ["new paths"], '
                   '"read_only_context": ["paths"], "affected_dependents": ["paths that might break"], '
                   '"invariants": ["..."], "risks": ["..."], "steps": ["..."], "tests_to_add": ["..."], '
-                  '"docs_to_update": ["..."], "security_impact": "new inputs, endpoints, files, commands, secrets or dependencies this change exposes, and how each is protected"}')
+                  '"docs_to_update": ["..."], "test_files": ["paths of the test files to create or extend"], "security_impact": "new inputs, endpoints, files, commands, secrets or dependencies this change exposes, and how each is protected"}')
         plan = self.llm.json("impact", "planner", sys_p,
                              f"Task {item['id']} ({item['type']}): {item['title']}\n{item['description']}\n"
                              f"Acceptance: {item.get('acceptance')}\nStack: {self.cfg['stack']}\n"
@@ -124,20 +125,30 @@ class BuildMixin:
         write_text(self.run_dir / "context.md", ctx)
         return plan
 
-    def implement(self, item: dict, plan: dict) -> None:
-        self.phase("Implementing the change with Aider", "implement", "; ".join(str(x) for x in plan.get("steps", [])[:4]))
-        prompt = (f"Task {item['id']}: {item['title']}\n{item['description']}\nAcceptance: {item.get('acceptance')}\n\n"
-                  f"Understanding: {plan.get('understanding', '')}\nSteps: {plan.get('steps')}\nInvariants: {plan.get('invariants')}\n"
-                  f"Risks: {plan.get('risks')}\nSecurity impact: {plan.get('security_impact')}\nKnown consequences (earlier decisions/lessons): {plan.get('known_consequences')}\n"
-                  f"Affected callers: {plan.get('affected_dependents')}\n"
-                  f"Tests to write: {plan.get('tests_to_add')}\nNew files: {plan.get('new_files')}\n\n{self.RULES}")
-        edit = plan["files_to_change"] + plan["new_files"]
+    def set_class(self, item: dict, plan: dict) -> None:
         rt = self.cfg["routing"]
+        edit = plan["files_to_change"] + plan["new_files"]
         self.task_class = models.classify(item["type"], len(edit), self.cur_attempt, int(rt["heavy_from_attempt"]), int(rt["complex_files"]))
+
+    def implement(self, item: dict, plan: dict) -> None:
+        tests = self.test_first(item, plan)
+        self.phase("Implementing the change with Aider", "implement", "; ".join(str(x) for x in plan.get("steps", [])[:4]))
+        edit = plan["files_to_change"] + plan["new_files"]
+        self.set_class(item, plan)
         if self.routes()["light"] or self.routes()["heavy"]:
             self.log(f"Task class: {self.task_class} -> coder {self.coder_for('implement')}")
         read = [str(self.run_dir / "context.md")] + [f for f in plan.get("read_only_context", []) if (self.repo / f).exists()]
-        self.code("implement", edit, read, prompt)
+        groups = self.step_groups(item, plan)
+        for n, steps in enumerate(groups, 1):
+            part = f"\nPass {n} of {len(groups)}: do ONLY these steps now: {steps}\nEarlier passes already did: {[s for g in groups[:n - 1] for s in g]}\n" if len(groups) > 1 else ""
+            prompt = (f"Task {item['id']}: {item['title']}\n{item['description']}\nAcceptance: {item.get('acceptance')}\n\n"
+                      f"Understanding: {plan.get('understanding', '')}\nSteps: {steps if len(groups) > 1 else plan.get('steps')}\nInvariants: {plan.get('invariants')}\n"
+                      f"Risks: {plan.get('risks')}\nSecurity impact: {plan.get('security_impact')}\nKnown consequences (earlier decisions/lessons): {plan.get('known_consequences')}\n"
+                      f"Affected callers: {plan.get('affected_dependents')}\n"
+                      f"Tests to write: {plan.get('tests_to_add')}\nNew files: {plan.get('new_files')}\n"
+                      + (f"Tests already written for this task (make them pass, change them only if they are wrong): {tests}\n" if tests else "")
+                      + f"{part}\n{self.RULES}")
+            self.code("implement" if len(groups) == 1 else f"implement{n}", edit, read + tests, prompt)
 
     def debug_loop(self, item: dict) -> tuple[bool, str]:
         self.phase("Building and running tests", "build")
@@ -146,6 +157,8 @@ class BuildMixin:
             if ok and self.cfg["features"]["require_tests"] and item["type"] in ("feature", "bug") \
                     and not any("test" in f.lower() for f in self.git.changed_files()):
                 ok, report = False, "[policy] No tests were written/changed. Add tests for the change."
+            if ok and self.feat("protect_tests") and removed_tests(self.git.diff()) > 0:
+                ok, report = False, "[policy] The change deletes tests (more test definitions removed than added). Restore them; fix the code, not the tests."
             if ok:
                 return True, report
             self.log(f"Debug round {n}: {report.splitlines()[0]}")
@@ -195,6 +208,7 @@ class BuildMixin:
             branch = f"agent/{item['id']}-{attempt}"
             self.git.branch_from_main(branch)
             base_sha = self.git.out("rev-parse", "main")
+            self.retry_strategy(item, previous)
             try:
                 ok, why = self.attempt(item, previous, branch, base_sha)
             except Exception as e:
@@ -250,6 +264,8 @@ class BuildMixin:
             if not ok:
                 return False, "Red after review fix:\n" + report
             review = self.review(item, plan)
+        if not self.acceptance_check(item, plan):
+            return False, "Red after the acceptance fix round"
         self.git.commit_all(f"{item['id']}: {item['title']}")
         checkpoint = self.git.sha()
         if self.cfg["features"]["cleanup_pass"] and item["type"] != "docs":

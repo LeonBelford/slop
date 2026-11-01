@@ -102,12 +102,13 @@ from core.cfmemory import (  # noqa: F401
     Memory,
 )
 from core.cfa_build import BuildMixin
+from core.cfa_flow import FlowMixin
 from core.cfa_security import SecurityMixin
 from core.cfa_research import ResearchMixin
 from core.cfa_ops import OpsMixin
 
 
-class Agent(BuildMixin, SecurityMixin, ResearchMixin, OpsMixin):
+class Agent(BuildMixin, FlowMixin, SecurityMixin, ResearchMixin, OpsMixin):
     def __init__(self, ws: Path, cfg: dict | None = None):
         self.ws = ws.resolve()
         self.repo, self.dir = self.ws / "repo", self.ws / "agent"
@@ -413,6 +414,8 @@ def selftest() -> None:
             return json.dumps({"ok": True, "missing_files": [], "concerns": []})
         if tag == "security_review":
             return json.dumps({"findings": []})
+        if tag == "acceptance":
+            return json.dumps({"results": [{"criterion": "test", "met": True, "evidence": "tests"}]})
         if tag == "review":
             return json.dumps({"score": 8, "verdict": "approve", "summary": "added things", "issues": []})
         if tag == "decision":

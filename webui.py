@@ -41,7 +41,8 @@ ROOT = Path(__file__).resolve().parent
 INDEX = ROOT / "web" / "index.html"
 MAX_BODY = 1_000_000
 MODEL_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_./:@-]{0,99}$")
-FEATURE_KEYS = {"cleanup_pass": "bool", "require_tests": "bool", "plan_critique": "bool", "security": ("on", "off"), "e2e": ("auto", "on", "off")}
+FEATURE_KEYS = {"cleanup_pass": "bool", "require_tests": "bool", "plan_critique": "bool", "security": ("on", "off"), "e2e": ("auto", "on", "off"),
+                "test_first": ("auto", "on", "off"), "step_by_step": ("auto", "on", "off"), "acceptance_check": "bool", "retry_replan": "bool", "protect_tests": "bool"}
 SETTING_LIMITS = {"max_hours": (1, 720), "max_iterations": (1, 5000), "max_attempts_per_task": (1, 8),
                   "max_debug_rounds": (1, 8), "max_consecutive_failures": (1, 20), "min_review_score": (1, 10)}
 NAME_RE = re.compile(r"^[a-z0-9][a-z0-9-]{0,60}$")
