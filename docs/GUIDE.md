@@ -129,7 +129,7 @@ Nothing to do: the agent indexes what it learns per project and checks earlier d
   or ignore it. Nothing changes in the code you are running unless you merge. A backup (tag `backup/pre-self-improve-<timestamp>` plus a bundle in `self_improve/backups/`) is always made first; undo with `git reset --hard <tag>`.
 
 ## 7. Settings
-File `projects/<name>/agent/config.json` (template: `config.example.json`, takes effect from the next start). Key values:
+File `projects/<name>/agent/config.json` (template: `config.example.json`; takes effect from the next start, except `models`, `coder_model` and `routing`, which a running agent re-reads before every task). Key values:
 ```json
 {
   "doc_language": "English",

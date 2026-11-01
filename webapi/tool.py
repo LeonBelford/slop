@@ -18,7 +18,8 @@ import time
 from pathlib import Path
 
 import codefactory as sa
-from dash import diagnostics, runledger, throughput
+from dash import diagnostics, runledger, throughput, toolmodels
+from infra import models
 
 from webapi import common
 from webapi.common import (BRANCH_RE, BUILD, EMPTY_TREE, MAX_FILE, PROCS, SHA_RE, UiError, alive, git, git_rc,
@@ -409,15 +410,36 @@ class ToolMixin:
             raise UiError("Invalid branch")
         return {"diff": git(common.ROOT, "diff", f"HEAD...{branch}")}
 
+    def tool_models(self) -> dict:
+        """Saved model choice for self-changes plus what is installed and what automatic routing would pick now."""
+        state = common.ROOT / "self_improve"
+        saved = toolmodels.load(state)
+        installed = self.installed_models(sa.DEFAULT_CONFIG["llm_api"])
+        cfg = toolmodels.apply(json.loads(json.dumps(sa.DEFAULT_CONFIG)), state)
+        resolved = models.resolve(set(installed), cfg["routing"], cfg["coder_model"])
+        return {"saved": saved, "installed": installed, "resolved": resolved, "defaults": {
+            "planner": sa.DEFAULT_CONFIG["models"]["planner"], "reviewer": sa.DEFAULT_CONFIG["models"]["reviewer"],
+            "summarizer": sa.DEFAULT_CONFIG["models"]["summarizer"], "coder": sa.DEFAULT_CONFIG["coder_model"].split("/", 1)[-1]}}
+
+    def tool_models_save(self, body: dict) -> dict:
+        try:
+            toolmodels.save(common.ROOT / "self_improve", body)
+        except ValueError as e:
+            raise UiError(str(e)) from None
+        return self.tool_models()
+
     def tool_task(self, body: dict) -> dict:
         task = str(body.get("task", "")).strip()
         if len(task) < 10:
             raise UiError("Describe what the tool should do in a sentence or two")
+        model = str(body.get("model", "")).strip()
+        if model and not toolmodels.MODEL_RE.match(model):
+            raise UiError(f"Invalid model name: {model!r}")
         if alive("tool"):
             raise UiError("A tool task is already running", 409)
         out = common.ROOT / "self_improve" / "ui.log"
         out.parent.mkdir(exist_ok=True)
         out.write_text("", "utf-8")
-        spawn("tool", ["improve", "--task", task], out)
+        spawn("tool", ["improve", "--task", task, *(["--model", model] if model else [])], out)
         return {"ok": True}
 

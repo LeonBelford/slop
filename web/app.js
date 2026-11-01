@@ -1,7 +1,7 @@
 const $=s=>document.querySelector(s);
 const esc=s=>String(s??"").replace(/[&<>"]/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c]));
 let sel=localStorage.getItem("sel")||null, view="project", tab="overview", list={projects:[],init_jobs:[]}, detail=null, extra=null, dirty=false, langs=[];
-let toolTab_="tool",toolBranch="",planId="",taskPrefill="",codeBase="head",codeOpen=new Set(),codeView=null,codeInit=false;
+let taskModel="",toolMcfg=null,toolTab_="tool",toolBranch="",planId="",taskPrefill="",codeBase="head",codeOpen=new Set(),codeView=null,codeInit=false;
 let diffView=null, lastBody="", lastHead="", lastTabs="", openKeys=new Set();
 const EDITABLE=["ideas","sources","task","tool","settings","goal","profile","knowledge"];
 const GROUPS=[["overview","Overview",["overview"]],["task","Do a task",["task"]],["agent","Agent",["profile","knowledge","goal","ideas","sources","settings"]],["activity","Activity",["log","reasoning","llm"]],["code","Code & test",["changes","testing"]],["customize","Customize",["customize"]]];
@@ -458,7 +458,7 @@ function settingsBody(d){
     <label class="fld">side waits until main is idle for (s)<input id="sc-idle" type="number" min="0" max="3600" value="${esc(st.scheduler.min_idle)}"></label>
     <label class="fld">Parallel model calls (same model only)<input id="sc-slots" type="number" min="1" max="4" value="${esc(st.scheduler.slots||2)}"></label></div>
     <p class="hint">Run one project as <b>main</b> and others as <b>side</b>: side agents use the GPU only in the pauses of main (its builds, tests, waiting) and are stopped as soon as main needs the model again.</p>
-    <div class="row" style="justify-content:space-between;margin-top:10px"><span class="hint">Stack: <b>${esc(st.preset)}</b> (fixed after creation). ${d.running?"Changes apply at the next start.":""}</span><button class="primary" onclick="saveSettings()">Save settings</button></div></div>
+    <div class="row" style="justify-content:space-between;margin-top:10px"><span class="hint">Stack: <b>${esc(st.preset)}</b> (fixed after creation). ${d.running?"Model and routing changes apply from the next task, everything else at the next start.":""}</span><button class="primary" onclick="saveSettings()">Save settings</button></div></div>
     <div class="panel" style="margin-top:16px"><h3>Rename project</h3><div class="row"><input id="newname" value="${esc(d.name)}"><button onclick="renameProject()" ${d.running?"disabled":""}>Rename</button></div></div>
     <div class="panel" style="margin-top:16px;border-color:var(--bad)"><h3>Delete project</h3>
     <p class="hint">Permanently deletes <code>projects/${esc(d.name)}</code>: code, git history, memory and logs. The agent must be stopped. Type the project name to confirm.</p>
@@ -468,7 +468,7 @@ async function saveSettings(){
   const v=id=>$("#"+id).value,limits={};
   document.querySelectorAll("[id^=lim-]").forEach(e=>limits[e.id.slice(4)]=e.value);
   try{const r=await api(`/api/project/${sel}/settings`,{models:{planner:v("m-planner"),reviewer:v("m-reviewer"),summarizer:v("m-summarizer")},coder_model:v("m-coder"),limits,web_mode:v("web-mode"),routing:{mode:v("rt-mode"),light:v("rt-light"),heavy:v("rt-heavy"),final_reviewer:v("rt-final")},doc_language:v("doc-lang"),run:{mode:v("run-mode"),rounds:v("run-rounds")},scheduler:{priority:v("sc-prio"),min_idle:v("sc-idle"),slots:v("sc-slots")}});
-    dirty=false;toast(r.applies==="now"?"Settings saved":"Saved, applies at the next start");extra=null;await fetchExtra();lastBody="";renderProject()}catch(e){toast(e.message,true)}
+    dirty=false;toast(r.applies==="now"?"Settings saved":"Saved: models apply from the next task, other settings at the next start");extra=null;await fetchExtra();lastBody="";renderProject()}catch(e){toast(e.message,true)}
 }
 async function renameProject(){
   try{const r=await api(`/api/project/${sel}/rename`,{name:$("#newname").value});sel=r.name;localStorage.setItem("sel",sel);dirty=false;detail=null;extra=null;lastBody=lastHead=lastTabs="";toast("Renamed");await refresh()}catch(e){toast(e.message,true)}
@@ -484,6 +484,7 @@ async function fetchExtra(){
     if(view==="tool"){
       const [t,act]=await Promise.all([api("/api/tool"),api("/api/tool/activity")]);
       extra={kind:"tool",...t,act};
+      if((toolTab_==="models"||toolTab_==="tool")&&!toolMcfg)try{toolMcfg=await api("/api/tool/models")}catch(e){toolMcfg=null}
       if(toolTab_==="plan")extra.plan=await api("/api/tool/run?id="+encodeURIComponent(planId));
       if(toolTab_==="changes"){if(!toolBranch&&t.branches.length)toolBranch=t.branches[0].name;
         if(toolBranch){extra.branchRun=(await api("/api/tool/run?branch="+encodeURIComponent(toolBranch))).run;extra.tree=await api("/api/tool/tree?branch="+encodeURIComponent(toolBranch));
@@ -519,16 +520,17 @@ async function runTask(){
 /* ---- tool view ---- */
 const TOOL_EXAMPLES=["Add a make target that prints the status of all projects","Make the UI log tab show the last 500 lines","Show the GPU temperature on the dashboard","Add a button to copy a project's log to the clipboard"];
 const TOOL_STEPS=[["plan","Plan"],["backup","Backup"],["impact","Impact"],["implement","Implement"],["security","Security"],["test","Test"],["review","Review"],["docs","Docs"]];
-function toolTab(k){$("#main").scrollTop=0;LS=null;liveHtml="";toolTab_=k;dirty=false;lastBody=lastTabs="";extra=null;codeView=null;renderTool();refresh()}
+function toolTab(k){if(k==="models")toolMcfg=null;$("#main").scrollTop=0;LS=null;liveHtml="";toolTab_=k;dirty=false;lastBody=lastTabs="";extra=null;codeView=null;renderTool();refresh()}
 function renderTool(){
   $("#head").innerHTML=`<div class="top"><div><h1>Change the tool itself</h1><div class="idea">Tell it what to change in this program (Makefile, scripts, web UI, agent loop, docs). It does only what you write, on a separate git branch, and never merges by itself.</div></div></div><div class="stats" id="toolStats"></div>`;
-  const tabs=[["tool","Task"],["plan","Plan"],["reason","Reasoning"],["changes","Changes"],["log","Live log"]];
+  const tabs=[["tool","Task"],["plan","Plan"],["reason","Reasoning"],["changes","Changes"],["models","Models"],["log","Live log"]];
   const tb=`<div class="tabs">${tabs.map(([k,l])=>`<div class="tab ${toolTab_===k?"on":""}" onclick="toolTab('${k}')">${l}</div>`).join("")}</div>`;
   if(tb!==lastTabs){$("#tabs").innerHTML=tb;lastTabs=tb}
   const x=extra&&extra.kind==="tool"?extra:{running:false,log:"",branches:[]};
   $("#toolStats").innerHTML=toolStats(x);
   if(toolTab_==="reason"){setBody(reasoningBody());reasoningLive();return}
   if(toolTab_==="plan")return setBody(planBody(x));
+  if(toolTab_==="models")return setBody(toolModelsBody());
   if(toolTab_==="log")return setBody(`<div class="panel"><h3>Live log</h3><div class="loglegend"><span class="lg-step">step</span><span class="lg-ok">ok</span><span class="lg-sec">security</span><span class="lg-warn">warning</span><span class="lg-err">error</span></div><pre>${x.log?colorLog(x.log):"Nothing yet."}</pre></div>`);
   if(toolTab_==="changes"){
     const br=x.branches||[];if(!toolBranch&&br.length)toolBranch=br[0].name;
@@ -539,6 +541,7 @@ function renderTool(){
   <p class="hint">Examples: "Add a make target that prints the status of all projects", "Make the UI log tab show the last 500 lines", "Change the Makefile so make start-tmux also opens make thinking". Tests must stay green and docs are updated; guards for web fetching, CI and this feature itself cannot be changed.</p>
   <div class="chips" style="margin:6px 0">${TOOL_EXAMPLES.map((t,i)=>`<span class="chip" onclick="taskPrefill=TOOL_EXAMPLES[${i}];toolTab('tool')">${esc(t.slice(0,48))}${t.length>48?"…":""}</span>`).join("")}</div>
   <textarea id="tool" rows="6" oninput="dirty=true" ${x.running?"disabled":""}>${esc(taskPrefill)}</textarea>
+  <label class="fld" style="margin-top:8px">Model for this task<select id="toolModel" ${x.running?"disabled":""}><option value="">Automatic (see the Models tab)</option>${(toolMcfg?toolMcfg.installed:[]).map(n=>`<option ${n===taskModel?"selected":""}>${esc(n)}</option>`).join("")}</select></label>
   <div class="row" style="justify-content:flex-end;margin-top:10px">${x.running?'<button class="danger" onclick="toolCancel()">Cancel</button>':""}<button class="primary" onclick="runTool()" ${x.running?"disabled":""}>${x.running?"Working…":"Do this"}</button></div>
   ${x.running?'<p class="hint">Follow the checklist and every step in the <a href="#" onclick="planId=\'\';toolTab(\'plan\');return false">Plan</a> tab.</p>':""}
   ${x.log?`<h4>Progress</h4><pre>${colorLog(x.log)}</pre>`:""}</div>
@@ -642,7 +645,7 @@ async function undoMerge(){
 async function previewDo(path,body){try{await api(path,body);lastBody="";await refresh()}catch(e){toast(e.message,true)}}
 async function runTool(){
   const v=$("#tool").value.trim();if(v.length<10){toast("Describe the change in a sentence or two",true);return}
-  try{await api("/api/tool/task",{task:v});toast("Started. Follow the checklist in the Plan tab.");dirty=false;planId="";toolTab("plan")}catch(e){toast(e.message,true)}
+  try{taskModel=$("#toolModel").value;await api("/api/tool/task",{task:v,model:taskModel});toast("Started. Follow the checklist in the Plan tab.");dirty=false;planId="";toolTab("plan")}catch(e){toast(e.message,true)}
 }
 async function toolDiff(b){try{const r=await api("/api/tool/diff?branch="+encodeURIComponent(b));diffView={title:b,text:r.diff};lastBody="";renderTool()}catch(e){toast(e.message,true)}}
 
@@ -886,3 +889,24 @@ function spark(a,max,cls){
 async function loadDiag(){if(Date.now()-diagAt<10000)return;diagAt=Date.now();try{DIAG=await api("/api/diagnostics")}catch(e){}}
 const pct=v=>v==null?"–":Math.round(v*100)+"%";
 const dur=s=>s==null?"–":s<90?Math.round(s)+"s":s<5400?Math.round(s/60)+" min":(s/3600).toFixed(1)+" h";
+function toolModelsBody(){
+  const m=toolMcfg;if(!m)return `<div class="panel"><h3>Models for self-changes</h3><div class="hint">Loading…</div></div>`;
+  const s=m.saved,rt=s.routing,auto=rt.mode!=="off",d=m.defaults,r=m.resolved;
+  const sel=(id,label,cur,def)=>`<label class="fld">${label}<select id="${id}" onchange="dirty=true"><option value="">Automatic${def?` (${esc(def)})`:""}</option>${[...new Set([...(cur?[cur]:[]),...m.installed])].map(n=>`<option ${n===cur?"selected":""}>${esc(n)}${m.installed.includes(n)?"":" (not installed)"}</option>`).join("")}</select></label>`;
+  const rows=[["Plan, requirements, impact analysis","planner",s.planner||d.planner],["Normal coding steps","coder",s.coder||d.coder],
+    ["Docs, small edits","light",auto?(rt.light||r.light||s.coder||d.coder):(s.coder||d.coder)],["Hard steps, last repair round","heavy",auto?(rt.heavy||r.heavy||s.coder||d.coder):(s.coder||d.coder)],
+    ["Review, verification, diagnosis","reviewer",auto?(rt.final_reviewer||r.final_reviewer||s.reviewer||d.reviewer):(s.reviewer||d.reviewer)]];
+  return `<div class="panel"><h3>Models for self-changes</h3>
+  <p class="hint">Choose which AI model does which job when the tool changes itself. Leave a field on <b>Automatic</b> and the best installed model is used for that job. You can also pin a model for a single task in the Task tab.</p>
+  <label class="fld">Model selection<select id="tm-mode" onchange="dirty=true;$('#tm-auto').style.display=this.value==='off'?'none':''"><option value="auto" ${auto?"selected":""}>Automatic: the best installed model for each job</option><option value="off" ${auto?"":"selected"}>Fixed: only the models chosen below</option></select></label>
+  <div class="grid2" style="margin-top:10px">${sel("tm-planner","Planner (plans, requirements)",s.planner,d.planner)}${sel("tm-coder","Coder (standard steps)",s.coder,d.coder)}${sel("tm-reviewer","Reviewer",s.reviewer,d.reviewer)}${sel("tm-summarizer","Summarizer",s.summarizer,d.summarizer)}</div>
+  <div id="tm-auto" style="${auto?"":"display:none"}"><div class="grid2" style="margin-top:10px">${sel("tm-light","Light coder (docs, small edits)",rt.light,r.light)}${sel("tm-heavy","Heavy coder (hard steps, retries)",rt.heavy,r.heavy)}${sel("tm-final","Final reviewer",rt.final_reviewer,r.final_reviewer)}</div></div>
+  <div class="tblwrap" style="margin-top:14px"><table><tr><th>Job</th><th>Model used now</th></tr>${rows.map(([j,,mdl])=>`<tr><td>${j}</td><td><code>${esc(mdl)}</code></td></tr>`).join("")}</table></div>
+  <p class="hint">${m.installed.length?"Pick from your installed Ollama models.":"Ollama is not reachable, so the list is empty."} Switching models costs a few seconds of load time per switch. Settings apply to the next self-change run.</p>
+  <div class="row" style="justify-content:flex-end;margin-top:10px"><button class="primary" onclick="saveToolModels()">Save</button></div></div>`;
+}
+async function saveToolModels(){
+  const v=id=>$("#"+id).value.replace(/ \(not installed\)$/,"");
+  try{toolMcfg=await api("/api/tool/models",{planner:v("tm-planner"),coder:v("tm-coder"),reviewer:v("tm-reviewer"),summarizer:v("tm-summarizer"),
+    routing:{mode:v("tm-mode"),light:v("tm-light"),heavy:v("tm-heavy"),final_reviewer:v("tm-final")}});dirty=false;lastBody="";toast("Saved: used from the next self-change run");renderTool()}catch(e){toast(e.message,true)}
+}

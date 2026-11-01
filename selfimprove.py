@@ -27,7 +27,7 @@ from pathlib import Path
 
 import codefactory as sa
 from core import progress
-from dash import estimate
+from dash import estimate, toolmodels
 from infra import models
 from infra import perf
 from dash import runledger
@@ -283,9 +283,9 @@ def _docs_pass(work: Path, proposal: dict, coder, log) -> None:
         log("  docs pass produced no valid change (reverted)" if changes else "  docs pass: nothing to change")
 
 
-def main(projects: Path, dry_run: bool = False, repo: Path | None = None, llm=None, coder=None, log=print) -> dict:
+def main(projects: Path, dry_run: bool = False, repo: Path | None = None, llm=None, coder=None, log=print, model: str = "") -> dict:
     repo = (repo or Path(__file__).resolve().parent).resolve()
-    cfg = json.loads(json.dumps(sa.DEFAULT_CONFIG))
+    cfg = toolmodels.apply(json.loads(json.dumps(sa.DEFAULT_CONFIG)), repo / "self_improve", model)
     llm = llm or sa.LLM(cfg, log)
     coder = coder or _aider(cfg["coder_model"], cfg["limits"]["coder_timeout"])
     routes = _route(llm)
@@ -407,7 +407,8 @@ def _route(llm) -> dict:
     installed = getattr(llm, "installed", None) or set()
     if isinstance(llm, sa.LLM) and not sa.LLM.mock and not installed:
         installed = llm.installed = models.installed_from_ollama(sa.os.getenv("OLLAMA_HOST_URL", "http://localhost:11434")) or set()
-    r = models.resolve(installed, sa.DEFAULT_CONFIG["routing"], sa.DEFAULT_CONFIG["coder_model"])
+    cfg = getattr(llm, "cfg", None) or sa.DEFAULT_CONFIG  # the saved model choice (self_improve/models.json) lives in the LLM's config
+    r = models.resolve(installed, cfg["routing"], cfg["coder_model"])
     big = sa.os.getenv("CODER_MODEL_BIG")
     if big and not r["heavy"]:
         r["heavy"] = big
@@ -775,11 +776,11 @@ def _requirements(llm, instruction: str, log) -> list[str]:
     return reqs[:10] or [instruction.strip()]
 
 
-def directed(instruction: str, repo: Path | None = None, llm=None, coder=None, log=print) -> dict:
+def directed(instruction: str, repo: Path | None = None, llm=None, coder=None, log=print, model: str = "") -> dict:
     """Does exactly what the user asked with the tool itself (Makefile, scripts, UI, loop ...), on a review branch.
     No autonomy: one instruction in, one branch out, nothing merged."""
     repo = (repo or Path(__file__).resolve().parent).resolve()
-    cfg = json.loads(json.dumps(sa.DEFAULT_CONFIG))
+    cfg = toolmodels.apply(json.loads(json.dumps(sa.DEFAULT_CONFIG)), repo / "self_improve", model)
     llm = llm or sa.LLM(cfg, log)
     coder = coder or _aider(cfg["coder_model"], cfg["limits"]["coder_timeout"])
     routes = _route(llm)

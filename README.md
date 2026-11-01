@@ -118,6 +118,7 @@ Two levels, both bounded:
 - **Chat AI enabled** checkbox in the sidebar turns the chat off so it does not compete with the agent for the GPU.
 
 ## Self-changes (Web UI)
+**Which AI does what:** in "Change the tool itself" the **Models** tab lets you choose the model per job (planner, coder, light/heavy coder, reviewer, final reviewer), either automatic (best installed model per job) or fixed. The Task tab also has a **Model for this task** dropdown that pins the coder for that one run (`make improve ARGS="--task ... --model qwen2.5-coder:7b"` on the CLI). The choice is stored in `self_improve/models.json`.
 Before merging a result branch you can try it locally: **Changes → "Try this version"** starts it on its own port (empty projects folder, nothing of yours is touched), **"Try + run tests"** also runs all tests. "Change the tool itself" has the same tabs as a project: **Reasoning** (live), **Changes** (tree, new lines highlighted), **Live log**, plus a stage stepper. Each change goes through impact analysis, the security gate, tests and a code review before it is kept on a review branch. In the Reasoning tab, click any field to enlarge it.
 
 ## Chat (Web UI)

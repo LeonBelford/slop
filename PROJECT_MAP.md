@@ -34,10 +34,11 @@ Code lives in five places: the entry points in the root (`codefactory.py`, `webu
 | `core/cfa_flow.py` | `FlowMixin`: optional quality steps (tests first, step by step, acceptance check, retry strategy, test protection) |
 | `core/cfa_security.py` | `SecurityMixin`: security gate/probe/audit, e2e check |
 | `core/cfa_research.py` | `ResearchMixin`: ideation, product review, web research, sources/ideas sync, reflection |
-| `core/cfa_ops.py` | `OpsMixin`: user tasks, stop, test version, feedback, status |
+| `core/cfa_ops.py` | `OpsMixin`: user tasks, stop, test version, feedback, status, `reload_models` (re-reads models/coder/routing from `config.json` before each task) |
 | `dash/estimate.py` | Duration estimates from comparable past tasks (`durations.jsonl` per project and for self-improve), queue forecast, write-access checks |
 | `dash/diagnostics.py` | Dashboard key figures (`/api/diagnostics`): first-try rate, attempts, failure causes, model time, reasoning share, stalls, repo size, system load, findings |
 | `dash/history.py` | Per-day history series and quality figures (fail/retry rate, GPU hours, failure-class histogram) from `metrics.json`/`metrics.jsonl`, backs `/api/history` and the dashboard History section |
+| `dash/toolmodels.py` | Model choice for self-improve (`self_improve/models.json`: planner/reviewer/summarizer/coder, light/heavy/final reviewer, auto or fixed); `apply` merges it into the run config, a per-task model pins the coder (`improve --model`) |
 | `infra/perf.py` | Ollama speed diagnostics, pinned context settings and context-budget trimming (`fit_context`) for Aider (`make doctor`) |
 | `infra/notify.py` | Optional webhook notifications (ntfy/Slack/Discord/...) on task done/blocked/stalled/run stopped |
 | `selfimprove.py` | Self-improvement of this repo on `self-improve/<ts>` branches (worktree, tests, security gate, review, docs) |
@@ -99,8 +100,8 @@ LLM calls: `LLM.chat(tag, role, system, user)`; roles `planner`, `reviewer`, `su
   settings), dashboard (`dashboard`, `live_rate`, `coder_rate`, `gpu_stats`, `loaded_models`), tool (`tool`, `tool_task`,
   `tool_activity`, `tool_stream`, `tool_tree`, `tool_diff`, `tool_run`, `tool_cancel`, `tool_discard`, `tool_update_branch`, `branch_status`, `preview_*`, `tool_merge`, `tool_undo_merge`), update, chats, models.
 - Route table is in `make_handler` (`handle_any`): POST `/api/tool/cancel`, `/api/tool/discard`, `/api/tool/update-branch`; GET `/api/build`, `/api/tool/run[?id=|branch=]`, `/api/projects`, `/api/project/<n>[/settings|llm|changes|diff|thoughts|tree|file|stream]`,
-  `/api/dashboard`, `/api/history`, `/api/dashboard/stream` (SSE), `/static/<name>` (whitelisted css/js), `/api/tool[/stream|activity|tree|file|diff]`, `/api/chats`, `/api/chat/<id>`, `/api/models`, `/api/lan`, `/api/update/*`;
-  POST `/api/projects`, `/api/project/<n>/<action>`, `/api/tool/task`, `/api/tool/preview[/tests|stop]`, `/api/tool/merge`,
+  `/api/dashboard`, `/api/history`, `/api/dashboard/stream` (SSE), `/static/<name>` (whitelisted css/js), `/api/tool[/stream|activity|tree|file|diff|models]`, `/api/chats`, `/api/chat/<id>`, `/api/models`, `/api/lan`, `/api/update/*`;
+  POST `/api/projects`, `/api/project/<n>/<action>`, `/api/tool/task`, `/api/tool/preview[/tests|stop]`, `/api/tool/models`, `/api/tool/merge`,
   `/api/tool/undo-merge`, `/api/chats`, `/api/ui-settings`, `/api/master`.
 - Processes started by the UI (`spawn`) go through `scripts/run.sh` in their own session so they survive the UI.
 - `web/index.html` loads `web/style.css` + `web/app.js` + `web/dashboard.js` + `web/init.js` (served via `/static/`, no build step). Global `view` (`project` | `tool` | `chat` | `dash`; tool tabs Task / Plan / Reasoning / Changes / Live log), `tab`/`toolTab_`, `refresh()` (3 s), `renderNow()` (1 s, also shows an estimated % done + the recent sub-steps for the running task via `core/progress.py`),
@@ -117,7 +118,7 @@ branch in a separate worktree/port (`preview_*`; `runledger.verify_checkout` pro
 - Protected from self-change: `infra/webaccess.py`, `infra/security.py`, `selfimprove.py`, `.github/`, `.env`, `scripts/quick-setup-popos.sh`
 - Repair loop (`_work_on`, `FIX_ROUNDS=2`): gates (`_gates`) failing → `_diagnose` → coder repair round → re-check. Directed runs auto-restore protected files and may edit (not delete) existing tests (`tests_modified` in the ledger); auto runs revert immediately on a protected violation.
 - Helpers: `_fast_tests`, `_new_tests_red`, `_keyword_files`, `_lessons`/`_remember`; `runledger.stats` feeds the UI track record. Plan: `docs/SELF_IMPROVE_ROADMAP.md`.
-- Model routing (`_route`, `_coder_for`, built on `models.resolve`/`classify`): light/standard/heavy coder per job, strongest reviewer for review jobs, defaults when a model is not installed.
+- Model routing (`_route`, `_coder_for`, built on `models.resolve`/`classify`): light/standard/heavy coder per job, strongest reviewer for review jobs, defaults when a model is not installed. The user picks the model per job (UI: Change the tool → Models, stored by `dash/toolmodels.py`) or per task (model dropdown in the Task tab → `improve --task ... --model`).
 - Learning router: `_learned_cls` + `runledger.model_stats` (attempts per model in the run ledger).
 - Context budget `_fit` (Aider edit files, `CONTEXT_TOKENS`); impact analysis shared between directed steps; plan critique only for multi-file changes.
 - Speed: `infra/perf.py` (pinned num_ctx for Aider via `--model-settings-file`, Ollama diagnostics, `make doctor`), `scripts/ollama-tune.sh`; reasoning cap in `LLM._read`; review runs in a thread beside the full test suite in `_gates`.
