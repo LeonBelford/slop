@@ -32,7 +32,7 @@ class DashboardTests(unittest.TestCase):
             ws = Path(tmp) / "demo"
             (ws / "agent").mkdir(parents=True)
             (ws / "agent" / "GOAL.md").write_text("g")
-            sa.write_json(ws / "agent" / "metrics.json", {"calls": 3, "tokens": 900, "chars": 3600, "day_calls": 1, "day_tokens": 300, "day_chars": 1200})
+            sa.write_json(ws / "agent" / "metrics.json", {"gen_seconds": 30, "wall_seconds": 90, "calls": 3, "tokens": 900, "chars": 3600, "day_calls": 1, "day_tokens": 300, "day_chars": 1200})
             svc = webui.Service(Path(tmp))
             webui.Service._gpu = (time.time(), None)
             svc.loaded_models = staticmethod(lambda: [])
@@ -40,6 +40,8 @@ class DashboardTests(unittest.TestCase):
             self.assertEqual(d["agents_running"], 0)
             self.assertEqual(d["totals"]["tokens"], 900)
             self.assertEqual(d["projects"][0]["name"], "demo")
+            self.assertEqual(d["projects"][0]["perf"]["tps"], 30.0)
+            self.assertEqual(d["projects"][0]["perf"]["tokens_per_min"], 600)
             json.dumps(d)
 
 
