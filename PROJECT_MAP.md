@@ -16,9 +16,19 @@ Two different things are called "agent memory", do not mix them up:
 - a **generated project**: `projects/<name>/repo/` (the product, own git repo) plus `projects/<name>/agent/` (agent state).
 
 ## 2. Repository layout
+Modules are kept small on purpose (each under 700 lines except `webui.py` and `selfimprove.py`, which are next in line; checked by `tests/test_module_size.py`): a small local model can read and edit a whole file within its context window. New features belong in a new or the matching small module, not into `codefactory.py`.
+
 | Path | Role |
 |---|---|
-| `codefactory.py` | The agent: config defaults, `LLM`, `Git`, `Backlog`, `Memory`, `Agent`, CLI (`main`), `selftest` |
+| `codefactory.py` | Entry point: `Agent` core (init, config, loop), CLI (`main`), `selftest`. Re-exports everything below, so `import codefactory as sa` still gives `LLM`, shell helpers, ... as attributes |
+| `cfutil.py` | `DEFAULT_CONFIG`, constants, shell/JSON/process helpers |
+| `cfllm.py` | `LLM` client (streaming, reasoning capture, reasoning cap, JSON answers) |
+| `cfgit.py` | `Git`, `Backlog` |
+| `cfmemory.py` | `Memory` (code map, dependency graph, ADRs, lessons, docs upkeep) |
+| `cfa_build.py` | `BuildMixin`: model choice, coder call, verify, debug loop, review, `attempt` |
+| `cfa_security.py` | `SecurityMixin`: security gate/probe/audit, e2e check |
+| `cfa_research.py` | `ResearchMixin`: ideation, product review, web research, sources/ideas sync, reflection |
+| `cfa_ops.py` | `OpsMixin`: user tasks, stop, test version, feedback, status |
 | `perf.py` | Ollama speed diagnostics and pinned context settings for Aider (`make doctor`) |
 | `selfimprove.py` | Self-improvement of this repo on `self-improve/<ts>` branches (worktree, tests, security gate, review, docs) |
 | `webui.py` | HTTP server + `Service` (JSON API, process spawning, dashboard, tool preview/merge) |
@@ -46,7 +56,7 @@ Two different things are called "agent memory", do not mix them up:
 Gitignored runtime folders: `projects/` (generated projects, `.ui/` settings and chats), `self_improve/` (backups, proposals,
 worktrees, preview, logs), `.env`, `.venv`.
 
-## 3. Data flow of the agent loop (`Agent` in `codefactory.py`)
+## 3. Data flow of the agent loop (`Agent` in `codefactory.py` plus the `cfa_*` mixins)
 `run()` outer loop (the script, never the model, decides when to stop): health check → sync `IDEAS.md` (replan) →
 pick next backlog task → `attempt()`: impact analysis (+ plan critique) → `implement()` (Aider via `code()`) → `verify()`
 (setup/build/test/lint commands from the preset) → `debug_loop()` → security gate → optional e2e → `review()` → merge
@@ -119,7 +129,7 @@ selftest self-improve e2e-setup`.
 ## 11. Where to change what
 | Goal | Look at |
 |---|---|
-| Prompts / loop behaviour | `Agent.*` in `codefactory.py` (tags like `impact`, `review`, `ideate`) |
+| Prompts / loop behaviour | `Agent.*` methods in `cfa_build.py`, `cfa_research.py`, `cfa_security.py`, `codefactory.py` (tags like `impact`, `review`, `ideate`) |
 | Model calls, streaming, token counts | `LLM._read`, `_publish`, `record`, `_metrics` |
 | Aider invocation and timeouts | `Agent.code`, `sh_live` (`idle=True`) |
 | GPU sharing | `gpusched.py`, `Scheduler.gpu` |
