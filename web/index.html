@@ -105,10 +105,23 @@ button.ghost.danger{color:var(--bad)}
 .msg{max-width:78%;padding:11px 16px;border-radius:16px;line-height:1.65;white-space:pre-wrap;word-break:break-word;animation:pop .2s ease-out}
 .msg.user{align-self:flex-end;background:#2e2e2e;border:1px solid #3d3d3d;border-bottom-right-radius:4px}
 .msg.assistant{align-self:flex-start;background:var(--panel2);border:1px solid var(--line);border-bottom-left-radius:4px}
+.msg.assistant{white-space:normal}
+.msg.assistant p{margin:0 0 .7em}.msg.assistant>*:first-child{margin-top:0}
+.msg.assistant h3,.msg.assistant h4,.msg.assistant h5,.msg.assistant h6{margin:.9em 0 .4em;font-size:1em;font-weight:600}
+.msg.assistant h3{font-size:1.15em}
+.msg.assistant ul,.msg.assistant ol{margin:.3em 0 .7em;padding-left:1.4em}
+.msg.assistant blockquote{margin:.5em 0;padding:2px 12px;border-left:3px solid var(--line);color:var(--mute)}
+.msg.assistant hr{border:0;border-top:1px solid var(--line);margin:.8em 0}
+.msg.assistant a{color:var(--text);text-decoration:underline}
+.msg.assistant code{background:#0d0d0d;border:1px solid var(--line);border-radius:4px;padding:1px 5px;font-size:.92em}
+.msg.assistant pre code{border:0;padding:0;background:none}
 .msg.streaming::after{content:"";display:inline-block;width:7px;height:15px;margin-left:3px;vertical-align:-2px;background:var(--mute);animation:blink 1s steps(2) infinite}
 .msg .acts{margin-top:8px;display:flex;gap:4px;opacity:0;transition:opacity .15s}
 .msg:hover .acts{opacity:1}
 .msg pre{background:#0d0d0d;border:1px solid var(--line);padding:10px 12px;border-radius:8px;overflow:auto;margin:8px 0;white-space:pre}
+.lg-err{color:#ff7b72}.lg-warn{color:#e3b341}.lg-ok{color:#56d364}.lg-sec{color:#79c0ff}.lg-step{color:#d2a8ff;font-weight:600}
+.loglegend{display:flex;gap:14px;font-size:12px;margin-bottom:8px}
+.loglegend .lg-step,.loglegend .lg-ok,.loglegend .lg-sec,.loglegend .lg-warn,.loglegend .lg-err{padding:1px 8px;border:1px solid currentColor;border-radius:10px}
 .think{display:flex;align-items:center;gap:12px;color:var(--mute)}
 .dots span{display:inline-block;width:7px;height:7px;margin-right:4px;border-radius:50%;background:var(--mute);animation:bounce 1.2s infinite ease-in-out}
 .dots span:nth-child(2){animation-delay:.15s}.dots span:nth-child(3){animation-delay:.3s}
@@ -136,7 +149,6 @@ button.ghost.danger{color:var(--bad)}
   <div class="side-actions">
     <button class="primary" onclick="openNew()">+ New idea</button>
     <button onclick="showChat()" title="Talk to a local model, optionally with a project as context">Chat</button>
-    <button onclick="showModels()" title="Install and remove Ollama models">Models</button>
     <button onclick="openMaster()" title="Global instructions for all projects">Master prompt</button>
   </div>
   <div id="ms" class="hint" style="padding:8px 16px"></div>
@@ -175,7 +187,7 @@ const esc=s=>String(s??"").replace(/[&<>"]/g,c=>({"&":"&amp;","<":"&lt;",">":"&g
 let sel=localStorage.getItem("sel")||null, view="project", tab="overview", list={projects:[],init_jobs:[]}, detail=null, extra=null, dirty=false, langs=[];
 let diffView=null, lastBody="", lastHead="", lastTabs="", openKeys=new Set();
 const EDITABLE=["ideas","sources","task","tool","settings","goal"];
-const STEPS=[["plan","Plan"],["implement","Implement"],["build","Build & test"],["review","Review"],["cleanup","Cleanup"],["docs","Docs & memory"],["merge","Merge"]];
+const STEPS=[["plan","Plan"],["implement","Implement"],["build","Build & test"],["e2e","Browser test"],["security","Security"],["review","Review"],["cleanup","Cleanup"],["docs","Docs & memory"],["merge","Merge"]];
 
 async function api(path,body){
   const opt=body===undefined?{}:{method:"POST",headers:{"X-UI":"1","Content-Type":"application/json"},body:JSON.stringify(body)};
@@ -205,6 +217,17 @@ function select(n){view="project";sel=n;localStorage.setItem("sel",n);tab="overv
 function showTool(){view="tool";tab="tool";dirty=false;extra=null;diffView=null;lastBody=lastHead=lastTabs="";renderList();refresh()}
 
 /* ---- live status panel (re-rendered every second from the last data) ---- */
+function colorLog(t){
+  return t.split("\n").map(l=>{
+    let c="";
+    if(/\] ▶ \[security\]|ecurity/.test(l))c=/block|fail|critical|high/i.test(l)&&!/non-blocking/.test(l)?"lg-err":"lg-sec";
+    else if(/Traceback|Error|error|failed|FAIL|red\b|rolled back|discarded|blocked|✖|✘/.test(l))c="lg-err";
+    else if(/warn|skipped|revision|retry|waiting|Debug round|not reachable/i.test(l))c="lg-warn";
+    else if(/✔|merged|passed|green|OK\b/.test(l))c="lg-ok";
+    else if(/\] ▶ /.test(l))c="lg-step";
+    return c?`<span class="${c}">${esc(l)}</span>`:esc(l);
+  }).join("\n");
+}
 function renderNow(){
   const box=$("#now");
   if(view!=="project"||!detail){box.innerHTML="";return}
@@ -256,7 +279,7 @@ function setBody(html){
   if(EDITABLE.includes(tab)&&(dirty||(el&&["INPUT","TEXTAREA"].includes(el.tagName)&&b.contains(el)))&&b.dataset.tab===tab)return;
   if(html===lastBody&&b.dataset.tab===tab)return;
   const keep=$("#main").scrollTop,lb=$("#logbox"),stick=lb&&lb.scrollHeight-lb.scrollTop-lb.clientHeight<40;
-  b.innerHTML=html;b.dataset.tab=tab;lastBody=html;
+  b.innerHTML=html;b.dataset.tab=tab;lastBody=html;if(tab==="settings")loadModels();
   b.querySelectorAll("details[data-k]").forEach(x=>{if(openKeys.has(x.dataset.k))x.open=true;x.addEventListener("toggle",()=>{x.open?openKeys.add(x.dataset.k):openKeys.delete(x.dataset.k)})});
   $("#main").scrollTop=keep;
   const nb=$("#logbox");if(nb&&(stick||!lb))nb.scrollTop=nb.scrollHeight;
@@ -306,7 +329,7 @@ function projectBody(d){
     return `<div class="panel"><p class="hint">"Test now" lets the agent finish its current task, builds the last working state and shows here how to run it. Press Start afterwards to continue.</p>
     ${d.testing?`<pre>${esc(d.testing)}</pre>`:'<div class="hint">No test version built yet.</div>'}${d.try_running||d.try_out?`<h4>Output</h4><pre>${esc(d.try_out)}</pre>`:""}</div>`;
   }
-  if(tab==="log")return `<pre id="logbox">${esc(d.log||"No log yet.")}${d.run_out&&/Traceback|Error/.test(d.run_out)?"\n\n--- run.out ---\n"+esc(d.run_out):""}${d.do_out&&/Traceback|Error/.test(d.do_out)?"\n\n--- do.out ---\n"+esc(d.do_out):""}</pre>`;
+  if(tab==="log")return `<div class="loglegend"><span class="lg-step">step</span><span class="lg-ok">success</span><span class="lg-sec">security</span><span class="lg-warn">warning</span><span class="lg-err">error</span></div><pre id="logbox">${colorLog(d.log||"No log yet.")}${d.run_out&&/Traceback|Error/.test(d.run_out)?"\n\n--- run.out ---\n"+colorLog(d.run_out):""}${d.do_out&&/Traceback|Error/.test(d.do_out)?"\n\n--- do.out ---\n"+colorLog(d.do_out):""}</pre>`;
   if(tab==="settings")return settingsBody(d);
   return `<div class="panel"><h3>GOAL.md: vision and quality bar</h3><p class="hint">The agent measures its work against this. Edit it to change direction; for single wishes use "Ideas & feedback".</p>
     <textarea id="goal" rows="20" oninput="dirty=true">${esc(d.goal||"")}</textarea>
@@ -329,8 +352,10 @@ function settingsBody(d){
     return `<label class="fld">${l}<select id="${id}" data-pre="${esc(pre)}">${o.empty?`<option value="">(auto-detect)</option>`:""}${names.map(n=>`<option value="${esc(pre+n)}" ${n===cur?"selected":""}>${esc(n)}${x.installed_models.includes(n)?"":" (not installed)"}</option>`).join("")}</select></label>`};
   const lim=Object.entries(lb).map(([k,[lo,hi]])=>`<label class="fld">${esc(k.replace(/_/g," "))} <span class="meta">${lo}–${hi}</span><input id="lim-${k}" type="number" min="${lo}" max="${hi}" value="${st.limits[k]}"></label>`).join("");
   return `<div class="panel"><h3>Models</h3>
-    <p class="hint">${x.installed_models.length?"Pick from your installed Ollama models.":"Ollama is not reachable, so the list is empty."} Missing one? <a href="#" onclick="showModels();return false" style="color:var(--text)">Install models</a>.</p>
+    <p class="hint">${x.installed_models.length?"Pick from your installed Ollama models.":"Ollama is not reachable, so the list is empty."} Install or remove models below.</p>
     <div class="grid2">${model("m-planner","Planner (plans, ideas)",st.models.planner)}${model("m-reviewer","Reviewer",st.models.reviewer)}${model("m-summarizer","Summarizer (notes, docs)",st.models.summarizer)}${model("m-coder","Coder (Aider)",st.coder_model,{prefix:"ollama_chat/"})}</div></div>
+    <div class="panel" style="margin-top:16px"><h3>Install a model</h3><div class="row"><input id="mdlName" placeholder="e.g. qwen2.5-coder:7b (any name from ollama.com/library)" onkeydown="if(event.key==='Enter')pullModel($('#mdlName').value)"><button class="primary" onclick="pullModel($('#mdlName').value)">Install</button></div></div>
+    <div id="mlist" style="margin-top:16px"></div>
     <div class="panel" style="margin-top:16px"><h3>Limits and behaviour</h3><div class="grid2">${lim}
     <label class="fld">web access<select id="web-mode">${["off","sources","open"].map(m=>`<option ${m===st.web_mode?"selected":""}>${m}</option>`).join("")}</select></label>
     <label class="fld">documentation language<input id="doc-lang" value="${esc(st.doc_language)}"></label></div>
@@ -363,7 +388,7 @@ async function deleteProject(){
 function setTab(k){tab=k;dirty=false;extra=null;lastBody="";$("#body").dataset.tab="";lastTabs="";renderProject();fetchExtra().then(renderProject)}
 async function fetchExtra(){
   try{
-    if(view==="chat"||view==="models")return;
+    if(view==="chat")return;
     if(view==="tool"){extra={kind:"tool",...await api("/api/tool")};return}
     if(!sel)return;
     if(tab==="llm")extra={kind:"llm",...await api(`/api/project/${encodeURIComponent(sel)}/llm`)};
@@ -427,8 +452,28 @@ async function saveMaster(){try{await api("/api/master",{text:$("#mText").value}
 
 /* ---- chat (own DOM, never re-rendered by the poll so streaming is not interrupted) ---- */
 let chat={list:[],models:[],def:"",cur:null,ctrl:null};
+function mdInline(t){
+  return esc(t).replace(/`([^`\n]+)`/g,"<code>$1</code>").replace(/\*\*([^*\n]+)\*\*/g,"<b>$1</b>").replace(/(^|[^*])\*([^*\n]+)\*(?!\*)/g,"$1<i>$2</i>")
+    .replace(/\[([^\]\n]+)\]\((https?:\/\/[^\s)]+)\)/g,'<a href="$2" target="_blank" rel="noopener noreferrer">$1</a>');
+}
 function mdLite(t){
-  return t.split(/```/).map((p,i)=>i%2?`<pre>${esc(p.replace(/^\w*\n/,""))}</pre>`:esc(p)).join("");
+  return t.split(/```/).map((p,i)=>{
+    if(i%2)return `<pre>${esc(p.replace(/^[^\n]*\n/,""))}</pre>`;
+    const out=[];let list=null,para=[];
+    const flush=()=>{if(para.length){out.push(`<p>${para.join("<br>")}</p>`);para=[]}};
+    const close=()=>{if(list){out.push(`</${list}>`);list=null}};
+    for(const line of p.split("\n")){
+      let m;
+      if(m=line.match(/^(#{1,4})\s+(.*)/)){flush();close();out.push(`<h${m[1].length+2}>${mdInline(m[2])}</h${m[1].length+2}>`)}
+      else if(m=line.match(/^\s*[-*]\s+(.*)/)){flush();if(list!=="ul"){close();out.push("<ul>");list="ul"}out.push(`<li>${mdInline(m[1])}</li>`)}
+      else if(m=line.match(/^\s*\d+[.)]\s+(.*)/)){flush();if(list!=="ol"){close();out.push("<ol>");list="ol"}out.push(`<li>${mdInline(m[1])}</li>`)}
+      else if(m=line.match(/^>\s?(.*)/)){flush();close();out.push(`<blockquote>${mdInline(m[1])}</blockquote>`)}
+      else if(/^\s*([-*_]\s*){3,}$/.test(line)){flush();close();out.push("<hr>")}
+      else if(!line.trim()){flush();close()}
+      else{close();para.push(mdInline(line))}
+    }
+    flush();close();return out.join("");
+  }).join("");
 }
 async function showChat(id,projects){
   view="chat";tab="chat";dirty=false;extra=null;lastBody=lastHead=lastTabs="";renderList();
@@ -518,16 +563,8 @@ async function chatSend(){
 
 /* ---- models: install and remove through Ollama ---- */
 let mdl=null,mdlTimer=null;
-async function showModels(){
-  view="models";tab="models";dirty=false;extra=null;lastBody=lastHead=lastTabs="";renderList();
-  $("#now").innerHTML="";$("#now").className="";$("#tabs").innerHTML="";
-  $("#head").innerHTML=`<div class="top"><div><h1>Models</h1><div class="idea">Install and remove Ollama models. Installed models show up in all dropdowns and are used automatically where they fit.</div></div></div>`;
-  $("#body").dataset.tab="models";
-  $("#body").innerHTML=`<div class="panel"><h3>Install a model</h3><div class="row"><input id="mdlName" placeholder="e.g. qwen2.5-coder:7b (any name from ollama.com/library)" onkeydown="if(event.key==='Enter')pullModel($('#mdlName').value)"><button class="primary" onclick="pullModel($('#mdlName').value)">Install</button></div></div><div id="mlist"></div>`;
-  await loadModels();
-}
 async function loadModels(){
-  if(view!=="models")return;
+  const el=$("#mlist");if(!el||tab!=="settings"||view!=="project"){clearTimeout(mdlTimer);return}
   try{mdl=await api("/api/models")}catch(e){return}
   const m=mdl,act=Object.entries(m.pulls).filter(([k,v])=>v.active||v.error||v.status==="done");
   const bar=v=>{const p=v.total?Math.round(v.completed/v.total*100):0;return `<div class="bar"><i style="width:${p}%"></i></div><span class="meta">${esc(v.status)}${v.total?` · ${p}% of ${(v.total/1e9).toFixed(1)} GB`:""}</span>`};
@@ -537,7 +574,7 @@ async function loadModels(){
   ${m.installed.length?`<table><tr><th>Model</th><th>Size</th><th>Used by</th><th></th></tr>${m.installed.map(x=>`<tr><td><code>${esc(x.name)}</code></td><td>${x.gb} GB</td><td>${x.used_by.map(u=>esc(u.project)+(u.running?" (running)":"")).join(", ")||"-"}</td><td style="text-align:right"><button class="small danger" onclick="removeModel('${esc(x.name)}')">Remove</button></td></tr>`).join("")}</table>`:'<div class="hint">Nothing installed yet.</div>'}</div>
   <div class="panel" style="margin-top:16px"><h3>Recommended (optional)</h3><p class="hint">Sizes are approximate. Larger models than your VRAM spill into RAM and run slower.</p>
   <table><tr><th>Model</th><th>Role</th><th>Size</th><th>Fits a 12 GB GPU?</th><th></th></tr>${m.catalog.map(c=>{const p=m.pulls[c.name];return `<tr><td>${esc(c.name)} ${c.installed?'<span class="pill ok">installed</span>':""}</td><td>${esc(c.tier)}</td><td>~${c.gb} GB</td><td>${esc(c.fit)}<div class="hint">${esc(c.note)}</div></td><td style="text-align:right">${c.installed?"":`<button class="small primary" onclick="pullModel('${esc(c.name)}')" ${p&&p.active?"disabled":""}>${p&&p.active?"Downloading…":"Install"}</button>`}</td></tr>`}).join("")}</table></div>`;
-  const el=$("#mlist");if(el&&el.dataset.h!==html){el.innerHTML=html;el.dataset.h=html}
+  if(el.dataset.h!==html){el.innerHTML=html;el.dataset.h=html}
   clearTimeout(mdlTimer);mdlTimer=setTimeout(loadModels,Object.values(m.pulls).some(v=>v.active)?1000:5000);
 }
 async function pullModel(n){n=(n||"").trim();if(!n){toast("Enter a model name",true);return}try{await api("/api/models/pull",{name:n});toast("Download started");$("#mdlName")&&($("#mdlName").value="");await loadModels()}catch(e){toast(e.message,true)}}
@@ -545,7 +582,7 @@ async function modelCancel(n){try{await api("/api/models/cancel",{name:n});toast
 async function removeModel(n){
   const u=(mdl.installed.find(x=>x.name===n)||{used_by:[]}).used_by;
   if(!confirm(`Remove ${n}?`+(u.length?`\nIt is set in: ${u.map(x=>x.project).join(", ")}. Those projects need another model before they can run.`:"")))return;
-  try{await api("/api/models/delete",{name:n});toast("Removed "+n);extra=null;await loadModels()}catch(e){toast(e.message,true)}
+  try{await api("/api/models/delete",{name:n});toast("Removed "+n);extra=null;lastBody="";await fetchExtra();await loadModels()}catch(e){toast(e.message,true)}
 }
 
 
@@ -557,7 +594,7 @@ async function refresh(){
     renderList();
     if(view==="project"&&sel)detail=await api("/api/project/"+encodeURIComponent(sel));
     await fetchExtra();
-    if(view==="chat"||view==="models"){renderNow();return}
+    if(view==="chat"){renderNow();return}
     if(view==="tool")renderTool();else renderProject();
     renderNow();
   }catch(e){if(!shownErr){shownErr=true;toast(e.message,true)}}

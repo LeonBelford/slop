@@ -1100,6 +1100,7 @@ class Agent:
         """Publishes what the agent is doing right now (activity.json) and appends it to the event timeline (events.jsonl)."""
         write_json(self.dir / "activity.json", {"phase": name, "step": step, "detail": detail[:300], "since": time.time(),
                                                 "task": self.cur_task, "attempt": self.cur_attempt, "pid": os.getpid()})
+        self.log(f"▶ [{step or 'agent'}] {name}" + (f" ({detail[:120]})" if detail else ""))
         with open(self.dir / "events.jsonl", "a", encoding="utf-8") as f:
             f.write(json.dumps({"time": now(), "phase": name, "step": step, "detail": detail[:300], "task": self.cur_task,
                                 "attempt": self.cur_attempt}, ensure_ascii=False) + "\n")
