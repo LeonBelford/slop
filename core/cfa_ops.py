@@ -54,7 +54,8 @@ class OpsMixin:
                 if not items:
                     break
                 item = max(items, key=lambda i: i["priority"])
-                done += bool(self.process(item))
+                with self.conducting(item):
+                    done += bool(self.record_outcome(item, self.process(item)))
                 self.save_state()
         finally:
             (self.dir / "agent.pid").unlink(missing_ok=True)

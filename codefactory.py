@@ -94,9 +94,10 @@ from core.cfa_research import ResearchMixin
 from core.cfa_ops import OpsMixin
 from core.cfa_plan import PlanMixin
 from core.cfa_split import SplitMixin
+from core.cfa_conductor import ConductorMixin
 
 
-class Agent(BuildMixin, FlowMixin, VerifyMixin, SecurityMixin, ResearchMixin, OpsMixin, PlanMixin, SplitMixin):
+class Agent(BuildMixin, FlowMixin, VerifyMixin, SecurityMixin, ResearchMixin, OpsMixin, PlanMixin, SplitMixin, ConductorMixin):
     def __init__(self, ws: Path, cfg: dict | None = None):
         self.ws = ws.resolve()
         self.repo, self.dir = self.ws / "repo", self.ws / "agent"
@@ -374,7 +375,9 @@ class Agent(BuildMixin, FlowMixin, VerifyMixin, SecurityMixin, ResearchMixin, Op
                     break
                 self.save_state()
                 continue
-            ok = self.process(item)
+            self.replan_if_stuck()
+            with self.conducting(item):
+                ok = self.record_outcome(item, self.process(item))
             if not ok:
                 self.state["failed_since_reflect"] = self.state.get("failed_since_reflect", 0) + 1
             self.state["consecutive_failures"] = 0 if ok else self.state["consecutive_failures"] + 1

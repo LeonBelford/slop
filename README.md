@@ -207,6 +207,8 @@ At `init` the agent no longer builds a flat feature list. It designs an **archit
 
 **Tasks that do not finish:** after the failed attempts (or `max_task_minutes`, default 120) a task is not simply blocked: the strategist splits it into 2-4 smaller slices (smallest working core first; whoever waited for it waits for the last slice). A task that is blocked anyway gets a fresh start after 2 other merges, up to twice.
 
+**Conductor:** before each task the agent looks at its recent results and shapes the pipeline: *fast* for docs/tests, *flow* after five clean tasks (skips the plan critique), *careful* when half of the recent tasks failed (stronger model, one more debug round, no optional extras). Build, tests, security, review and acceptance are never skipped. If the project is stuck (3 blocked or 3 failures in a row) it re-evaluates the plan by itself. Every task also keeps a *journal* (plan, files, failed rounds, review) that is shown to every later prompt of that task, so stages no longer start blind.
+
 **Strict but productive:** every gate stays (build, tests, security, review, acceptance). Once build and tests are green the work is saved on a `agent/wip-<id>` branch; if a later gate rejects it, the retry continues from that work and only fixes the rejected points instead of rewriting everything.
 
 **Re-evaluate tasks:** the button *Re-evaluate tasks* (or `scripts/run.sh replan <name>`, agent stopped) lets the *strategist* model re-think architecture and layers, re-order open tasks, add missing foundation tasks and cancel redundant ones (your own tasks stay). The strategist model is set in the project settings; empty means the planner.
