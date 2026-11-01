@@ -73,3 +73,8 @@ Stdlib-only core, unit tests (`make test`), end-to-end selftest with a stub mode
 In `make ui-lan` the sidebar shows a small "Phone link" button that opens a QR code of the token URL (`/api/lan`, rendered server-side by the dependency-free `qr.py`, byte mode, level M, up to ~210 bytes). Without `--lan` the endpoint answers `lan:false` and the button stays hidden.
 
 LAN login cookie is `SameSite=Lax` (a QR scanner opens the link cross-site and `Strict` would drop the cookie on the redirect); the QR link uses the host you reached the UI by. The task panel's "Side task" checkbox starts a one-off `do` job with `CODEFACTORY_PRIORITY=side`.
+
+## Dashboard and phone layout
+`GET /api/dashboard` feeds the Dashboard view (polled every 1.5 s only while it is open). `LLM._read` counts stream chunks (Ollama emits about one token per chunk) and publishes `tokens`, `chars` and `t0` in `agent/llm_stream.json`; tokens/s is `tokens / (updated - t0)` and drops to 0 after 3 s of silence. Finished calls add to `agent/metrics.json` (totals and per-day counters; Aider output is not counted). GPU numbers come from `nvidia-smi` and loaded models from Ollama `/api/ps`; both are optional and silently absent when unavailable.
+
+The layout switches at 800 px: the sidebar becomes an off-canvas drawer (☰ top left, backdrop, closes on selection or Escape), tables scroll horizontally, grids stack, inputs use 16 px to prevent iOS zoom. On desktop the « button collapses the sidebar and the choice is stored in `localStorage`.

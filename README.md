@@ -32,6 +32,9 @@ make selftest                                # verify the mechanics without a mo
 make ui                                      # opens http://127.0.0.1:8765
 make ui-lan                                  # reachable from other devices in your network (token link is printed; the "📱 Phone link" button in the sidebar shows it as a QR code)
 ```
+
+The UI is phone-friendly (drawer sidebar, scrollable tabs and tables). The sidebar collapses with the « button at its top right (☰ brings it back; the state is remembered). The **Dashboard** shows live AI numbers: running agents, active model calls, tokens/s, characters generated, GPU load and VRAM (`nvidia-smi`), loaded models, and per-project/daily/all-time totals.
+
 Create projects, start/stop them, "Test now", give feedback, edit `IDEAS.md`, `SOURCES.md` and the master prompt, view the backlog and live log.
 Runs locally only (127.0.0.1); agents keep running when you close the UI.
 
