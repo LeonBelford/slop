@@ -35,6 +35,7 @@ Code lives in five places: the entry points in the root (`codefactory.py`, `webu
 | `core/cfa_security.py` | `SecurityMixin`: security gate/probe/audit, e2e check |
 | `core/cfa_research.py` | `ResearchMixin`: ideation, product review, web research, sources/ideas sync, reflection |
 | `core/cfa_plan.py` | `PlanMixin`: strategic planning. `make_blueprint` (init) designs layers, core first, and seeds the backlog with `layer`/`depends_on`; `blueprint_ctx`, `top_layer`, `layer_done` (tags `layer-N`), `has_ui`, `ui_note` |
+| `core/cfa_split.py` | `SplitMixin`: a task that keeps failing is split into 2-4 smaller slices (`split_task`, strategist model, max depth 2); blocked tasks are revived after other merges (`revive_blocked`, max 2x); `block_task` |
 | `core/blueprint.py` | Blueprint data: `normalize`, `context_for`, `progress`, `render_md` (per project: blueprint.json in the agent folder, BLUEPRINT.md in the product docs) |
 | `core/uidetect.py` | Whether a product has a UI (brief `interface`/`has_ui` plus UI files in the repo); CLI/API/library projects get no UI tests |
 | `core/cfa_ops.py` | `OpsMixin`: user tasks, stop, test version, feedback, status, `reload_models` (re-reads models/coder/routing from `config.json` before each task) |

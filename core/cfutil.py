@@ -36,6 +36,7 @@ DEFAULT_CONFIG = {
         "max_iterations": 500,
         "max_hours": 24,
         "max_attempts_per_task": 3,
+        "max_task_minutes": 120,  # after this much time on one task no further attempts; it is split into smaller slices instead
         "max_debug_rounds": 3,
         "max_consecutive_failures": 5,
         "coder_timeout": 1500,
