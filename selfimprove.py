@@ -686,14 +686,20 @@ def directed(instruction: str, repo: Path | None = None, llm=None, coder=None, l
         files = []
     files = [f for f in files if isinstance(f, str) and f in tracked][:6]
     files += _keyword_files(repo, instruction, tracked, files, max(0, 6 - len(files)) or 0)
-    change = instruction.strip()
-    if len(requirements) > 1:
-        change += "\n\nRequirements (implement all of them):\n" + "\n".join(f"{i}. {r}" for i, r in enumerate(requirements, 1))
-    proposal = {"title": sa.clip(instruction.strip().splitlines()[0], 80), "rationale": "Requested directly by the user.",
-                "files": files, "change": change, "risk": "user"}
+    steps = requirements[:5] if len(requirements) > 1 else []
+    base_title = sa.clip(instruction.strip().splitlines()[0], 60)
+    if steps:
+        # one small step per requirement: each is checked and committed on its own, passing steps are kept even if a later one fails
+        proposals = [{"title": f"{base_title} [{i}/{len(steps)}]", "rationale": "Requested directly by the user.", "files": files,
+                      "change": f"Overall request from the user (context):\n{instruction.strip()}\n\nImplement ONLY this step now "
+                                f"(step {i} of {len(steps)}; earlier steps are already done):\n{r}\nWrite a failing-first test for it where sensible.",
+                      "risk": "user"} for i, r in enumerate(steps, 1)]
+    else:
+        proposals = [{"title": sa.clip(instruction.strip().splitlines()[0], 80), "rationale": "Requested directly by the user.",
+                      "files": files, "change": instruction.strip(), "risk": "user"}]
     sa.write_text(out_dir / f"task-{stamp}.md", f"# Directed task {stamp}\n\n{instruction}\n\nFiles: {files}\n")
     ledger.set_requirements(requirements)
     try:
-        return _implement(repo, [proposal], coder, stamp, out_dir, log, PROTECTED_DIRECTED, llm, ledger)
+        return _implement(repo, proposals, coder, stamp, out_dir, log, PROTECTED_DIRECTED, llm, ledger)
     finally:
         _phase("")
