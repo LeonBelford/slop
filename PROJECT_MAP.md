@@ -20,7 +20,7 @@ Modules are kept small on purpose (each under 700 lines except `webui.py` and `s
 
 | Path | Role |
 |---|---|
-| `codefactory.py` | Entry point: `Agent` core (init, config, loop), CLI (`main`), `selftest`. Re-exports everything below, so `import codefactory as sa` still gives `sa.LLM`, `sa.sh`, ... |
+| `codefactory.py` | Entry point: `Agent` core (init, config, loop), CLI (`main`), `selftest`. Re-exports everything below, so `import codefactory as sa` still gives `LLM`, shell helpers, ... as attributes |
 | `cfutil.py` | `DEFAULT_CONFIG`, constants, shell/JSON/process helpers |
 | `cfllm.py` | `LLM` client (streaming, reasoning capture, reasoning cap, JSON answers) |
 | `cfgit.py` | `Git`, `Backlog` |
