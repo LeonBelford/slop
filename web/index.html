@@ -710,7 +710,7 @@ function renderTool(){
   if(toolTab_==="changes"){
     const br=x.branches||[];if(!toolBranch&&br.length)toolBranch=br[0].name;
     const sel=`<select onchange="toolBranch=this.value;codeView=null;extra=null;lastBody='';refresh()">${br.map(b=>`<option ${b.name===toolBranch?"selected":""}>${esc(b.name)}</option>`).join("")}</select>`;
-    return setBody(br.length?`<div class="row" style="margin-bottom:12px">Result branch: ${sel}</div>${previewBox(x.preview)}${x.tree?codePanel(x):'<div class="hint">Loading…</div>'}${diffView?`<div class="panel" style="margin-top:16px"><h3>${esc(diffView.title)}</h3><pre>${fmtDiff(diffView.text)}</pre></div>`:""}`:'<div class="hint">No result branches yet. Start a task on the Task tab.</div>');
+    return setBody(br.length?`<div class="row" style="margin-bottom:12px">Result branch: ${sel}</div>${previewBox(x.preview,x.last_merge)}${x.tree?codePanel(x):'<div class="hint">Loading…</div>'}${diffView?`<div class="panel" style="margin-top:16px"><h3>${esc(diffView.title)}</h3><pre>${fmtDiff(diffView.text)}</pre></div>`:""}`:'<div class="hint">No result branches yet. Start a task on the Task tab.</div>');
   }
   const body=`<div class="panel"><h3>What should change?</h3>
   <p class="hint">Examples: "Add a make target that prints the status of all projects", "Make the UI log tab show the last 500 lines", "Change the Makefile so make start-tmux also opens make thinking". Tests must stay green and docs are updated; guards for web fetching, CI and this feature itself cannot be changed.</p>
@@ -723,7 +723,7 @@ function renderTool(){
   setBody(body);
   reasoningLive();
 }
-function previewBox(pv){
+function previewBox(pv,lm){
   if(!pv)return "";
   const url=pv.running?`${location.protocol}//${location.hostname}:${pv.port}/`:"";
   const rc=pv.tests_rc;
@@ -737,7 +737,20 @@ function previewBox(pv){
   </div>
   ${pv.tests_running?`<div class="hint">Tests are running…</div>`:rc==null?"":`<div class="hint"><b class="${rc===0?"lg-ok":"lg-err"}">${rc===0?"Tests and selftest passed":"Tests failed (exit "+rc+")"}</b></div>`}
   ${pv.tests_log&&(pv.tests_running||rc!=null)?`<details><summary>Test output</summary><div class="inner"><pre>${esc(pv.tests_log)}</pre></div></details>`:""}
-  <p class="hint" style="margin-top:8px">When it is good, merge it (open a PR from the branch). If not, delete the branch: <code>git branch -D ${esc(toolBranch||"self-improve/…")}</code>.</p></div>`;
+  <div class="row" style="flex-wrap:wrap;margin-top:10px">
+    <button class="primary" ${toolBranch?"":"disabled"} onclick="mergeTool()" title="Merges the branch into the tool's current branch. A backup tag is created first.">Merge this branch</button>
+    ${lm?`<button class="danger" onclick="undoMerge()" title="Go back to ${esc(lm.tag)}">Undo last merge</button>`:""}
+  </div>
+  <p class="hint" style="margin-top:8px">Merge = local merge with a backup tag and an undo (you need a restart of the UI afterwards). Don't want it? <code>git branch -D ${esc(toolBranch||"self-improve/…")}</code></p></div>`;
+}
+async function mergeTool(){
+  const pv=extra&&extra.preview;
+  if(!confirm(`Merge ${toolBranch} into the tool now?${pv&&pv.tests_rc===0&&pv.branch===toolBranch?"":"\n\nNote: you have not run the tests for this branch in the preview."}`))return;
+  try{const r=await api("/api/tool/merge",{branch:toolBranch});toast(r.message);lastBody="";await refresh()}catch(e){toast(e.message,true)}
+}
+async function undoMerge(){
+  if(!confirm("Undo the last merge (git reset --hard to the backup tag)?"))return;
+  try{const r=await api("/api/tool/undo-merge",{});toast(r.message);lastBody="";await refresh()}catch(e){toast(e.message,true)}
 }
 async function previewDo(path,body){try{await api(path,body);lastBody="";await refresh()}catch(e){toast(e.message,true)}}
 async function runTool(){

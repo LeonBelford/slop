@@ -72,3 +72,36 @@ class PreviewTests(unittest.TestCase):
                 with self.assertRaises(webui.UiError):
                     svc.preview_start({"branch": bad})
             self.assertFalse(svc.preview_state()["running"])
+
+
+class MergeTests(unittest.TestCase):
+    def test_merge_and_undo_in_a_scratch_repo(self):
+        import subprocess
+        with tempfile.TemporaryDirectory() as tmp:
+            repo = Path(tmp) / "r"
+            repo.mkdir()
+            run = lambda *a: subprocess.run(["git", "-c", "user.name=t", "-c", "user.email=t@t", *a], cwd=repo, check=True, capture_output=True)
+            run("init", "-q", "-b", "main")
+            (repo / "a.txt").write_text("1")
+            (repo / ".gitignore").write_text("self_improve/\n")
+            run("add", "-A")
+            run("commit", "-qm", "base")
+            run("checkout", "-qb", "self-improve/20300101-000000")
+            (repo / "b.txt").write_text("2")
+            run("add", "-A")
+            run("commit", "-qm", "feat")
+            run("checkout", "-q", "main")
+            old_root = webui.ROOT
+            webui.ROOT = repo
+            try:
+                env = {"GIT_AUTHOR_NAME": "t", "GIT_AUTHOR_EMAIL": "t@t", "GIT_COMMITTER_NAME": "t", "GIT_COMMITTER_EMAIL": "t@t"}
+                import os
+                os.environ.update(env)
+                svc = webui.Service(Path(tmp) / "projects")
+                r = svc.tool_merge({"branch": "self-improve/20300101-000000"})
+                self.assertTrue((repo / "b.txt").exists())
+                self.assertTrue(r["tag"].startswith("pre-merge-"))
+                svc.tool_undo_merge()
+                self.assertFalse((repo / "b.txt").exists())
+            finally:
+                webui.ROOT = old_root
