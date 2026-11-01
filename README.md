@@ -182,10 +182,12 @@ Each project thus has its own codebase and its own memory; nothing is shared bet
 1. Is `main` green? If not, repair it first.
 2. Backlog empty → product review and ideation (rotating lenses, quality checklist, critic, duplicate filter).
 3. **Impact analysis** with memory (codemap, dependencies in both directions, ADRs, lessons) → plan → plan critique.
-4. Implementation with Aider on its own branch → **build + tests**, up to 3 debug rounds; features without tests are rejected.
-5. Review (score < 7 → rework), cleanup pass (discarded if the build turns red).
+4. Optional **tests first** (the failing tests are written before the code), then implementation with Aider on its own branch, in up to 3 passes for big plans (**step by step**) → **build + tests**, up to 3 debug rounds; features without tests and changes that delete tests are rejected.
+5. Review (score < 7 → rework), **acceptance check** (every criterion against the diff, one fix round), cleanup pass (discarded if the build turns red).
 6. Update memory and docs, commit, **build**, merge, **build on main** (roll back if red).
-7. Failed attempts become lessons; after 3 attempts the task is marked blocked.
+7. Failed attempts become lessons; before each retry a **retry strategy** names a different approach; after 3 attempts the task is marked blocked.
+
+Every step is a capability you can switch per project on the Agent page (`auto` turns tests first / step by step on only where a small model needs them). Under Models & limits, **Automatic** picks the best installed model per task (light, standard, heavy, final reviewer); **Fixed** always uses the models you choose.
 
 Ends on: `stop`, `max_hours`, `max_iterations`, 5 consecutive failures, or no new ideas for a sustained period.
 
