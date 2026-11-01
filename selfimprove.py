@@ -311,7 +311,7 @@ def main(projects: Path, dry_run: bool = False, repo: Path | None = None, llm=No
         return {"branch": None, "proposals": []}
     pmap = project_map(repo, required=_is_tool(repo))  # mandatory for the real tool: without the map there is no plan
     code_files = sorted(str(p.relative_to(repo)) for p in [*repo.glob("*.py"), *repo.glob("core/*.py"), *repo.glob("infra/*.py"), *repo.glob("dash/*.py"), *repo.glob("webapi/*.py")]
-                        if not str(p.relative_to(repo)).startswith(PROTECTED)) + ["scripts/run.sh", "MASTER.md"]
+                        if not str(p.relative_to(repo)).startswith(PROTECTED)) + ["scripts/run.sh"]
     d = llm.json("improve_plan", "planner",
                  "You improve an autonomous coding agent (this repository). Propose small, safe, high-value changes to the "
                  "agent's own code: better prompts, smarter heuristics, more robust error handling, better context selection. "
