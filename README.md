@@ -114,7 +114,7 @@ Two levels, both bounded:
 - **Chat AI enabled** checkbox in the sidebar turns the chat off so it does not compete with the agent for the GPU.
 
 ## Self-changes (Web UI)
-"Change the tool itself" has the same tabs as a project: **Reasoning** (live), **Changes** (tree, new lines highlighted), **Live log**, plus a stage stepper. Each change goes through impact analysis, the security gate, tests and a code review before it is kept on a review branch. In the Reasoning tab, click any field to enlarge it.
+Before merging a result branch you can try it locally: **Changes → "Try this version"** starts it on its own port (empty projects folder, nothing of yours is touched), **"Try + run tests"** also runs all tests. "Change the tool itself" has the same tabs as a project: **Reasoning** (live), **Changes** (tree, new lines highlighted), **Live log**, plus a stage stepper. Each change goes through impact analysis, the security gate, tests and a code review before it is kept on a review branch. In the Reasoning tab, click any field to enlarge it.
 
 ## Chat (Web UI)
 **Chat** in the sidebar (or **Chat about this** in a project) opens a streaming chat with a local model. Link one or more projects: their goal, architecture, backlog, ideas and recent log are sent as context. Chats are stored in `projects/.ui/chats/`. Answers render Markdown (headings, lists, code, links); Enter sends (Shift+Enter = new line); a thinking animation shows while the model loads or reasons. Under each answer, **Add to ideas** and **Run as task** hand it to the linked project's agent.

@@ -68,7 +68,7 @@ class PreviewTests(unittest.TestCase):
     def test_preview_rejects_unknown_branches(self):
         with tempfile.TemporaryDirectory() as tmp:
             svc = webui.Service(Path(tmp))
-            for bad in ("main", "../x", "self-improve/20990101-000000"):
+            for bad in ("main", "../x", "self-improve/19700101-000000"):
                 with self.assertRaises(webui.UiError):
                     svc.preview_start({"branch": bad})
             self.assertFalse(svc.preview_state()["running"])
