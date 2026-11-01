@@ -219,6 +219,10 @@ At `init` the agent no longer builds a flat feature list. It designs an **archit
 
 Every step ends with a structured instruction for the next one: goal, decisions with reasons, what to do, what not to do, when it is done and what is still open. Plan → implement, implement → debug, each debug round (with a list of what was already tried), review → fix, acceptance, security and a failed attempt → next attempt all use it. The block is pinned in front of every coder prompt and model call of the task and stored at the top of `journal.md`, so reasoning is not lost between fresh chats.
 
+## Write guard for reasoning models
+
+If a coder call (typically a reasoning model) answers with code only in the chat and no file changed, the agent retries once in Aider whole-file mode with an explicit "write it to disk" instruction, and notes it in the task journal if it still wrote nothing. Debug handoffs also remind the model that code shown only in the chat is lost.
+
 ## Models (RTX 3060, 12 GB)
 Rough guidelines, not measured on your hardware; check tags and licenses at [ollama.com/library](https://ollama.com/library).
 

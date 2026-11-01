@@ -54,12 +54,27 @@ class BuildMixin:
         cmd += edit
         env = {"OLLAMA_API_BASE": os.getenv("OLLAMA_API_BASE", "http://localhost:11434"), "PYTHONUNBUFFERED": "1"}
         t0 = time.time()
-        while True:
-            with self.llm.sched.gpu(f"coder/{tag}", model) as gate:
-                rc, out = sh_live(cmd, self.repo, self.lim["coder_timeout"], self.dir / "coder_live.txt", env=env, gate=gate, idle=True)
-            if rc != gpusched.PREEMPTED_RC:
-                break
-            self.log(f"⏸ [coder/{tag}] Aider stopped for the main agent, retrying when the GPU is idle")
+
+        def run_aider(args: list[str]) -> tuple[int, str]:
+            while True:
+                with self.llm.sched.gpu(f"coder/{tag}", model) as gate:
+                    rc, out = sh_live(args, self.repo, self.lim["coder_timeout"], self.dir / "coder_live.txt", env=env, gate=gate, idle=True)
+                if rc != gpusched.PREEMPTED_RC:
+                    return rc, out
+                self.log(f"⏸ [coder/{tag}] Aider stopped for the main agent, retrying when the GPU is idle")
+
+        before = self.work_fingerprint(edit)
+        rc, out = run_aider(cmd)
+        if edit and self.work_fingerprint(edit) == before and out.count("```") >= 2:
+            # reasoning models often write the code into the chat only; force a real file write before anything is tested again
+            self.log(f"[coder/{tag}] code was only written into the chat, no file changed: retrying once in whole-file mode")
+            write_text(pf, prompt + "\n\nIMPORTANT: your last answer put code only in the chat and changed NO file. Do not explain. "
+                                     "Return the complete updated content of each file you must change so that it is written to disk.")
+            rc, out2 = run_aider(cmd + ["--edit-format", "whole"])
+            out += "\n" + out2
+            if self.work_fingerprint(edit) == before:
+                self.log(f"[coder/{tag}] still no file written")
+                self.note("coder", f"{tag} produced no file change even in whole-file mode")
         (self.dir / "coder_now.json").unlink(missing_ok=True)
         (self.dir / "coder_live.txt").unlink(missing_ok=True)
         self.llm.record(tag, "coder", model, prompt, out, "", time.time() - t0)
@@ -67,6 +82,14 @@ class BuildMixin:
         if rc != 0:
             self.log(f"Aider exit code {rc} for {tag}: {tail(out, 300)}")
         return out
+
+    def work_fingerprint(self, files: list[str]) -> str:
+        """Hash of the working tree state and the content of the files the coder may edit; equal before and after means nothing was written."""
+        parts = [self.git.run("status", "--porcelain")[1]]
+        for f in sorted(files):
+            fp = self.repo / f
+            parts.append(sha(fp.read_text("utf-8", "replace")) if fp.is_file() else "-")
+        return sha("\n".join(parts))
 
     # ---- Build/test
     def verify(self) -> tuple[bool, str]:
@@ -187,7 +210,7 @@ class BuildMixin:
             self.phase(f"Debugging, round {n}", "build", report.splitlines()[0])
             self.handoff("debug fix", "build/test", goal=item["title"],
                          decided=[f"current failure: {report.splitlines()[0]}"] + [f"already tried, did not fix it: {t}" for t in self.tried[-3:]],
-                         do=["find the cause, not the symptom, then fix it"],
+                         do=["find the cause, not the symptom, then fix it", "write every change into the files; code shown only in the chat is lost and the next test run is wasted"],
                          do_not=["repeat an approach listed as already tried", "delete or weaken tests"], done_when=["build and tests are green"])
             mentioned = [f for f in re.findall(r"[\w./-]+\.(?:py|js|ts|html)", report) if (self.repo / f).exists()]
             files = sorted(set(self.git.changed_files()) | set(mentioned))[:self.lim["max_files_per_task"] + 4]
