@@ -7,6 +7,8 @@ concrete code improvements. They are implemented in a separate git worktree on a
   * every proposal is committed only if `selftest` and the unit tests stay green
   * safety-critical files (web fetch guard, UI guard, this module, existing tests, CI) are off limits; a proposal that
     changes them is reverted
+  * PROJECT_MAP.md (complete project description) is mandatory: it is part of every planning prompt and passed to Aider
+    with --read; without it the run aborts
   * you review the branch (`git diff main...self-improve/<ts>`) and merge it yourself
 
 Proposals are always written to self_improve/proposals-<ts>.md, even with --dry-run.
@@ -26,6 +28,21 @@ PROTECTED = ("webaccess.py", "security.py", "webui.py", "selfimprove.py", ".gith
 # Directed tasks (user-written instruction) may also change the web UI server; the guards for fetching and this module stay locked.
 PROTECTED_DIRECTED = ("webaccess.py", "security.py", "selfimprove.py", ".github/", ".env", "scripts/quick-setup-popos.sh")
 MAX_PROPOSALS = 3
+MAP_FILE = "PROJECT_MAP.md"  # complete description of this repository; read before every plan and every change
+
+
+def _is_tool(repo: Path) -> bool:
+    """True for this very repository; copies used by embedders and tests may lack the map."""
+    return Path(repo).resolve() == Path(__file__).resolve().parent
+
+
+def project_map(repo: Path, required: bool = True, limit: int = 14000) -> str:
+    """The project map. Self-improve refuses to plan without it."""
+    f = Path(repo) / MAP_FILE
+    text = f.read_text("utf-8", "replace").strip() if f.is_file() else ""
+    if not text and required:
+        raise RuntimeError(f"{MAP_FILE} is missing. It describes the whole project and must be read before every change; restore it from git.")
+    return sa.clip(text, limit)
 
 
 def protected_violations(changes: list[str], protected: tuple = PROTECTED) -> list[str]:
@@ -102,15 +119,17 @@ def _impact(work: Path, p: dict, files: list[str], llm, log, protected: tuple) -
         return files, ""
     _phase("impact", "Analysing what this change can break")
     deps = _dependents(work, files)
+    pmap = project_map(work, required=False, limit=9000)
     src = "\n\n".join(f"### {f}\n{sa.clip((work / f).read_text('utf-8', 'replace'), 3500)}" for f in files[:4])
     try:
         plan = llm.json("tool_impact", "planner",
                         "You are a tech lead for an autonomous coding agent. Before every change you analyse relationships: who imports the files, "
-                        "which invariants apply, what can break, and what the change exposes security-wise. Plan minimally.",
-                        f"Change: {p['title']}\n{p['change']}\nFiles: {files}\nImported by: {json.dumps(deps)}\nSource:\n{src}\nSchema: "
+                        "which invariants apply, what can break, and what the change exposes security-wise. Plan minimally. "
+                        "Base your analysis on the project map.",
+                        f"Project map (whole repository):\n{pmap}\n\nChange: {p['title']}\n{p['change']}\nFiles: {files}\nImported by: {json.dumps(deps)}\nSource:\n{src}\nSchema: "
                         '{"risks": ["..."], "affected_dependents": ["paths"], "invariants": ["..."], "tests_to_add": ["..."], "security_impact": ""}')
         crit = llm.json("tool_plan_critique", "reviewer", "You strictly critique plans for overlooked dependents and broken invariants.",
-                        f"Plan: {json.dumps(plan)}\nImported by: {json.dumps(deps)}\nSchema: "
+                        f"Project map:\n{pmap}\n\nPlan: {json.dumps(plan)}\nImported by: {json.dumps(deps)}\nSchema: "
                         '{"ok": true, "missing_files": ["..."], "concerns": ["..."]}')
     except Exception as e:  # noqa: BLE001
         log(f"  impact analysis failed: {e}")
@@ -192,7 +211,10 @@ def _aider(model: str, timeout: int):
         pf = work / ".improve_prompt.md"
         pf.write_text(prompt, "utf-8")
         cmd = ["aider", "--yes-always", "--no-auto-commits", "--no-pretty", "--no-check-update",
-               "--model", model, "--message-file", str(pf), *files]
+               "--model", model, "--message-file", str(pf)]
+        if (work / MAP_FILE).is_file():
+            cmd += ["--read", MAP_FILE]  # the coder sees the whole-project map for every edit
+        cmd += files
         STATE.mkdir(exist_ok=True)
         sa.write_json(STATE / "coder_now.json", {"tag": "self-change", "files": files[:12], "model": model, "since": time.time()})
         t0 = time.time()
@@ -212,19 +234,20 @@ def _aider(model: str, timeout: int):
 def _docs_pass(work: Path, proposal: dict, coder, log) -> None:
     """After a kept change, brings README.md and docs/ in line with it and logs it in docs/SELF_IMPROVEMENTS.md."""
     diff = _git(work, "show", "--stat", "--patch", "HEAD")[1]
-    doc_files = [f for f in ("README.md", "docs/GUIDE.md", "docs/ARCHITECTURE.md", "docs/SELF_IMPROVEMENTS.md")
+    doc_files = [f for f in (MAP_FILE, "README.md", "docs/GUIDE.md", "docs/ARCHITECTURE.md", "docs/SELF_IMPROVEMENTS.md")
                  if (work / f).is_file()]
     if not (work / "docs" / "SELF_IMPROVEMENTS.md").exists():
         doc_files.append("docs/SELF_IMPROVEMENTS.md")
         sa.write_text(work / "docs" / "SELF_IMPROVEMENTS.md", "# Self-improvements\n\nChanges the agent made to itself, newest last.\n")
     coder(work, doc_files,
           f"Documentation update for this change: {proposal['title']}\n\n{proposal.get('rationale', '')}\n\n"
-          f"Diff:\n{sa.clip(diff, 6000)}\n\nUpdate README.md, docs/GUIDE.md and docs/ARCHITECTURE.md only where the change affects "
+          f"Diff:\n{sa.clip(diff, 6000)}\n\nUpdate PROJECT_MAP.md (layout, routes, config keys, commands, invariants; it must stay a "
+          "complete and accurate map of the whole repository), README.md, docs/GUIDE.md and docs/ARCHITECTURE.md only where the change affects "
           "what they say (usage, commands, config, behavior). Keep the existing structure and language (English). Append one "
           "entry to docs/SELF_IMPROVEMENTS.md: what changed, why, which files. Change documentation files only.")
     _git(work, "add", "-A")
     changes = [l for l in _git(work, "diff", "--cached", "--name-status")[1].splitlines() if l.strip()]
-    only_docs = all(l.split("\t")[-1] in ("README.md",) or l.split("\t")[-1].startswith("docs/") for l in changes)
+    only_docs = all(l.split("\t")[-1] in ("README.md", MAP_FILE) or l.split("\t")[-1].startswith("docs/") for l in changes)
     if changes and only_docs:
         _git(work, "-c", "user.name=codefactory", "-c", "user.email=agent@localhost", "commit", "-q", "-m",
              f"self-improve: docs for {proposal['title']}")
@@ -252,12 +275,14 @@ def main(projects: Path, dry_run: bool = False, repo: Path | None = None, llm=No
     if not any(p["tool_ideas"] or p["failed_attempts"] for p in evidence["projects"]):
         log("No evidence yet: let at least one project run and reflect first (it records tool ideas every few merges).")
         return {"branch": None, "proposals": []}
+    pmap = project_map(repo, required=_is_tool(repo))  # mandatory for the real tool: without the map there is no plan
     code_files = sorted(p.name for p in repo.glob("*.py") if p.name not in PROTECTED) + ["scripts/run.sh", "MASTER.md"]
     d = llm.json("improve_plan", "planner",
                  "You improve an autonomous coding agent (this repository). Propose small, safe, high-value changes to the "
                  "agent's own code: better prompts, smarter heuristics, more robust error handling, better context selection. "
-                 "Prefer fixing observed failures over adding features. Never propose changes to safety guards.",
-                 f"Evidence from running projects:\n{sa.clip(json.dumps(evidence, ensure_ascii=False), 9000)}\n"
+                 "Prefer fixing observed failures over adding features. Never propose changes to safety guards. "
+                 "First study the project map: it describes the whole repository, its data flow and its invariants.",
+                 f"Project map (whole repository):\n{pmap}\n\nEvidence from running projects:\n{sa.clip(json.dumps(evidence, ensure_ascii=False), 9000)}\n"
                  f"Editable files: {code_files}\nPropose at most {MAX_PROPOSALS}. Schema: "
                  '{"proposals": [{"title": "...", "rationale": "which evidence", "files": ["..."], "change": "precise instructions", '
                  '"risk": "low|medium|high"}]}')
@@ -369,11 +394,13 @@ def directed(instruction: str, repo: Path | None = None, llm=None, coder=None, l
     STATE = out_dir
     _wire(llm, stamp)
     _phase("plan", "Choosing which files must change")
+    pmap = project_map(repo, required=_is_tool(repo))  # mandatory for the real tool: without the map there is no plan
     tracked = sorted(l for l in _git(repo, "ls-files")[1].splitlines()
                      if not l.startswith(PROTECTED_DIRECTED) and not l.startswith("tests/") and l.count("/") <= 2)
     try:
-        files = llm.json("tool_files", "planner", "You pick which files of a code repository must change for a task. Pick as few as possible.",
-                         f"Task from the user:\n{instruction}\n\nFiles:\n" + "\n".join(tracked) +
+        files = llm.json("tool_files", "planner", "You pick which files of a code repository must change for a task. Pick as few as possible. "
+                         "Use the project map to see how the parts depend on each other.",
+                         f"Project map (whole repository):\n{pmap}\n\nTask from the user:\n{instruction}\n\nFiles:\n" + "\n".join(tracked) +
                          '\nSchema: {"files": ["path", "..."]} (max 6)').get("files", [])
     except Exception as e:  # noqa: BLE001
         log(f"Could not pick files automatically: {e}")
