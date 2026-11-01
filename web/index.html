@@ -764,6 +764,7 @@ function toolCancel(){if(confirm("Stop the running self-change? Work in progress
 function discardBranch(n){if(confirm(`Delete ${n}? The changes on it are lost (the backup tags stay).`)){if(toolBranch===n)toolBranch="";toolPost("/api/tool/discard",{branch:n})}}
 function updateBranch(n){toast("Merging the current code into the branch…");toolPost("/api/tool/update-branch",{branch:n})}
 function reuseTask(t){taskPrefill=t;toolTab("tool")}
+function statsLine(s){return s&&s.proposals?`<div class="hint" style="margin-bottom:8px">Track record: ${s.kept}/${s.proposals} steps kept (${Math.round(s.success_rate*100)}%), ${s.repaired} saved by the repair loop, ${s.avg_fix_rounds} failed rounds on average.</div>`:""}
 function restartBanner(b){
   return b&&b.restart_needed?`<div class="panel" style="margin-bottom:12px;border-color:var(--warn)"><b class="lg-warn">Restart needed:</b> the code on disk (${esc(b.head.slice(0,8))}) is newer than the running UI (${esc(b.sha.slice(0,8))}). Stop it and start <code>make ui</code> again.</div>`:"";
 }
@@ -774,10 +775,10 @@ function planBody(x){
   const ph=pl.phase&&pl.running?`<div class="hint"><b>Now:</b> ${esc(pl.phase.step)} ${esc(pl.phase.detail||"")} <button class="small danger" onclick="toolCancel()">Cancel</button></div>`:"";
   const again=run.instruction&&!pl.running&&["failed","cancelled"].includes(run.status)?`<div style="margin-top:8px"><button class="small" onclick="reuseTask(${esc(JSON.stringify(run.instruction))})">Run this request again</button></div>`:"";
   const props=(run.proposals||[]).map(p=>`<div class="panel" style="margin-top:10px"><h3 style="margin:0">${esc(p.title)} <span class="pill ${p.status==="kept"?"ok":p.status==="reverted"?"bad":"info"}">${esc(p.status)}</span></h3>
-    ${p.rounds?`<div class="hint">${p.rounds} attempt(s) failed a check; the agent diagnosed the problem and repaired it${p.status==="kept"?" (final attempt passed)":""}.</div>`:""}${(p.tests_modified||[]).length?`<div class="hint"><span class="pill warn">existing tests adapted</span> ${esc(p.tests_modified.join(", "))}: look at this in the diff before merging.</div>`:""}
+    ${(p.round_log||[]).map(r=>`<div class="hint">Round ${r.round} failed at <b>${esc(r.stage)}</b>: ${esc(r.problem||"")}${r.diagnosis?`<br>Diagnosis: ${esc(r.diagnosis)}`:""}</div>`).join("")}${p.rounds?`<div class="hint">${p.rounds} attempt(s) failed a check; the agent diagnosed the problem and repaired it${p.status==="kept"?" (final attempt passed)":""}.</div>`:""}${(p.tests_modified||[]).length?`<div class="hint"><span class="pill warn">existing tests adapted</span> ${esc(p.tests_modified.join(", "))}: look at this in the diff before merging.</div>`:""}
     <div class="chips" style="margin:8px 0">${Object.keys(STAGE_NAME).map(k=>`<span class="pill ${STAGE_CLS[p.stages[k]]||""}">${STAGE_NAME[k]}: ${esc(p.stages[k]||"pending")}</span>`).join("")}</div>
     ${p.note?`<div class="hint"><b>Note:</b> ${esc(p.note)}</div>`:""}${p.plan?`<details><summary>Plan and impact analysis</summary><div class="inner"><pre>${esc(p.plan)}</pre></div></details>`:""}</div>`).join("");
-  return `${restartBanner(x.build)}${sel}<div class="panel"><h3>Todo: requirements <span class="pill ${run.status==="done"?"ok":["failed","cancelled"].includes(run.status)?"bad":"info"}">${esc(run.status)}</span></h3>
+  return `${restartBanner(x.build)}${statsLine(x.stats)}${sel}<div class="panel"><h3>Todo: requirements <span class="pill ${run.status==="done"?"ok":["failed","cancelled"].includes(run.status)?"bad":"info"}">${esc(run.status)}</span></h3>
   ${run.instruction?`<p class="hint">${esc(run.instruction)}</p>`:""}${reqList(run)}${ph}${run.summary?`<div class="hint">${esc(run.summary)}</div>`:""}${again}
   ${run.branch?`<div class="hint">Result: <code>${esc(run.branch)}</code> · ${(run.files||[]).length} file(s) changed · <a href="#" onclick="toolBranch='${esc(run.branch)}';toolTab('changes');return false">Try it / merge</a></div>`:""}</div>
   <h4 style="margin-top:16px">Plan and progress per change</h4>${props||'<div class="hint">Planning…</div>'}`;

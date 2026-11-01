@@ -112,6 +112,24 @@ def mark_run(out_dir: Path, run_id: str, status: str, summary: str = "") -> None
         _write(Path(out_dir) / "runs" / f"{run_id}.json", d)
 
 
+def stats(out_dir: Path) -> dict:
+    """Success metrics over all recorded runs: the yardstick for whether changes to self-improve actually help."""
+    kept = total = rounds = repaired = 0
+    for f in (Path(out_dir) / "runs").glob("*.json"):
+        try:
+            d = json.loads(f.read_text("utf-8"))
+        except (OSError, ValueError):
+            continue
+        for p in d.get("proposals", []):
+            if p.get("status") in ("kept", "reverted"):
+                total += 1
+                kept += p.get("status") == "kept"
+                rounds += p.get("rounds", 0)
+                repaired += p.get("status") == "kept" and bool(p.get("rounds"))
+    return {"proposals": total, "kept": kept, "repaired": repaired, "success_rate": round(kept / total, 2) if total else None,
+            "avg_fix_rounds": round(rounds / total, 2) if total else None}
+
+
 def list_runs(out_dir: Path, limit: int = 15) -> list[dict]:
     rows = []
     for f in sorted((Path(out_dir) / "runs").glob("*.json"), reverse=True)[:limit]:
