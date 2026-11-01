@@ -34,7 +34,7 @@ Code lives in five places: the entry points in the root (`codefactory.py`, `webu
 | `core/cfa_flow.py` | `FlowMixin`: optional quality steps (tests first, step by step, acceptance check, retry strategy, test protection) |
 | `core/cfa_security.py` | `SecurityMixin`: security gate/probe/audit, e2e check |
 | `core/cfa_research.py` | `ResearchMixin`: ideation, product review, web research, sources/ideas sync, reflection |
-| `core/cfa_ops.py` | `OpsMixin`: user tasks, stop, test version, feedback, status |
+| `core/cfa_ops.py` | `OpsMixin`: user tasks, stop, test version, feedback, status, `reload_models` (re-reads models/coder/routing from `config.json` before each task) |
 | `dash/estimate.py` | Duration estimates from comparable past tasks (`durations.jsonl` per project and for self-improve), queue forecast, write-access checks |
 | `dash/diagnostics.py` | Dashboard key figures (`/api/diagnostics`): first-try rate, attempts, failure causes, model time, reasoning share, stalls, repo size, system load, findings |
 | `dash/history.py` | Per-day history series and quality figures (fail/retry rate, GPU hours, failure-class histogram) from `metrics.json`/`metrics.jsonl`, backs `/api/history` and the dashboard History section |

@@ -350,6 +350,7 @@ class Agent(BuildMixin, FlowMixin, VerifyMixin, SecurityMixin, ResearchMixin, Op
             self.state["iteration"] += 1
             if self.state["iteration"] % self.lim["health_every"] == 0:
                 self.health_check()
+            self.reload_models()
             self.sync_ideas()
             self.sync_sources()
             if self.reflect_due():

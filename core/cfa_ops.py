@@ -5,11 +5,32 @@ import os
 import shlex
 import sys
 import time
-from core.cfutil import PRESETS, clip, force_stop_pid, now, sh, write_text
+from core.cfutil import PRESETS, clip, force_stop_pid, now, read_json, sh, write_text
 
 
 class OpsMixin:
     """Agent mixin: user-submitted tasks, stop/force-stop, building a test version, feedback and status."""
+
+    def reload_models(self) -> None:
+        """Picks up model choices saved in the UI while the agent runs (called before every task).
+
+        Updates the shared cfg dicts in place, because the LLM client and the router hold the same references.
+        """
+        conf = read_json(self.dir / "config.json", {})
+        changed = []
+        for role, name in (conf.get("models") or {}).items():
+            if isinstance(name, str) and name and self.cfg["models"].get(role) != name:
+                changed.append(f"{role}: {self.cfg['models'].get(role)} -> {name}")
+                self.cfg["models"][role] = name
+        coder = conf.get("coder_model")
+        if isinstance(coder, str) and coder and self.cfg["coder_model"] != coder:
+            changed.append(f"coder: {self.cfg['coder_model']} -> {coder}")
+            self.cfg["coder_model"] = coder
+        if isinstance(conf.get("routing"), dict) and self.cfg["routing"] != {**self.cfg["routing"], **conf["routing"]}:
+            self.cfg["routing"].update(conf["routing"])
+            changed.append("routing settings")
+        if changed:
+            self.log("Model settings reloaded: " + "; ".join(changed))
 
     # ---- Directed work: exactly what the user asks, nothing else
     def add_user_task(self, text: str) -> dict:

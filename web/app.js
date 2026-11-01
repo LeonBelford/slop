@@ -458,7 +458,7 @@ function settingsBody(d){
     <label class="fld">side waits until main is idle for (s)<input id="sc-idle" type="number" min="0" max="3600" value="${esc(st.scheduler.min_idle)}"></label>
     <label class="fld">Parallel model calls (same model only)<input id="sc-slots" type="number" min="1" max="4" value="${esc(st.scheduler.slots||2)}"></label></div>
     <p class="hint">Run one project as <b>main</b> and others as <b>side</b>: side agents use the GPU only in the pauses of main (its builds, tests, waiting) and are stopped as soon as main needs the model again.</p>
-    <div class="row" style="justify-content:space-between;margin-top:10px"><span class="hint">Stack: <b>${esc(st.preset)}</b> (fixed after creation). ${d.running?"Changes apply at the next start.":""}</span><button class="primary" onclick="saveSettings()">Save settings</button></div></div>
+    <div class="row" style="justify-content:space-between;margin-top:10px"><span class="hint">Stack: <b>${esc(st.preset)}</b> (fixed after creation). ${d.running?"Model and routing changes apply from the next task, everything else at the next start.":""}</span><button class="primary" onclick="saveSettings()">Save settings</button></div></div>
     <div class="panel" style="margin-top:16px"><h3>Rename project</h3><div class="row"><input id="newname" value="${esc(d.name)}"><button onclick="renameProject()" ${d.running?"disabled":""}>Rename</button></div></div>
     <div class="panel" style="margin-top:16px;border-color:var(--bad)"><h3>Delete project</h3>
     <p class="hint">Permanently deletes <code>projects/${esc(d.name)}</code>: code, git history, memory and logs. The agent must be stopped. Type the project name to confirm.</p>
@@ -468,7 +468,7 @@ async function saveSettings(){
   const v=id=>$("#"+id).value,limits={};
   document.querySelectorAll("[id^=lim-]").forEach(e=>limits[e.id.slice(4)]=e.value);
   try{const r=await api(`/api/project/${sel}/settings`,{models:{planner:v("m-planner"),reviewer:v("m-reviewer"),summarizer:v("m-summarizer")},coder_model:v("m-coder"),limits,web_mode:v("web-mode"),routing:{mode:v("rt-mode"),light:v("rt-light"),heavy:v("rt-heavy"),final_reviewer:v("rt-final")},doc_language:v("doc-lang"),run:{mode:v("run-mode"),rounds:v("run-rounds")},scheduler:{priority:v("sc-prio"),min_idle:v("sc-idle"),slots:v("sc-slots")}});
-    dirty=false;toast(r.applies==="now"?"Settings saved":"Saved, applies at the next start");extra=null;await fetchExtra();lastBody="";renderProject()}catch(e){toast(e.message,true)}
+    dirty=false;toast(r.applies==="now"?"Settings saved":"Saved: models apply from the next task, other settings at the next start");extra=null;await fetchExtra();lastBody="";renderProject()}catch(e){toast(e.message,true)}
 }
 async function renameProject(){
   try{const r=await api(`/api/project/${sel}/rename`,{name:$("#newname").value});sel=r.name;localStorage.setItem("sel",sel);dirty=false;detail=null;extra=null;lastBody=lastHead=lastTabs="";toast("Renamed");await refresh()}catch(e){toast(e.message,true)}
