@@ -91,6 +91,27 @@ class Ledger:
         self.status(status)
 
 
+def active_run(out_dir: Path) -> dict | None:
+    """The newest run that is still planning or working (None if nothing is in flight)."""
+    for f in sorted((Path(out_dir) / "runs").glob("*.json"), reverse=True)[:3]:
+        try:
+            d = json.loads(f.read_text("utf-8"))
+        except (OSError, ValueError):
+            continue
+        if d.get("status") in ("planning", "working"):
+            return d
+    return None
+
+
+def mark_run(out_dir: Path, run_id: str, status: str, summary: str = "") -> None:
+    d = load_run(out_dir, run_id)
+    if d:
+        d["status"], d["updated"] = status, time.time()
+        if summary:
+            d["summary"] = summary
+        _write(Path(out_dir) / "runs" / f"{run_id}.json", d)
+
+
 def list_runs(out_dir: Path, limit: int = 15) -> list[dict]:
     rows = []
     for f in sorted((Path(out_dir) / "runs").glob("*.json"), reverse=True)[:limit]:

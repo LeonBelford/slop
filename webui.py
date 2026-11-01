@@ -60,6 +60,14 @@ class UiError(Exception):
         self.code = code
 
 
+def git_rc(cwd: Path, *args: str) -> tuple[int, str]:
+    try:
+        p = subprocess.run(["git", *args], cwd=str(cwd), capture_output=True, text=True, timeout=120)
+    except (OSError, subprocess.SubprocessError) as e:
+        return 1, str(e)
+    return p.returncode, (p.stdout + p.stderr).strip()
+
+
 def head_sha() -> str:
     p = subprocess.run(["git", "rev-parse", "HEAD"], cwd=str(ROOT), capture_output=True, text=True, timeout=10)
     return p.stdout.strip() if p.returncode == 0 else ""
@@ -453,11 +461,102 @@ class Service:
                         "--format=%(refname:short)\x1f%(creatordate:iso8601)\x1f%(subject)").splitlines()[:15]:
             name, date, subject = (line.split("\x1f") + ["", ""])[:3]
             stat = git(ROOT, "diff", "--stat", f"HEAD...{name}").strip().splitlines()
-            branches.append({"name": name, "date": date, "subject": subject, "stat": stat[-12:]})
+            branches.append({"name": name, "date": date, "subject": subject, "stat": stat[-12:], **self.branch_status(name)})
         head = head_sha()
         return {"running": alive("tool"), "log": tail(ROOT / "self_improve" / "ui.log", 60), "branches": branches, "preview": self.preview_state(),
                 "runs": runledger.list_runs(ROOT / "self_improve"), "build": {"sha": BUILD["sha"], "head": head, "restart_needed": bool(BUILD["sha"] and head != BUILD["sha"])},
                 "last_merge": sa.read_json(ROOT / "self_improve" / "last_merge.json", None)}
+
+    def branch_status(self, name: str) -> dict:
+        """How a result branch relates to the current code: commits ahead/behind, merged already, merges cleanly, what was asked."""
+        def count(rng: str) -> int:
+            out = git(ROOT, "rev-list", "--count", rng).strip()
+            return int(out) if out.isdigit() else 0
+
+        ahead, behind = count(f"HEAD..{name}"), count(f"{name}..HEAD")
+        mergeable = None
+        if ahead:
+            rc, _ = git_rc(ROOT, "merge-tree", "--write-tree", "HEAD", name)
+            mergeable = True if rc == 0 else False if rc == 1 else None
+        run = runledger.run_for_branch(ROOT / "self_improve", name) or {}
+        reqs = run.get("requirements", [])
+        return {"ahead": ahead, "behind": behind, "merged": ahead == 0, "mergeable": mergeable, "run_id": run.get("id"),
+                "req_done": sum(1 for r in reqs if r.get("status") == "done"), "req_total": len(reqs),
+                "tests_added": len(run.get("tests_added", [])), "task": (run.get("instruction") or "").strip()[:300]}
+
+    def _check_branch(self, body: dict) -> str:
+        branch = str(body.get("branch", ""))
+        if not BRANCH_RE.match(branch) or not git(ROOT, "rev-parse", "--verify", "-q", branch).strip():
+            raise UiError("Unknown branch")
+        return branch
+
+    def tool_cancel(self) -> dict:
+        """Stops the running self-change and cleans up: worktree removed, unfinished branch deleted, run marked cancelled."""
+        if not alive("tool"):
+            raise UiError("No self-change is running", 409)
+        sa.force_stop_pid(PROCS["tool"].pid, grace=3.0)
+        out = ROOT / "self_improve"
+        for f in ("phase.json", "coder_now.json", "cmd_now.json", "llm_now.json", "llm_stream.json"):
+            (out / f).unlink(missing_ok=True)
+        run = runledger.active_run(out)
+        kept = False
+        if run:
+            wt = out / "work" / run["id"]
+            if wt.exists():
+                git_rc(ROOT, "worktree", "remove", "--force", str(wt))
+                shutil.rmtree(wt, ignore_errors=True)
+            git_rc(ROOT, "worktree", "prune")
+            branch = f"self-improve/{run['id']}"
+            if git(ROOT, "rev-parse", "--verify", "-q", branch).strip():
+                kept = git(ROOT, "rev-list", "--count", f"HEAD..{branch}").strip() not in ("", "0")
+                if not kept:
+                    git_rc(ROOT, "branch", "-D", branch)
+            runledger.mark_run(out, run["id"], "cancelled", "Cancelled by you" + ("; commits made so far are kept on the branch" if kept else ""))
+        with open(out / "ui.log", "a", encoding="utf-8") as f:
+            f.write("Cancelled by user.\n")
+        return {"ok": True, "kept_branch": kept}
+
+    def tool_discard(self, body: dict) -> dict:
+        branch = self._check_branch(body)
+        if alive("tool"):
+            raise UiError("Wait for the running self-change or cancel it first", 409)
+        if sa.read_json(self.PREVIEW.parent / "preview.json", {}).get("branch") == branch:
+            self.preview_stop()
+        rc, out = git_rc(ROOT, "branch", "-D", branch)
+        if rc != 0:
+            raise UiError(out[-300:])
+        run = runledger.run_for_branch(ROOT / "self_improve", branch)
+        if run:
+            runledger.mark_run(ROOT / "self_improve", run["id"], "discarded")
+        return {"ok": True, "message": f"Deleted {branch}"}
+
+    def tool_update_branch(self, body: dict) -> dict:
+        """Merges the current code into a result branch (in a temporary checkout) so it stays mergeable when main moved on."""
+        branch = self._check_branch(body)
+        if alive("tool"):
+            raise UiError("Wait for the running self-change or cancel it first", 409)
+        if sa.read_json(self.PREVIEW.parent / "preview.json", {}).get("branch") == branch:
+            self.preview_stop()
+        head = head_sha()
+        tmp = ROOT / "self_improve" / "update-wt"
+        git_rc(ROOT, "worktree", "remove", "--force", str(tmp))
+        shutil.rmtree(tmp, ignore_errors=True)
+        rc, out = git_rc(ROOT, "worktree", "add", "--detach", str(tmp), branch)
+        if rc != 0:
+            raise UiError("Could not check the branch out: " + out[-200:])
+        try:
+            rc, out = git_rc(tmp, "-c", "user.name=codefactory", "-c", "user.email=agent@localhost", "merge", "--no-edit", head)
+            if rc != 0:
+                files = git_rc(tmp, "diff", "--name-only", "--diff-filter=U")[1].splitlines()
+                git_rc(tmp, "merge", "--abort")
+                raise UiError("Conflicts with the current code in: " + ", ".join(files[:6]) + ". The branch was not changed. "
+                              "Run the task again on the current code or resolve it by hand.", 409)
+            new = git_rc(tmp, "rev-parse", "HEAD")[1]
+            git_rc(ROOT, "update-ref", f"refs/heads/{branch}", new)
+        finally:
+            git_rc(ROOT, "worktree", "remove", "--force", str(tmp))
+            shutil.rmtree(tmp, ignore_errors=True)
+        return {"ok": True, "message": f"{branch} now contains the current code. Try it again before you merge."}
 
     # ---- try a self-improve branch locally before merging: separate checkout, separate port, empty projects folder
     PREVIEW = ROOT / "self_improve" / "preview"
@@ -1190,6 +1289,12 @@ def make_handler(svc: Service, port: int, token: str | None = None):
                     return svc.tool_merge(body)
                 if path == "/api/tool/undo-merge":
                     return svc.tool_undo_merge()
+                if path == "/api/tool/cancel":
+                    return svc.tool_cancel()
+                if path == "/api/tool/discard":
+                    return svc.tool_discard(body)
+                if path == "/api/tool/update-branch":
+                    return svc.tool_update_branch(body)
                 if path == "/api/tool/preview/stop":
                     return svc.preview_stop()
                 if path == "/api/ui-settings":
