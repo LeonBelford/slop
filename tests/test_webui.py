@@ -7,6 +7,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 import webui  # noqa: E402
 import selfimprove  # noqa: E402
+from webapi.common import BRANCH_RE, PULLS, SHA_RE  # noqa: E402
 
 
 class ProtectedTests(unittest.TestCase):
@@ -22,10 +23,10 @@ class ProtectedTests(unittest.TestCase):
 
 class DiffValidation(unittest.TestCase):
     def test_sha_and_branch_patterns(self):
-        self.assertTrue(webui.SHA_RE.match("abc1234"))
-        self.assertFalse(webui.SHA_RE.match("--output=x"))
-        self.assertTrue(webui.BRANCH_RE.match("self-improve/20260101-120000"))
-        self.assertFalse(webui.BRANCH_RE.fullmatch("../x"))
+        self.assertTrue(SHA_RE.match("abc1234"))
+        self.assertFalse(SHA_RE.match("--output=x"))
+        self.assertTrue(BRANCH_RE.match("self-improve/20260101-120000"))
+        self.assertFalse(BRANCH_RE.fullmatch("../x"))
 
 
 class ManageTests(unittest.TestCase):
@@ -146,16 +147,16 @@ class ModelManagerTests(unittest.TestCase):
     def tearDown(self):
         self.srv.shutdown()
         self.tmp.cleanup()
-        webui.PULLS.clear()
+        PULLS.clear()
 
     def test_pull_then_delete(self):
         import time
         self.svc.model_pull({"name": "b:2b"})
         for _ in range(50):
-            if not webui.PULLS["b:2b"]["active"]:
+            if not PULLS["b:2b"]["active"]:
                 break
             time.sleep(0.05)
-        self.assertEqual(webui.PULLS["b:2b"]["error"], "")
+        self.assertEqual(PULLS["b:2b"]["error"], "")
         names = [m["name"] for m in self.svc.models_overview()["installed"]]
         self.assertIn("b:2b", names)
         self.svc.model_delete({"name": "b:2b"})

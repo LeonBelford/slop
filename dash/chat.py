@@ -14,7 +14,7 @@ import urllib.request
 
 from infra import knowledge
 from pathlib import Path
-from typing import Callable, Iterator
+from collections.abc import Callable, Iterator
 
 CHAT_ID = re.compile(r"^[a-f0-9]{12}$")
 MAX_MESSAGES = 200

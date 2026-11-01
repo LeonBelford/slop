@@ -16,6 +16,8 @@ from core.cfutil import PRESETS, clip, sh, sh_live, sha, tail, write_json, write
 
 
 class BuildMixin:
+    """Agent mixin: model choice, coder call, build/test, debug loop, review and one full task attempt."""
+
     # ---- Model routing (optional, uses only installed models)
     def routes(self) -> dict:
         return models.resolve(self.llm.installed, self.cfg["routing"], self.cfg["coder_model"])
@@ -111,7 +113,7 @@ class BuildMixin:
                 crit = self.llm.json("plan_critique", "reviewer", "You strictly critique plans for overlooked dependencies "
                                      "and for conflicts with earlier decisions and lessons.",
                                      f"Plan: {json.dumps(plan)}\nKnown consequences from earlier decisions/lessons/features:\n"
-                                     + ("\n".join(known) or "-") + f"\nDependency graph of the affected files:\n" +
+                                     + ("\n".join(known) or "-") + "\nDependency graph of the affected files:\n" +
                                      "\n".join(f"{f}: used_by={self.mem.codemap.get(f, {}).get('imported_by', [])}"
                                                for f in plan.get("files_to_change", [])) +
                                      '\nSchema: {"ok": true, "missing_files": ["..."], "concerns": ["..."]}')

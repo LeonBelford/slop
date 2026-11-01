@@ -165,11 +165,13 @@ codefactory/
 ├─ core/                agent engine: LLM client, git/backlog, memory, build/security/research/ops mixins
 ├─ infra/               GPU scheduler, perf/Ollama tuning, models, stacks, knowledge base, web access, security, e2e, update, QR
 ├─ dash/                dashboard logic: diagnostics, time estimates, run ledger, chat
+├─ webapi/              webui.py's Service mixins (project, dashboard, tool, models, chat) + shared helpers
 ├─ MASTER.md            global directives for all projects (picked up per session)
 ├─ Makefile, scripts/   quick-setup-popos.sh · setup.sh (venv + model only) · run.sh · Modelfile
+├─ ruff.toml, requirements-dev.txt   lint config (`make lint`, `make check` = selftest + lint)
 ├─ .env.example, config.example.json
 ├─ docs/                OVERVIEW.md (what it does) · GUIDE.md (usage) · ARCHITECTURE.md (technical) · SECURITY.md (security plan)
-├─ tests/, .github/     selftest and CI
+├─ tests/, .github/     selftest and CI (includes `test_ui_e2e.py`, a repeatable Playwright check of the dashboard/tabs)
 └─ projects/            one folder per idea (not in Git)
    └─ <name>/
       ├─ TESTING.md     start instructions for the latest test build (from `make test-build`)

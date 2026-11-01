@@ -10,6 +10,8 @@ from core.cfutil import now, read_json, sh, write_json
 
 
 class Git:
+    """Thin wrapper around the `git` CLI for one project repo (small, deliberately dependency-free)."""
+
     def __init__(self, repo: Path):
         self.repo = repo
         self.id = ["-c", "user.name=codefactory", "-c", "user.email=agent@local"]
@@ -69,6 +71,8 @@ class Git:
 
 
 class Backlog:
+    """The project's task queue (`agent/backlog.json`): add, dedupe, prioritise and pick the next item."""
+
     def __init__(self, path: Path):
         self.path = path
         self.items: list[dict] = read_json(path, [])
@@ -77,9 +81,11 @@ class Backlog:
         write_json(self.path, self.items)
 
     def titles(self) -> list[str]:
+        """Titles of every backlog item, used for duplicate checks and prompt context."""
         return [i["title"] for i in self.items]
 
     def is_dup(self, title: str, extra: list[str] | None = None) -> bool:
+        """True if `title` is a near-duplicate (fuzzy match) of an existing or `extra` title."""
         t = title.lower().strip()
         for other in self.titles() + (extra or []):
             if difflib.SequenceMatcher(None, t, other.lower().strip()).ratio() > 0.78:
@@ -88,6 +94,7 @@ class Backlog:
 
     def add(self, title, description, type_="feature", priority=5.0, acceptance=None, rationale="",
             source="ideation", extra_titles=None, force=False):
+        """Appends a new backlog item and saves, or returns `None` if it looks like a duplicate (unless `force`)."""
         if not force and self.is_dup(title, extra_titles):
             return None
         item = {"id": f"T{len(self.items) + 1:04d}", "title": title, "description": description,
@@ -116,6 +123,7 @@ class Backlog:
         self.items[:] = merged
 
     def pending(self) -> list[dict]:
+        """Backlog items still waiting to be picked up."""
         return [i for i in self.items if i["status"] == "pending"]
 
     def next(self, prefer_light: bool | None = None):
@@ -133,5 +141,6 @@ class Backlog:
         return max(p, key=score)
 
     def set(self, item: dict, **kw) -> None:
+        """Updates `item`'s fields in place and persists the backlog."""
         item.update(kw)
         self.save()

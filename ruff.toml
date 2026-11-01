@@ -1,0 +1,17 @@
+line-length = 160
+target-version = "py312"  # matches the .venv created by scripts/setup.sh
+exclude = [".venv*", "projects", "docs"]
+
+[lint]
+# Keep this light: the codebase favors dense one-liners and local helper
+# shadowing (e.g. a loop variable named the same as a module-level one).
+# We only check for real bugs, not style.
+select = ["E", "F", "W", "B", "UP"]
+ignore = [
+    "E501",   # line length is handled by the formatter config above, not worth failing CI over
+    "E741",   # short loop vars (d, e, f, r) are idiomatic here
+    "B008",   # default args calling functions (e.g. Path()) are used deliberately
+]
+
+[lint.per-file-ignores]
+"tests/*" = ["F401", "F841"]

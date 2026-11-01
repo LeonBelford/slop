@@ -119,6 +119,9 @@ def covered_share(cov: dict, added: dict[str, list[int]]) -> tuple[float, dict[s
 
 
 class VerifyMixin:
+    """Agent mixin: targeted tests first, flaky-test retry, a verify-result cache, changed-line coverage and a light
+    mutation check (see the module docstring above for the rationale of each)."""
+
     def vfeat(self, name: str):
         return self.cfg["features"].get(name, FEATURE_DEFAULTS[name])
 

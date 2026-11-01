@@ -17,7 +17,7 @@ import time
 import urllib.parse
 import urllib.request
 from pathlib import Path
-from typing import Callable
+from collections.abc import Callable
 
 TOKEN = re.compile(r"[A-Za-z0-9_]{2,}")
 RRF_K = 60
@@ -123,7 +123,7 @@ class KB:
             vecs = self.embed([t for _, t in chunk])
             if not vecs:
                 break
-            for (rid, _), v in zip(chunk, vecs):
+            for (rid, _), v in zip(chunk, vecs, strict=False):  # a transient embedder error can return fewer vectors than rows
                 self.db.execute("UPDATE doc SET vec=? WHERE id=?", (_pack(v), rid))
                 done += 1
         self.db.commit()
@@ -150,7 +150,8 @@ class KB:
         if qv:
             qa = _unpack(_pack(qv[0]))
             cand = self.db.execute("SELECT id, vec FROM doc WHERE vec IS NOT NULL" + kind_sql.replace("doc.", ""), kind_args).fetchall()
-            sims = sorted(((sum(a * b for a, b in zip(qa, _unpack(v))), rid) for rid, v in cand), reverse=True)[:40]
+            sims = sorted(((sum(a * b for a, b in zip(qa, _unpack(v), strict=False)), rid)  # strict=False: a model switch can change the vector dimension
+                           for rid, v in cand), reverse=True)[:40]
             for rank, (sim, rid) in enumerate(sims):
                 if sim > 0.3:
                     scores[rid] = scores.get(rid, 0) + 1 / (RRF_K + rank)

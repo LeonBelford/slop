@@ -52,4 +52,5 @@ def signature(why: str) -> str:
 
 
 def advice(cls: str) -> str:
+    """One-line hint for a failure class (e.g. what usually fixes a timeout), or "" if there is none."""
     return ADVICE.get(cls, "")

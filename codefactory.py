@@ -31,31 +31,15 @@ from __future__ import annotations
 
 from pathlib import Path
 from infra.webaccess import Web
-from infra.webaccess import WebError
 import argparse
-import ast
-import difflib
-from infra import e2e
 from infra import gpusched
-import gzip
-import hashlib
 import json
-from infra import knowledge
-from infra import models
 import os
-from infra import perf
 import re
-from infra import security
-import shlex
-import shutil
-import signal
 from infra import stacks
-import subprocess
 import sys
 import tempfile
-import threading
 import time
-import urllib.request
 
 from core import cfprofile, cfutil, progress
 from core.cfutil import (  # noqa: F401

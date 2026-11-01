@@ -75,7 +75,7 @@ def merge(series: list[list[dict]]) -> list[dict]:
         return []
     out = [dict(r) for r in series[0]]
     for s in series[1:]:
-        for a, b in zip(out, s):
+        for a, b in zip(out, s, strict=False):
             for k in a:
                 if k != "day":
                     a[k] = round(a[k] + b[k], 2) if isinstance(a[k], float) or isinstance(b[k], float) else a[k] + b[k]

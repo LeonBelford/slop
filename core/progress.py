@@ -46,6 +46,11 @@ class Tracker:
 
     def update(self, pipeline: list[tuple[str, int]], key, name: str, step: str | None, detail: str = "",
                done: bool = False) -> tuple[int | None, list[dict], dict[str, float]]:
+        """Advances the tracker to `step` of `pipeline` and returns (percent, recent sub-steps, per-step durations).
+
+        `key` identifies the current run (e.g. task id + attempt): the tracker resets when it changes so
+        progress stays monotonic within one run. Percent is `None` until `pipeline` contains `step`.
+        """
         now = time.time()
         if key != self.key:
             self.key, self.max_pct, self.steps = key, 0, []

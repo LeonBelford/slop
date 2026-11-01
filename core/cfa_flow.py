@@ -38,6 +38,9 @@ def split_steps(steps: list, parts: int = 3) -> list[list]:
 
 
 class FlowMixin:
+    """Agent mixin: the optional quality steps around a task (tests-first, step-by-step coding, acceptance check,
+    retry strategy, protecting tests from being weakened)."""
+
     def feat(self, name: str):
         return self.cfg["features"].get(name, FEATURE_DEFAULTS[name])
 

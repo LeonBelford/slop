@@ -1,4 +1,5 @@
 .venv/
+.venv-lint/
 __pycache__/
 *.pyc
 .env

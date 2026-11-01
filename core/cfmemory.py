@@ -37,7 +37,7 @@ class Memory:
 
     # ---- Knowledge index (rebuildable view over the files above, see knowledge.py)
     @property
-    def kb(self) -> "knowledge.KB":
+    def kb(self) -> knowledge.KB:
         if getattr(self, "_kb", None) is None:
             self._kb = knowledge.KB(self.dir / "knowledge.db", self.embedder())
         return self._kb
@@ -53,7 +53,7 @@ class Memory:
 
     def refresh_kb(self) -> None:
         """Brings the index up to date (incremental: unchanged entries are skipped). Never raises: the files stay the truth."""
-        for attempt in range(2):
+        for _attempt in range(2):
             try:
                 self.age_lessons()
                 kb = self.kb
@@ -387,7 +387,8 @@ class Memory:
         """Known consequences of touching these files: decisions, lessons and features recorded earlier. Used by the critique."""
         try:
             hits = self.kb.search(task + " " + " ".join(files), ("decision", "lesson", "feature"), 10)
-        except Exception:  # noqa: BLE001
+        except Exception as e:  # noqa: BLE001
+            self.log(f"Consequence lookup skipped (knowledge search failed): {e}")
             return []
         fs = set(files)
         out = []
@@ -435,7 +436,8 @@ class Memory:
                               f"Task: {item['title']}\nPlan: {json.dumps(plan)[:3000]}\nReview: {review.get('summary', '')}\n"
                               f"Diff:\n{clip(diff, 5000)}\nSchema: "
                               '{"title": "", "context": "", "decision": "", "alternatives": "", "consequences": ""}')
-        except Exception:
+        except Exception as e:  # noqa: BLE001
+            self.log(f"ADR generation failed, using a minimal record: {e}")
             d = {"title": item["title"], "context": item["description"], "decision": review.get("summary", ""),
                  "alternatives": "", "consequences": ""}
         d["item"], d["time"] = item["id"], now()

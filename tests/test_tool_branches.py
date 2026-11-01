@@ -6,6 +6,7 @@ from pathlib import Path
 
 from dash import runledger
 import webui
+from webapi import common as webapi_common
 
 
 def git(cwd, *a):
@@ -24,10 +25,10 @@ class ToolBranchTests(unittest.TestCase):
         git(self.repo, "init", "-q", "-b", "main")
         git(self.repo, "add", "-A")
         git(self.repo, "commit", "-qm", "base")
-        self.old = (webui.ROOT, webui.Service.PREVIEW)
-        webui.ROOT = self.repo
+        self.old = (webapi_common.ROOT, webui.Service.PREVIEW)
+        webapi_common.ROOT = self.repo
         webui.Service.PREVIEW = self.repo / "self_improve" / "preview"
-        self.addCleanup(lambda: (setattr(webui, "ROOT", self.old[0]), setattr(webui.Service, "PREVIEW", self.old[1])))
+        self.addCleanup(lambda: (setattr(webapi_common, "ROOT", self.old[0]), setattr(webui.Service, "PREVIEW", self.old[1])))
         self.svc = webui.Service(Path(self.tmp.name) / "projects")
 
     def branch(self, name, fname, text):

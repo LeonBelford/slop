@@ -9,6 +9,8 @@ from core.cfutil import PRESETS, clip, force_stop_pid, now, sh, write_text
 
 
 class OpsMixin:
+    """Agent mixin: user-submitted tasks, stop/force-stop, building a test version, feedback and status."""
+
     # ---- Directed work: exactly what the user asks, nothing else
     def add_user_task(self, text: str) -> dict:
         text = text.strip()

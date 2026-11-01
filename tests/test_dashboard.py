@@ -82,7 +82,8 @@ class MergeTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             repo = Path(tmp) / "r"
             repo.mkdir()
-            run = lambda *a: subprocess.run(["git", "-c", "user.name=t", "-c", "user.email=t@t", *a], cwd=repo, check=True, capture_output=True)
+            def run(*a):
+                return subprocess.run(["git", "-c", "user.name=t", "-c", "user.email=t@t", *a], cwd=repo, check=True, capture_output=True)
             run("init", "-q", "-b", "main")
             (repo / "a.txt").write_text("1")
             (repo / ".gitignore").write_text("self_improve/\n")
@@ -93,8 +94,9 @@ class MergeTests(unittest.TestCase):
             run("add", "-A")
             run("commit", "-qm", "feat")
             run("checkout", "-q", "main")
-            old_root = webui.ROOT
-            webui.ROOT = repo
+            from webapi import common as webapi_common
+            old_root = webapi_common.ROOT
+            webapi_common.ROOT = repo
             try:
                 env = {"GIT_AUTHOR_NAME": "t", "GIT_AUTHOR_EMAIL": "t@t", "GIT_COMMITTER_NAME": "t", "GIT_COMMITTER_EMAIL": "t@t"}
                 import os
@@ -106,7 +108,7 @@ class MergeTests(unittest.TestCase):
                 svc.tool_undo_merge()
                 self.assertFalse((repo / "b.txt").exists())
             finally:
-                webui.ROOT = old_root
+                webapi_common.ROOT = old_root
 
 
 class IdleTimeoutTests(unittest.TestCase):

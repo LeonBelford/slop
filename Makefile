@@ -1,7 +1,7 @@
 P ?=
 
 .DEFAULT_GOAL := help
-.PHONY: doctor update e2e-setup models ui-lan force-stop kill help setup selftest init start run status stop list ui start-tmux tmux attach watch thinking logs task do self-improve improve test-build try feedback say
+.PHONY: doctor update e2e-setup models ui-lan force-stop kill help setup selftest lint check init start run status stop list ui start-tmux tmux attach watch thinking logs task do self-improve improve test-build try feedback say
 
 update:
 	@python3 -m infra.update
@@ -19,6 +19,7 @@ help:
 	@echo "Update:        make update              (pulls the latest version from GitHub, with backup tag and rollback)"
 	@echo "Web UI (LAN): make ui-lan             (reachable from other devices, token link is printed)"
 	@echo "Feedback:     make feedback P=myproj MSG=\"...\"   Test build: make test-build P=myproj"
+	@echo "Lint/checks:  make lint (ruff, auto-installs a .venv-lint)   make check (selftest + lint)"
 
 setup:
 	bash scripts/setup.sh
@@ -28,6 +29,12 @@ doctor:
 
 selftest:
 	python3 codefactory.py selftest
+
+lint:
+	@test -x .venv-lint/bin/ruff || { python3 -m venv .venv-lint && .venv-lint/bin/pip install -q -r requirements-dev.txt; }
+	.venv-lint/bin/ruff check .
+
+check: selftest lint
 
 # make init IDEA="Invoicing tool for freelancers" [NAME=invoices]
 init:

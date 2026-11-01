@@ -16,7 +16,7 @@ Two different things are called "agent memory", do not mix them up:
 - a **generated project**: `projects/<name>/repo/` (the product, own git repo) plus `projects/<name>/agent/` (agent state).
 
 ## 2. Repository layout
-Code lives in four places: the entry points in the root (`codefactory.py`, `webui.py`, `selfimprove.py`), `core/` (agent engine), `infra/` (GPU scheduling, models, security, web access, e2e, update, ...) and `dash/` (dashboard/Plan-tab logic: diagnostics, estimates, run ledger, chat). Imports are `from core import cfutil`, `from infra import gpusched`, `from dash import estimate`. Modules are kept small on purpose (each under 700 lines except `webui.py` and `selfimprove.py`, which are next in line; checked by `tests/test_module_size.py`): a small local model can read and edit a whole file within its context window. New features belong in a new or the matching small module, not into `codefactory.py`.
+Code lives in five places: the entry points in the root (`codefactory.py`, `webui.py`, `selfimprove.py`), `core/` (agent engine), `infra/` (GPU scheduling, models, security, web access, e2e, update, ...), `dash/` (dashboard/Plan-tab logic: diagnostics, estimates, run ledger, chat) and `webapi/` (the `Service` mixins behind `webui.py`'s routes). Imports are `from core import cfutil`, `from infra import gpusched`, `from dash import estimate`, `from webapi import common`. Modules are kept small on purpose (each under 700 lines except `webui.py` and `selfimprove.py`, which are next in line; checked by `tests/test_module_size.py`): a small local model can read and edit a whole file within its context window. New features belong in a new or the matching small module, not into `codefactory.py`.
 
 | Path | Role |
 |---|---|
@@ -41,7 +41,13 @@ Code lives in four places: the entry points in the root (`codefactory.py`, `webu
 | `infra/perf.py` | Ollama speed diagnostics, pinned context settings and context-budget trimming (`fit_context`) for Aider (`make doctor`) |
 | `infra/notify.py` | Optional webhook notifications (ntfy/Slack/Discord/...) on task done/blocked/stalled/run stopped |
 | `selfimprove.py` | Self-improvement of this repo on `self-improve/<ts>` branches (worktree, tests, security gate, review, docs) |
-| `webui.py` | HTTP server + `Service` (JSON API, process spawning, dashboard with SSE live updates + snapshot cache, tool preview/merge) |
+| `webui.py` | HTTP server, router (`make_handler`), `Service` base class (combines the `webapi/` mixins below), process spawning, update/master-prompt endpoints |
+| `webapi/common.py` | Shared constants and helpers for the `Service` mixins: `ROOT`, `PROCS`/`PULLS` (mutable, import the module and read `common.ROOT`/`common.PULLS` rather than binding the name, so monkeypatching in tests still works), `UiError`, `git`/`git_rc`, `spawn`, `tail`, `alive`, `read_live` |
+| `webapi/project.py` | `ProjectMixin`: per-project detail/activity/thoughts/stream, settings, create/rename/delete, backlog edit, agent profile |
+| `webapi/dashboard.py` | `DashboardMixin`: `dashboard`, `history`, `gpu_stats`, `loaded_models`, `diagnostics` |
+| `webapi/tool.py` | `ToolMixin`: self-improve review branches (`tool_*`), preview builds/merge, the tool's own activity/diff/tree views, class attribute `PREVIEW` |
+| `webapi/models.py` | `ModelsMixin`: installed/catalog models, pull/cancel/delete |
+| `webapi/chat.py` | `ChatMixin`: chat list/create/stream, default model |
 | `web/index.html` | Head + body markup only; loads `web/style.css`, `web/app.js` (main UI), `web/dashboard.js` (dashboard), `web/init.js` |
 | `dash/runledger.py` | Run ledger of self-changes (requirements checklist, plan, stages; `self_improve/runs/`) and `verify_checkout` for the preview |
 | `infra/gpusched.py` | GPU queue between agents (fair slots, same-model affinity, side/main priority) |
@@ -55,7 +61,8 @@ Code lives in four places: the entry points in the root (`codefactory.py`, `webu
 | `infra/update.py` | Update from `origin/main` (fast-forward only, backup tag, rollback) |
 | `infra/qr.py` | Dependency-free QR encoder for the phone link |
 | `scripts/` | `run.sh` (CLI dispatcher, loads `.env`/venv), `setup.sh`, `quick-setup-popos.sh`, `Modelfile.qwen-coder-14b` |
-| `Makefile` | Thin targets over `scripts/run.sh` (`make help`) |
+| `Makefile` | Thin targets over `scripts/run.sh` (`make help`), plus `lint`/`check` |
+| `ruff.toml`, `requirements-dev.txt` | Lint config and the pinned ruff version; `make lint` auto-creates `.venv-lint` from `requirements-dev.txt` |
 | `MASTER.md` | Global instructions for all projects (copied into each run) |
 | `config.example.json` | Example per-project config |
 | `tests/` | `unittest` suites, one `test_<area>.py` per area; `python3 -m unittest discover -s tests` |
@@ -133,9 +140,9 @@ status stop force-stop kill list start-tmux attach thinking logs test-build try 
 selftest self-improve e2e-setup`.
 
 ## 10. Testing rules
-- `python3 -m unittest discover -s tests` (about 90 s) and `python3 codefactory.py selftest` (full agent loop with a mock LLM) must be green.
+- `python3 -m unittest discover -s tests` (about 2.5 min) and `python3 codefactory.py selftest` (full agent loop with a mock LLM) must be green; `make check` runs the selftest plus `make lint` (ruff, auto-installs `.venv-lint`).
 - New behaviour gets a new test file or new test methods in a new file; do not edit existing tests.
-- The UI is tested by hand with Playwright against `webui.py --port <free> --projects-dir <tmp>`; the sandbox has no Ollama.
+- `tests/test_ui_e2e.py` starts `webui.py` on a free port with a temp projects dir and drives it with Playwright (dashboard loads with no console errors, tab switching); skipped if Playwright/Chromium is not installed (`make e2e-setup`). Anything beyond that is still checked by hand with Playwright against `webui.py --port <free> --projects-dir <tmp>`; the sandbox has no Ollama.
 
 ## 11. Where to change what
 | Goal | Look at |

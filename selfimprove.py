@@ -372,7 +372,7 @@ def _verify_requirements(repo: Path, base: str, branch: str, ledger, llm, log) -
     """Marks every requirement done / partial / missing by comparing it with the finished diff."""
     reqs = ledger.d["requirements"]
     if ledger.d["kind"] == "auto":  # one requirement per proposal, in the same order
-        for r, pr in zip(reqs, ledger.d["proposals"]):
+        for r, pr in zip(reqs, ledger.d["proposals"], strict=False):
             ledger.mark_requirement(r["id"], "done" if pr["status"] == "kept" else "failed", pr["note"] or "kept after green tests")
         return
     diff = _git(repo, "diff", f"{base}..{branch}")[1]

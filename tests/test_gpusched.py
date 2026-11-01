@@ -108,7 +108,7 @@ class SchedTests(unittest.TestCase):
                 self.send_header("Content-Type", "text/event-stream")
                 self.end_headers()
                 try:
-                    for i in range(12):
+                    for _i in range(12):
                         self.wfile.write(b'data: {"choices":[{"delta":{"content":"ab"}}]}\n\n')
                         self.wfile.flush()
                         time.sleep(0.25)
