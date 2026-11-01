@@ -625,7 +625,8 @@ function projectBody(d){
   }
   if(tab==="sources"){
     return `<div class="panel"><h3>SOURCES.md: websites the agent should read</h3>
-    <p class="hint">One URL per line, optionally with a note on what to use it for. Web access mode: <b>${esc(d.web_mode)}</b> (<code>off</code>, <code>sources</code> = only these pages, <code>open</code> = the agent may also search). Change it in <code>agent/config.json</code> under "web".</p>
+    <p class="hint">One URL per line, optionally with a note on what to use it for. </p>
+    <label class="fld">Web access<select id="web-mode-q" onchange="setWebMode(this.value)">${[["off","Off: no web access"],["sources","Sources only: just the pages listed below"],["open","Open web search: the agent may also search the web"]].map(([m,t])=>`<option value="${m}" ${m===d.web_mode?"selected":""}>${t}</option>`).join("")}</select></label>
     <textarea id="sources" rows="14" oninput="dirty=true" placeholder="https://example.com/docs   use this for the payment flow">${esc(d.sources)}</textarea>
     <div class="row" style="justify-content:flex-end;margin-top:10px"><button class="primary" onclick="saveFile('sources','SOURCES.md')">Save</button></div></div>`;
   }
@@ -1210,6 +1211,7 @@ function dtable(id,cols,rows,empty){
   return `<div class="tblwrap"><table><tr>${head}</tr>${rows.map(r=>`<tr>${cols.map(c=>`<td>${c.h(r)}</td>`).join("")}</tr>`).join("")||`<tr><td colspan="${cols.length}" class="hint">${empty}</td></tr>`}</table></div>`;
 }
 const sub=t=>`<br><span class="hint" style="margin:0">${t}</span>`;
+async function setWebMode(m){try{await api(`/api/project/${encodeURIComponent(sel)}/settings`,{web_mode:m});toast("Web access: "+m)}catch(e){toast(e.message||String(e),true)}await refresh()}
 function openReason(n,tool){if(tool){showTool();toolTab("reason");return}select(n);setTab("reasoning")}
 const nameCell=p=>`<b><a class="plink" title="Open this agent's live reasoning" onclick="openReason('${nm(p.name)}',${p.tool?"true":"false"})">${esc(p.name)}</a></b>`;
 function sectionAttention(d){
