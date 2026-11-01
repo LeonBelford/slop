@@ -1525,24 +1525,7 @@ class Agent:
 
     def security_review(self, item: dict) -> list[dict]:
         """LLM threat model of the diff: only concrete, exploitable problems introduced by this change."""
-        try:
-            data = self.llm.json(
-                "security_review", "reviewer",
-                "You are a penetration tester reviewing a diff. Report only concrete, exploitable problems introduced or exposed by this change, "
-                "no style remarks. Think like an attacker: which new input, endpoint, file, command or dependency can they reach?",
-                f"Task: {item['title']}\nChecklist: broken authentication/authorization, injection (SQL, command, template), remote code execution, "
-                "unsafe deserialization, XSS/CSRF, SSRF, path traversal, hard-coded or logged secrets, weak password hashing (must be argon2id/scrypt/bcrypt "
-                "with salt), insecure randomness, missing input validation or limits, verbose errors, vulnerable or unpinned dependencies, "
-                f"missing rate limiting on auth.\nDiff:\n{clip(self.git.diff(), 12000)}\nSchema: "
-                '{"findings": [{"severity": "critical|high|medium|low", "file": "", "problem": "", "fix": "", "confidence": 1-10}]}')
-        except Exception as e:  # noqa: BLE001
-            self.log(f"Security review failed: {e}")
-            return []
-        out = []
-        for f in data.get("findings", []) if isinstance(data, dict) else []:
-            if f.get("severity") in security.SEVERITIES and int(f.get("confidence", 5) or 5) >= 6:
-                out.append(security.finding(f["severity"], "llm-review", str(f.get("file", "")), 0, str(f.get("problem", "")), str(f.get("fix", ""))))
-        return out
+        return security.llm_review(self.llm, item["title"], self.git.diff(), self.log)
 
     def security_gate(self, item: dict, plan: dict) -> tuple[bool, str]:
         """Blocks a change with critical/high findings: static rules on the changed files plus an attacker-minded review."""
