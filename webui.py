@@ -29,6 +29,7 @@ from pathlib import Path
 import chat as chatlib
 import codefactory as sa
 import models
+import update
 
 ROOT = Path(__file__).resolve().parent
 INDEX = ROOT / "web" / "index.html"
@@ -45,6 +46,7 @@ PULLS: dict[str, dict] = {}  # model name -> progress of an `ollama pull` starte
 PULL_CANCEL: set[str] = set()
 PROCS: dict[str, subprocess.Popen] = {}  # started agents, init and try jobs: "<kind>:<project>"
 LOCK = threading.Lock()
+UPDATE_LOCK = threading.Lock()
 
 
 class UiError(Exception):
@@ -102,6 +104,8 @@ def read_live(path: Path, running: bool) -> dict | None:
 class Service:
     def __init__(self, projects: Path):
         self.projects = projects.resolve()
+        self.settings_path = self.projects / ".ui" / "settings.json"
+        self.update_cache: dict | None = None
         self.master = ROOT / "MASTER.md"
         self.chats = chatlib.ChatStore(self.projects, lambda n: bool(NAME_RE.match(n or "")) and (self.projects / n / "agent" / "GOAL.md").exists())
 
@@ -133,7 +137,40 @@ class Service:
             if key.startswith("init:") and not (self.projects / key[5:] / "agent" / "GOAL.md").exists():
                 jobs.append({"name": key[5:], "running": p.poll() is None, "code": p.poll(),
                              "log": tail(self.projects / ".ui" / f"init-{key[5:]}.log", 8)})
-        return {"projects": projects, "init_jobs": jobs, "master": bool(sa.read_master(self.master)), "model_server": self.model_server()}
+        return {"projects": projects, "init_jobs": jobs, "master": bool(sa.read_master(self.master)), "model_server": self.model_server(),
+                "chat_enabled": self.chat_enabled()}
+
+    def chat_enabled(self) -> bool:
+        return bool(sa.read_json(self.settings_path, {}).get("chat_enabled", True))
+
+    def set_ui_settings(self, body: dict) -> dict:
+        """UI preferences kept next to the chats. Turning the chat off frees the model server for the agent."""
+        cur = sa.read_json(self.settings_path, {})
+        if "chat_enabled" in body:
+            cur["chat_enabled"] = bool(body["chat_enabled"])
+        self.settings_path.parent.mkdir(parents=True, exist_ok=True)
+        sa.write_json(self.settings_path, cur)
+        return {"chat_enabled": self.chat_enabled()}
+
+    def require_chat(self) -> None:
+        if not self.chat_enabled():
+            raise UiError("The chat is turned off (it can compete with the agent for the model). Turn it on in the sidebar.", 403)
+
+    def update_status(self, fetch: bool = False) -> dict:
+        if fetch or self.update_cache is None:
+            self.update_cache = update.status(ROOT, fetch=True)
+            self.update_cache["checked"] = time.time()
+        return self.update_cache
+
+    def update_apply(self) -> dict:
+        busy = [p["name"] for p in self.list()["projects"] if p["running"]]
+        if busy:
+            raise UiError("Stop the running agent(s) first: " + ", ".join(busy), 409)
+        res = update.apply(ROOT)
+        self.update_cache = None
+        if res.get("updated") and res.get("restart"):
+            threading.Timer(1.0, restart_self).start()
+        return res
 
     def model_server(self) -> dict:
         """Is the model server reachable? Cached for 10 s because the UI polls."""
@@ -567,6 +604,11 @@ class Service:
         return {"ok": True}
 
 
+def restart_self() -> None:
+    """Re-executes this server with the same arguments so a pulled update takes effect (the listening socket is not inherited)."""
+    os.execv(sys.executable, [sys.executable, *sys.argv])
+
+
 def make_handler(svc: Service, port: int, token: str | None = None):
     hosts = {f"127.0.0.1:{port}", f"localhost:{port}", f"[::1]:{port}"}
 
@@ -625,6 +667,10 @@ def make_handler(svc: Service, port: int, token: str | None = None):
                 ms = re.fullmatch(r"/api/chat/([a-f0-9]{12})/send", path)
                 if method == "POST" and ms:
                     return self.chat_send(ms.group(1), body)  # streams for minutes, so it must not hold LOCK
+                if path.startswith("/api/update"):  # network and pip work: must not hold LOCK
+                    return self.send(200, self.update_route(method, path))
+                if path.startswith(("/api/chats", "/api/chat/")):
+                    svc.require_chat()
                 with LOCK:
                     self.send(200, self.route(method, path, body, q))
             except chatlib.ChatError as e:
@@ -635,6 +681,16 @@ def make_handler(svc: Service, port: int, token: str | None = None):
                 self.send(400, {"error": f"Invalid request: {e}"})
             except Exception as e:  # noqa: BLE001
                 self.send(500, {"error": f"{type(e).__name__}: {e}"})
+
+        def update_route(self, method: str, path: str):
+            with UPDATE_LOCK:
+                if method == "GET":
+                    return svc.update_status(False)
+                if path == "/api/update/check":
+                    return svc.update_status(True)
+                if path == "/api/update/apply":
+                    return svc.update_apply()
+            raise UiError("Not found", 404)
 
         def chat_send(self, cid: str, body: dict) -> None:
             svc.chats.load(cid)  # 404 before the stream starts
@@ -666,6 +722,8 @@ def make_handler(svc: Service, port: int, token: str | None = None):
                     return svc.get_master()
                 if path == "/api/languages":
                     return svc.languages()
+                if path == "/api/ui-settings":
+                    return {"chat_enabled": svc.chat_enabled()}
                 if path == "/api/tool":
                     return svc.tool()
                 if path == "/api/chats":
@@ -697,6 +755,8 @@ def make_handler(svc: Service, port: int, token: str | None = None):
                     return svc.set_master(body)
                 if path == "/api/tool/task":
                     return svc.tool_task(body)
+                if path == "/api/ui-settings":
+                    return svc.set_ui_settings(body)
                 if path == "/api/chats":
                     return svc.chat_create(body)
                 if path in ("/api/models/pull", "/api/models/delete", "/api/models/cancel"):
