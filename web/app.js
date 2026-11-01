@@ -202,6 +202,12 @@ function microSteps(steps){
   const rows=steps.slice(-8).reverse().map(s=>`<div class="micro">${s.step?`<span class="pill">${esc(s.step)}</span> `:""}${esc(s.phase)}${s.detail?` — <span class="meta">${esc(s.detail)}</span>`:""}</div>`).join("");
   return `<details class="microsteps" open><summary>Sub-steps so far</summary>${rows}</details>`;
 }
+function stepTimes(list,idx,durations,liveStep,liveSince,t){
+  return `<div class="steps">${list.map(([k,l],i)=>{
+    const closed=(durations&&durations[k])||0,live=k===liveStep&&liveSince?Math.max(0,t-liveSince):0,total=closed+live;
+    const time=(i<=idx&&total>0.5)?`<span class="stime">${fmtDur(total)}</span>`:"";
+    return `<div class="step ${i<idx?"done":i===idx?"cur":""}">${l}${time}</div>`}).join("")}</div>`;
+}
 function renderNow(){
   const box=$("#now");
   if(view==="dash"){box.innerHTML="";box.className="";return}
@@ -214,7 +220,7 @@ function renderNow(){
       :a.llm?`<div class="call">Waiting for the <b>${esc(a.llm.role)}</b> model (<code>${esc(a.llm.model)}</code>) on <b>${esc(a.llm.tag)}</b>, ${fmtDur(t-a.llm.since)}</div>`:"";
     box.className="now live";
     box.innerHTML=`<div class="what">Changing the tool: ${ph?esc(ph.step):"starting"}</div>${pctBar(ph&&ph.pct)}<div class="sub">${ph?esc(ph.detail)+` · ${fmtDur(t-ph.since)} in this step`:""}</div>
-      <div class="steps">${TOOL_STEPS.map(([k,l],i)=>`<div class="step ${i<idx?"done":i===idx?"cur":""}">${l}</div>`).join("")}</div>${microSteps(ph&&ph.steps)}${call}`;
+      ${stepTimes(TOOL_STEPS,idx,ph&&ph.durations,ph&&ph.step,ph&&ph.since,t)}${microSteps(ph&&ph.steps)}${call}`;
     reasoningLive();return;
   }
   if(view!=="project"||!detail){box.innerHTML="";return}
@@ -222,7 +228,7 @@ function renderNow(){
   if(!a.running){box.className="now";box.innerHTML=`<div class="what">Agent is not running</div><div class="sub">Press Start for autonomous work, or give it one concrete job on the "Do a task" tab.</div>${a.queued_user_tasks&&a.queued_user_tasks.length?`<div class="sub">Queued for you: ${a.queued_user_tasks.map(esc).join("; ")}</div>`:""}${timeline(a.events)}`;return}
   box.className="now live";
   const idx=n?STEPS.findIndex(s=>s[0]===n.step):-1;
-  const stepper=idx>=0||(n&&n.task)?`<div class="steps">${STEPS.map(([k,l],i)=>`<div class="step ${i<idx?"done":i===idx?"cur":""}">${l}</div>`).join("")}</div>`:"";
+  const stepper=idx>=0||(n&&n.task)?stepTimes(STEPS,idx,n&&n.durations,n&&n.step,n&&n.since,t):"";
   const call=a.cmd?`<div class="call">Running <b>${esc(a.cmd.name)}</b> (<code>${esc(a.cmd.cmd)}</code>), ${fmtDur(t-a.cmd.since)}. Output: "Reasoning" tab.</div>`:a.coder?`<div class="call">Aider (code model <code>${esc(a.coder.model)}</code>) is editing ${a.coder.files.length?esc(a.coder.files.join(", ")):"files"} for <b>${esc(a.coder.tag)}</b>, ${fmtDur(t-a.coder.since)}</div>`
     :a.llm?`<div class="call">Waiting for the <b>${esc(a.llm.role)}</b> model (<code>${esc(a.llm.model)}</code>) on <b>${esc(a.llm.tag)}</b>, ${fmtDur(t-a.llm.since)}. Open "AI activity" to see the prompt once it answers.</div>`:"";
   reasoningLive();

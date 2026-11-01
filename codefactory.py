@@ -175,10 +175,10 @@ class Agent(BuildMixin, FlowMixin, VerifyMixin, SecurityMixin, ResearchMixin, Op
         if not hasattr(self, "_progress"):
             self._progress = progress.Tracker()
         done = step is None and "finished and merged" in name
-        pct, steps = self._progress.update(progress.AGENT_PIPELINE, (self.cur_task, self.cur_attempt), name, step, detail, done)
+        pct, steps, durations = self._progress.update(progress.AGENT_PIPELINE, (self.cur_task, self.cur_attempt), name, step, detail, done)
         write_json(self.dir / "activity.json", {"phase": name, "step": step, "detail": detail[:300], "since": time.time(),
                                                 "task": self.cur_task, "attempt": self.cur_attempt, "pid": os.getpid(),
-                                                "pct": pct, "steps": steps})
+                                                "pct": pct, "steps": steps, "durations": durations})
         self.log(f"▶ [{step or 'agent'}] {name}" + (f" ({detail[:120]})" if detail else ""))
         with open(self.dir / "events.jsonl", "a", encoding="utf-8") as f:
             f.write(json.dumps({"time": now(), "phase": name, "step": step, "detail": detail[:300], "task": self.cur_task,

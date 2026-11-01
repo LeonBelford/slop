@@ -93,6 +93,8 @@ label{display:block;color:var(--mute);font-size:12.5px;margin:12px 0 4px}
 .step{flex:1;min-width:80px;text-align:center;font-size:12px;padding:5px 4px;border:1px solid var(--line);border-radius:3px;color:var(--mute)}
 .step.done{color:var(--text);border-color:#555}
 .step.cur{background:#e4e4e4;color:#111;border-color:#e4e4e4;font-weight:600}
+.step .stime{display:block;font-size:10px;color:var(--mute);margin-top:2px;font-family:ui-monospace,monospace}
+.step.cur .stime{color:#555}
 .call{margin-top:8px;font-size:12.5px;padding:6px 10px;background:#0e0e0e;border:1px solid var(--line);border-radius:3px}
 .timeline{margin-top:10px;font-size:12.5px;color:var(--mute)}
 .timeline div{padding:2px 0;border-top:1px solid #262626;display:flex;gap:10px}

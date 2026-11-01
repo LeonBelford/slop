@@ -104,8 +104,8 @@ def _phase(step: str, detail: str = "") -> None:
         f.unlink(missing_ok=True)
         return
     STATE.mkdir(exist_ok=True)
-    pct, steps = _TOOL_PROGRESS.update(progress.TOOL_PIPELINE, "run", step, step, detail)
-    sa.write_json(f, {"step": step, "detail": detail, "since": time.time(), "pct": pct, "steps": steps})
+    pct, steps, durations = _TOOL_PROGRESS.update(progress.TOOL_PIPELINE, "run", step, step, detail)
+    sa.write_json(f, {"step": step, "detail": detail, "since": time.time(), "pct": pct, "steps": steps, "durations": durations})
 
 
 def _wire(llm, stamp: str) -> None:
