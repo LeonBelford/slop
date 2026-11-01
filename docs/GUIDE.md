@@ -112,6 +112,9 @@ Everything below **only while the agent is stopped**:
   (takes a few minutes, progress at the top left). The UI uses the same files and commands as the CLI; you can mix both.
   It listens only on 127.0.0.1 and checks the host and origin of requests; do not forward it to the network.
 
+## 6b1. Knowledge base
+Nothing to do: the agent indexes what it learns per project and checks earlier decisions and lessons before each change. Optional for better matches by meaning: `ollama pull nomic-embed-text`. Faded lessons land in `projects/<name>/agent/memory/lessons_archive.jsonl`; you can edit `lessons.jsonl` by hand, the index follows.
+
 ## 6b2. Chat and browser tests
 - **Chat:** sidebar button *Chat*; link projects as chips so the model knows them. Pick the model per chat (installed Ollama models). *Add to ideas* / *Run as task* under an answer sends it to the linked project.
 - **Browser tests:** `make e2e-setup` once (on a fresh Linux also `sudo .venv/bin/playwright install-deps chromium`). Web products are then clicked through in headless Chromium after the build; generated tests are kept in the product repo under `e2e/`.

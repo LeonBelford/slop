@@ -443,8 +443,8 @@ class Service:
         chat["messages"] = chat["messages"][-chatlib.MAX_MESSAGES:]
         chat["updated"] = time.time()
         self.chats.save(chat)
-        msgs = chatlib.build_messages(chat, self.chat_ws)
         cfg = sa.DEFAULT_CONFIG
+        msgs = chatlib.build_messages(chat, self.chat_ws, cfg["llm_api"], cfg["api_key"])
         answer, err = "", ""
         try:
             for d in chatlib.stream_completion(cfg["llm_api"], cfg["api_key"], chat["model"], msgs):
