@@ -119,6 +119,9 @@ button.ghost.danger{color:var(--bad)}
 .msg .acts{margin-top:8px;display:flex;gap:4px;opacity:0;transition:opacity .15s}
 .msg:hover .acts{opacity:1}
 .msg pre{background:#0d0d0d;border:1px solid var(--line);padding:10px 12px;border-radius:8px;overflow:auto;margin:8px 0;white-space:pre}
+.lg-err{color:#ff7b72}.lg-warn{color:#e3b341}.lg-ok{color:#56d364}.lg-sec{color:#79c0ff}.lg-step{color:#d2a8ff;font-weight:600}
+.loglegend{display:flex;gap:14px;font-size:12px;margin-bottom:8px}
+.loglegend .lg-step,.loglegend .lg-ok,.loglegend .lg-sec,.loglegend .lg-warn,.loglegend .lg-err{padding:1px 8px;border:1px solid currentColor;border-radius:10px}
 .think{display:flex;align-items:center;gap:12px;color:var(--mute)}
 .dots span{display:inline-block;width:7px;height:7px;margin-right:4px;border-radius:50%;background:var(--mute);animation:bounce 1.2s infinite ease-in-out}
 .dots span:nth-child(2){animation-delay:.15s}.dots span:nth-child(3){animation-delay:.3s}
@@ -184,7 +187,7 @@ const esc=s=>String(s??"").replace(/[&<>"]/g,c=>({"&":"&amp;","<":"&lt;",">":"&g
 let sel=localStorage.getItem("sel")||null, view="project", tab="overview", list={projects:[],init_jobs:[]}, detail=null, extra=null, dirty=false, langs=[];
 let diffView=null, lastBody="", lastHead="", lastTabs="", openKeys=new Set();
 const EDITABLE=["ideas","sources","task","tool","settings","goal"];
-const STEPS=[["plan","Plan"],["implement","Implement"],["build","Build & test"],["review","Review"],["cleanup","Cleanup"],["docs","Docs & memory"],["merge","Merge"]];
+const STEPS=[["plan","Plan"],["implement","Implement"],["build","Build & test"],["e2e","Browser test"],["security","Security"],["review","Review"],["cleanup","Cleanup"],["docs","Docs & memory"],["merge","Merge"]];
 
 async function api(path,body){
   const opt=body===undefined?{}:{method:"POST",headers:{"X-UI":"1","Content-Type":"application/json"},body:JSON.stringify(body)};
@@ -214,6 +217,17 @@ function select(n){view="project";sel=n;localStorage.setItem("sel",n);tab="overv
 function showTool(){view="tool";tab="tool";dirty=false;extra=null;diffView=null;lastBody=lastHead=lastTabs="";renderList();refresh()}
 
 /* ---- live status panel (re-rendered every second from the last data) ---- */
+function colorLog(t){
+  return t.split("\n").map(l=>{
+    let c="";
+    if(/\] ▶ \[security\]|ecurity/.test(l))c=/block|fail|critical|high/i.test(l)&&!/non-blocking/.test(l)?"lg-err":"lg-sec";
+    else if(/Traceback|Error|error|failed|FAIL|red\b|rolled back|discarded|blocked|✖|✘/.test(l))c="lg-err";
+    else if(/warn|skipped|revision|retry|waiting|Debug round|not reachable/i.test(l))c="lg-warn";
+    else if(/✔|merged|passed|green|OK\b/.test(l))c="lg-ok";
+    else if(/\] ▶ /.test(l))c="lg-step";
+    return c?`<span class="${c}">${esc(l)}</span>`:esc(l);
+  }).join("\n");
+}
 function renderNow(){
   const box=$("#now");
   if(view!=="project"||!detail){box.innerHTML="";return}
@@ -315,7 +329,7 @@ function projectBody(d){
     return `<div class="panel"><p class="hint">"Test now" lets the agent finish its current task, builds the last working state and shows here how to run it. Press Start afterwards to continue.</p>
     ${d.testing?`<pre>${esc(d.testing)}</pre>`:'<div class="hint">No test version built yet.</div>'}${d.try_running||d.try_out?`<h4>Output</h4><pre>${esc(d.try_out)}</pre>`:""}</div>`;
   }
-  if(tab==="log")return `<pre id="logbox">${esc(d.log||"No log yet.")}${d.run_out&&/Traceback|Error/.test(d.run_out)?"\n\n--- run.out ---\n"+esc(d.run_out):""}${d.do_out&&/Traceback|Error/.test(d.do_out)?"\n\n--- do.out ---\n"+esc(d.do_out):""}</pre>`;
+  if(tab==="log")return `<div class="loglegend"><span class="lg-step">step</span><span class="lg-ok">success</span><span class="lg-sec">security</span><span class="lg-warn">warning</span><span class="lg-err">error</span></div><pre id="logbox">${colorLog(d.log||"No log yet.")}${d.run_out&&/Traceback|Error/.test(d.run_out)?"\n\n--- run.out ---\n"+colorLog(d.run_out):""}${d.do_out&&/Traceback|Error/.test(d.do_out)?"\n\n--- do.out ---\n"+colorLog(d.do_out):""}</pre>`;
   if(tab==="settings")return settingsBody(d);
   return `<div class="panel"><h3>GOAL.md: vision and quality bar</h3><p class="hint">The agent measures its work against this. Edit it to change direction; for single wishes use "Ideas & feedback".</p>
     <textarea id="goal" rows="20" oninput="dirty=true">${esc(d.goal||"")}</textarea>

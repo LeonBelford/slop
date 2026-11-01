@@ -29,6 +29,7 @@ Python/FastAPI, Node, .NET, Go, Rust and more via presets; documentation languag
 Optional research with guards: http/https only, no private addresses, blocked domains, content treated as untrusted data.
 
 ## Web UI (`make ui`, `make ui-lan`)
+- Live "Now" panel with the cycle stepper (Plan, Implement, Build, Browser test, Security, Review, ...); the Live log is colour-coded (steps, success, security, warnings, errors) and logs every step.
 - Live "Now" panel, AI activity log, file changes, backlog, goal, ideas.
 - Directed tasks ("Do a task"), project create/rename/delete/settings, kill switch.
 - **Chat:** streaming, Markdown rendering, Enter sends, thinking animation, link projects for context, "Add to ideas"/"Run as task".
