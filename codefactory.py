@@ -406,12 +406,14 @@ class LLM:
         self.stream: Path | None = None  # the answer being written right now, updated while it streams (llm_stream.json)
         self.sched = gpusched.NullScheduler()  # set by Agent
         self.seq = 0
+        self.tok = {"tokens": 0, "chars": 0, "t0": None}
         self.ctx = lambda: ""  # returns the current task id (set by Agent)
 
     def record(self, tag: str, role: str, model: str, user: str, answer: str, thinking: str = "", seconds: float = 0.0) -> None:
         """Appends the complete thought (prompt, reasoning, answer) to thoughts.jsonl for the UI."""
         if not self.thoughts:
             return
+        self._metrics(role, user, answer, thinking, seconds)
         if not self.seq and self.thoughts.exists():
             self.seq = sum(1 for _ in open(self.thoughts, "rb"))
         self.seq += 1
@@ -420,17 +422,37 @@ class LLM:
         with open(self.thoughts, "a", encoding="utf-8") as f:
             f.write(json.dumps(row, ensure_ascii=False) + "\n")
 
-    def _publish(self, tag: str, role: str, model: str, since: float, thinking: str, answer: str) -> None:
+    def _metrics(self, role: str, user: str, answer: str, thinking: str, seconds: float) -> None:
+        """Running totals for the dashboard (agent/metrics.json): calls, tokens (counted from the stream, else estimated), characters."""
+        if role == "coder":
+            return
+        chars = len(answer) + len(thinking)
+        tokens = self.tok["tokens"] if self.tok["tokens"] and self.tok["chars"] else chars // 4
+        f = self.thoughts.parent / "metrics.json"
+        m = read_json(f, {})
+        day = time.strftime("%Y-%m-%d")
+        if m.get("day") != day:
+            m.update(day=day, day_calls=0, day_tokens=0, day_chars=0)
+        for k, v in (("calls", 1), ("tokens", tokens), ("chars", chars), ("gen_seconds", round(seconds, 1)),
+                     ("day_calls", 1), ("day_tokens", tokens), ("day_chars", chars)):
+            m[k] = round(m.get(k, 0) + v, 1) if k == "gen_seconds" else m.get(k, 0) + v
+        write_json(f, m)
+        self.tok = {"tokens": 0, "chars": 0, "t0": None}
+
+    def _publish(self, tag: str, role: str, model: str, since: float, thinking: str, answer: str, stats: dict | None = None) -> None:
         if self.stream:
             write_json(self.stream, {"tag": tag, "role": role, "model": model, "since": since,
-                                     "thinking": thinking[-60000:], "answer": answer[-60000:], "updated": time.time()})
+                                     "thinking": thinking[-60000:], "answer": answer[-60000:], "updated": time.time(),
+                                     **(stats or {"tokens": 0, "chars": 0, "t0": None})})
 
     def _read(self, r, tag: str, role: str, model: str, since: float) -> tuple[str, str]:
         """Reads a streamed (SSE) or plain JSON answer. Returns (answer, reasoning); <think> blocks count as reasoning."""
         ctype = r.headers.get("Content-Type", "")
+        self.tok = {"tokens": 0, "chars": 0, "t0": None}  # live counters for the dashboard: Ollama streams about one token per chunk
         if "event-stream" not in ctype:
             msg = json.loads(r.read())["choices"][0]["message"]
             content, thinking = msg.get("content") or "", msg.get("reasoning") or msg.get("reasoning_content") or ""
+            self.tok.update(tokens=(len(content) + len(thinking)) // 4, chars=len(content) + len(thinking))
         else:
             content, thinking, last_pub = "", "", 0.0
             for raw in r:
@@ -444,12 +466,17 @@ class LLM:
                     delta = json.loads(payload)["choices"][0].get("delta", {})
                 except (ValueError, KeyError, IndexError):
                     continue
-                content += delta.get("content") or ""
-                thinking += delta.get("reasoning") or delta.get("reasoning_content") or ""
+                piece, think_piece = delta.get("content") or "", delta.get("reasoning") or delta.get("reasoning_content") or ""
+                content += piece
+                thinking += think_piece
+                if piece or think_piece:
+                    self.tok["tokens"] += 1
+                    self.tok["chars"] += len(piece) + len(think_piece)
+                    self.tok["t0"] = self.tok["t0"] or time.time()
                 self.sched.check()  # a side agent aborts here when the main agent needs the GPU
                 if time.time() - last_pub > 0.4:
                     last_pub = time.time()
-                    self._publish(tag, role, model, since, thinking + _open_think(content), _strip_think(content))
+                    self._publish(tag, role, model, since, thinking + _open_think(content), _strip_think(content), self.tok)
         m = re.search(r"<think>(.*?)</think>", content, re.S)
         if m:
             thinking += m.group(1)

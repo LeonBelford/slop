@@ -176,13 +176,78 @@ button.ghost.danger{color:var(--bad)}
 @keyframes pop{from{opacity:0;transform:translateY(6px)}to{opacity:1;transform:none}}
 @keyframes bounce{0%,80%,100%{opacity:.3;transform:translateY(0)}40%{opacity:1;transform:translateY(-5px)}}
 @keyframes blink{50%{opacity:0}}
+
+/* sidebar collapse + phone layout */
+aside header{display:flex;align-items:center;justify-content:space-between;gap:8px}
+.sb-btn{width:34px;height:34px;padding:0;font-size:16px;line-height:1;flex:none}
+#sbOpen{position:fixed;top:10px;left:10px;z-index:30;width:40px;height:40px;padding:0;font-size:18px;display:none;box-shadow:0 2px 8px rgba(0,0,0,.5)}
+#sbBack{display:none}
+body.sb-off aside{display:none}
+body.sb-off #sbOpen{display:block}
+body.sb-off main{padding-top:60px}
+/* dashboard */
+.dash-cards{display:grid;grid-template-columns:repeat(auto-fit,minmax(170px,1fr));gap:12px;margin:16px 0}
+.dcard{background:var(--panel);border:1px solid var(--line);border-radius:6px;padding:12px 14px;min-width:0}
+.dcard .k{color:var(--mute);font-size:12px;text-transform:uppercase;letter-spacing:.04em}
+.dcard .v{font-size:26px;font-weight:600;line-height:1.2;margin-top:2px}
+.dcard .v small{font-size:13px;color:var(--mute);font-weight:400}
+.dcard .sub{color:var(--mute);font-size:12px;margin-top:2px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.spark{display:block;width:100%;height:34px;margin-top:6px}
+.spark polyline{fill:none;stroke:var(--ok);stroke-width:1.6;vector-effect:non-scaling-stroke}
+.spark.gpu polyline{stroke:var(--info)}
+.tblwrap{overflow-x:auto;-webkit-overflow-scrolling:touch}
+.tblwrap table{min-width:560px}
+.mini{height:5px;background:var(--panel2);border-radius:3px;overflow:hidden;min-width:60px}.mini i{display:block;height:100%;background:var(--ok)}
+.pulse{display:inline-block;width:8px;height:8px;border-radius:50%;background:var(--ok);animation:pulse 1.2s infinite;margin-right:6px}
+@media(max-width:800px){
+  body{height:100dvh}
+  aside{position:fixed;inset:0 auto 0 0;width:min(86vw,320px);z-index:50;transform:translateX(-102%);transition:transform .22s ease;box-shadow:none}
+  body.sb-open aside{transform:none;box-shadow:6px 0 30px rgba(0,0,0,.6)}
+  body.sb-off aside{display:flex}
+  #sbBack{position:fixed;inset:0;z-index:40;background:rgba(0,0,0,.55)}
+  body.sb-open #sbBack{display:block}
+  #sbOpen,body.sb-off #sbOpen{display:block}
+  body.sb-open #sbOpen{display:none}
+  main,body.sb-off main{padding:62px 14px 40px}
+  button,.tab,select{min-height:40px}
+  button.small{min-height:32px;padding:4px 10px}
+  input,textarea,select{font-size:16px;padding:9px 10px}
+  .card{padding:12px 10px}
+  .top{gap:10px}.top h1{font-size:19px}
+  .btns{width:100%}.btns button{flex:1 1 auto}
+  .tabs{flex-wrap:nowrap;overflow-x:auto;-webkit-overflow-scrolling:touch;scrollbar-width:none;margin:12px -14px;padding:0 14px}
+  .tabs::-webkit-scrollbar{display:none}
+  .tab{white-space:nowrap;padding:10px 14px;flex:none}
+  .stats{grid-template-columns:repeat(2,1fr)}
+  .grid2{grid-template-columns:1fr}
+  .panel{padding:12px}
+  .steps .step{min-width:64px;font-size:11px}
+  table{display:block;overflow-x:auto;white-space:nowrap}
+  .tblwrap table{display:table}
+  td,th{padding:8px 8px}
+  pre{max-height:50vh;font-size:12px}
+  .stream pre{max-height:260px}
+  .reason-list dl{grid-template-columns:1fr}
+  .tree{max-height:34vh}.code{max-height:60vh}
+  .toast{left:12px;right:12px;bottom:12px}
+  dialog{width:96vw;max-width:96vw;padding:16px;max-height:92dvh;overflow:auto}
+  .chat{height:calc(100dvh - 130px);min-height:320px}
+  .msgs{padding:12px}.msg{max-width:92%}.msg .acts{opacity:1}
+  .chat-top select,.chat-meta select{max-width:100%;width:100%}
+  .composer textarea{font-size:16px}
+  .dash-cards{grid-template-columns:repeat(2,1fr);gap:8px}
+  .dcard .v{font-size:22px}
+}
 </style>
 </head>
 <body>
+<div id="sbBack" onclick="toggleSb()"></div>
+<button id="sbOpen" class="sb-btn" onclick="toggleSb()" title="Show sidebar" aria-label="Show sidebar">☰</button>
 <aside>
-  <header>CodeFactory</header>
+  <header><span>CodeFactory</span><button class="sb-btn" onclick="toggleSb()" title="Collapse sidebar" aria-label="Collapse sidebar">«</button></header>
   <div class="side-actions">
     <button class="primary" onclick="openNew()">+ New idea</button>
+    <button id="dashBtn" onclick="showDash()" title="Live AI metrics: running agents, tokens/s, GPU">Dashboard</button>
     <button id="chatBtn" onclick="showChat()" title="Talk to a local model, optionally with a project as context">Chat</button>
     <button onclick="openMaster()" title="Global instructions for all projects">Master prompt</button>
   </div>
@@ -256,8 +321,8 @@ function renderList(){
   $("#plist").innerHTML=jobs+(list.projects.map(p=>{const[c,t]=statusOf(p);
     return `<div class="card ${view==="project"&&p.name===sel?"sel":""}" onclick="select('${esc(p.name)}')"><div class="n"><span class="dot ${c}"></span>${esc(p.name)}${p.priority==="side"?` <span class="pill info" title="Side agent: only uses the GPU while the main agent is idle">side</span>`:""}</div><div class="s">${t} · ${p.merged} features · ${p.backlog.pending||0} open</div></div>`}).join("")||(jobs?"":'<div class="hint" style="padding:10px">No projects yet.</div>'));
 }
-function select(n){view="project";sel=n;localStorage.setItem("sel",n);tab="overview";dirty=false;detail=null;extra=null;diffView=null;codeView=null;codeOpen=new Set();codeInit=false;lastBody=lastHead=lastTabs="";renderList();refresh()}
-function showTool(){view="tool";tab="tool";toolTab_="tool";codeView=null;codeInit=false;codeOpen=new Set();dirty=false;extra=null;diffView=null;lastBody=lastHead=lastTabs="";renderList();refresh()}
+function select(n){closeSb();view="project";sel=n;localStorage.setItem("sel",n);tab="overview";dirty=false;detail=null;extra=null;diffView=null;codeView=null;codeOpen=new Set();codeInit=false;lastBody=lastHead=lastTabs="";renderList();refresh()}
+function showTool(){closeSb();view="tool";tab="tool";toolTab_="tool";codeView=null;codeInit=false;codeOpen=new Set();dirty=false;extra=null;diffView=null;lastBody=lastHead=lastTabs="";renderList();refresh()}
 
 /* ---- live status panel (re-rendered every second from the last data) ---- */
 function colorLog(t){
@@ -411,6 +476,7 @@ function codePanel(x){
 }
 function renderNow(){
   const box=$("#now");
+  if(view==="dash"){box.innerHTML="";box.className="";return}
   if(view==="tool"){
     const a=extra&&extra.act;
     if(!a||!a.running){box.className="now";box.innerHTML=`<div class="what">No self-change running</div>`;return}
@@ -594,7 +660,7 @@ async function deleteProject(){
 function setTab(k){LS=null;liveHtml="";tab=k;dirty=false;extra=null;lastBody="";$("#body").dataset.tab="";lastTabs="";renderProject();fetchExtra().then(renderProject)}
 async function fetchExtra(){
   try{
-    if(view==="chat")return;
+    if(view==="chat"||view==="dash")return;
     if(view==="tool"){
       const [t,act]=await Promise.all([api("/api/tool"),api("/api/tool/activity")]);
       extra={kind:"tool",...t,act};
@@ -703,7 +769,7 @@ function mdLite(t){
   }).join("");
 }
 async function showChat(id,projects){
-  view="chat";tab="chat";dirty=false;extra=null;lastBody=lastHead=lastTabs="";renderList();
+  closeSb();view="chat";tab="chat";dirty=false;extra=null;lastBody=lastHead=lastTabs="";renderList();
   $("#now").innerHTML="";$("#now").className="";$("#tabs").innerHTML="";
   $("#head").innerHTML=`<div class="top"><div><h1>Chat</h1><div class="idea">Talk to a local model. Link projects so it knows their goal, backlog and recent activity.</div></div></div>`;
   try{
@@ -845,6 +911,7 @@ setTimeout(()=>checkUpdate(false),1500);
 async function refresh(){
   try{
     list=await api("/api/projects");shownErr=false;applyChatToggle();
+    if(view==="dash"){await renderDash();return}
     if(view==="project"&&(!sel||!list.projects.some(p=>p.name===sel)))sel=list.projects[0]?.name||null;
     renderList();
     if(view==="project"&&sel)detail=await api("/api/project/"+encodeURIComponent(sel));
@@ -866,6 +933,51 @@ async function openQr(){
     $("#dQr").showModal()}catch(e){toast(e.message,true)}
 }
 api("/api/lan").then(r=>{if(r&&r.lan)$("#qrBtn").style.display=""}).catch(()=>{});
+const mobileQ=matchMedia("(max-width:800px)");
+function toggleSb(){
+  if(mobileQ.matches)document.body.classList.toggle("sb-open");
+  else{document.body.classList.toggle("sb-off");localStorage.setItem("sbOff",document.body.classList.contains("sb-off")?"1":"")}
+}
+function closeSb(){document.body.classList.remove("sb-open")}
+if(!mobileQ.matches&&localStorage.getItem("sbOff"))document.body.classList.add("sb-off");
+document.addEventListener("keydown",e=>{if(e.key==="Escape")closeSb()});
+
+/* ---- dashboard: live AI numbers, polled every 2 s while the view is open ---- */
+const DH={tps:[],gpu:[],vram:[]};
+const nfmt=n=>n>=1e6?(n/1e6).toFixed(1)+"M":n>=1e4?(n/1e3).toFixed(1)+"k":String(Math.round(n));
+function spark(a,max,cls){
+  if(a.length<2)return `<svg class="spark ${cls||""}" viewBox="0 0 100 34" preserveAspectRatio="none"></svg>`;
+  const m=max||Math.max(1,...a),pts=a.map((v,i)=>`${(i/(a.length-1)*100).toFixed(1)},${(32-Math.min(v,m)/m*30).toFixed(1)}`).join(" ");
+  return `<svg class="spark ${cls||""}" viewBox="0 0 100 34" preserveAspectRatio="none"><polyline points="${pts}"/></svg>`;
+}
+function showDash(){
+  closeSb();view="dash";tab="dash";dirty=false;extra=null;lastBody=lastHead=lastTabs="";renderList();
+  $("#now").innerHTML="";$("#now").className="";$("#tabs").innerHTML="";$("#body").dataset.tab="dash";
+  $("#head").innerHTML=`<div class="top"><div><h1>Dashboard</h1><div class="idea">What the local AI is doing right now. Tokens are counted from the model stream (about one per chunk).</div></div></div>`;
+  refresh();
+}
+async function renderDash(){
+  const d=await api("/api/dashboard");
+  if(view!=="dash")return;
+  DH.tps.push(d.tps);if(DH.tps.length>90)DH.tps.shift();
+  if(d.gpu){DH.gpu.push(d.gpu.util);DH.vram.push(d.gpu.mem_used/d.gpu.mem_total*100);if(DH.gpu.length>90){DH.gpu.shift();DH.vram.shift()}}
+  const g=d.gpu,t=d.totals;
+  const card=(k,v,sub,extra)=>`<div class="dcard"><div class="k">${k}</div><div class="v">${v}</div><div class="sub">${sub||""}</div>${extra||""}</div>`;
+  const cards=[
+    card("Agents running",(d.agents_running?`<span class="pulse"></span>`:"")+d.agents_running,`${d.calls_active} model call${d.calls_active===1?"":"s"} active`),
+    card("Tokens / s",`${d.tps}`,`${nfmt(d.live_tokens)} tokens in current calls`,spark(DH.tps,0)),
+    card("Characters now",nfmt(d.live_chars),"generated in current calls"),
+    g?card("GPU",`${g.util}<small>%</small>`,`${esc(g.name)} · ${g.temp}°C`,spark(DH.gpu,100,"gpu")):card("GPU","n/a","nvidia-smi not available"),
+    g?card("VRAM",`${(g.mem_used/1024).toFixed(1)}<small> / ${(g.mem_total/1024).toFixed(0)} GB</small>`,"video memory used",spark(DH.vram,100,"gpu")):"",
+    card("Loaded models",d.models.length,d.models.map(m=>esc(m.name)+" "+m.vram_gb+"GB").join(", ")||"none in memory"),
+    card("Today",nfmt(t.day_tokens)+"<small> tokens</small>",`${t.day_calls} calls · ${nfmt(t.day_chars)} chars`),
+    card("All time",nfmt(t.tokens)+"<small> tokens</small>",`${t.calls} calls · ${nfmt(t.chars)} chars`),
+  ].join("");
+  const rows=d.projects.map(p=>{const l=p.live,st=!p.running?`<span class="pill">idle</span>`:l.active?`<span class="pill ok">${l.streaming?"generating":"working"}</span>`:`<span class="pill info">${p.state?esc(p.state):"running"}</span>`;
+    return `<tr><td><b>${esc(p.name)}</b> ${p.priority==="side"?`<span class="pill info">side</span>`:""}</td><td>${st}</td><td>${l.active?esc(l.role||l.tag)+`<br><span class="hint" style="margin:0">${esc(l.model||"")}</span>`:"–"}</td><td>${l.tps||"–"}</td><td>${l.active?nfmt(l.tokens):"–"}</td><td>${l.active?nfmt(l.chars):"–"}</td><td>${p.coder_chars?nfmt(p.coder_chars):"–"}</td><td>${nfmt(p.tokens)}</td></tr>`}).join("");
+  $("#body").innerHTML=`<div class="dash-cards">${cards}</div><div class="panel"><h3>Per project</h3><div class="tblwrap"><table><tr><th>Project</th><th>State</th><th>Current call</th><th>tok/s</th><th>Tokens</th><th>Chars</th><th>Aider output</th><th>Total tokens</th></tr>${rows||`<tr><td colspan="8" class="hint">No projects yet</td></tr>`}</table></div></div>`;
+}
+setInterval(()=>{if(view==="dash")renderDash().catch(()=>{})},1500);
 refresh(); setInterval(refresh,3000); setInterval(renderNow,1000);
 let fastBusy=false,slowTick=0;
 setInterval(async()=>{

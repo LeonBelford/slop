@@ -248,6 +248,68 @@ class Service:
                 "coder_live": tail(a / "coder_live.txt", 400, 120_000) if running else "",
                 "cmd_live": tail(a / "cmd_live.txt", 400, 120_000) if running else ""}
 
+    @staticmethod
+    def live_rate(st: dict | None, now_t: float | None = None) -> dict:
+        """Live numbers of one LLM call from llm_stream.json; tokens/s is 0 once the stream has been quiet for 3 s."""
+        now_t = now_t or time.time()
+        if not st:
+            return {"active": False, "tokens": 0, "chars": 0, "tps": 0.0}
+        tokens, chars, t0, upd = st.get("tokens", 0), st.get("chars", 0), st.get("t0"), st.get("updated", 0)
+        fresh = now_t - upd < 3 and bool(t0)
+        tps = round(tokens / max(upd - t0, 0.5), 1) if fresh else 0.0
+        return {"active": True, "tokens": tokens, "chars": chars, "tps": tps, "role": st.get("role", ""), "tag": st.get("tag", ""),
+                "model": st.get("model", ""), "since": st.get("since"), "streaming": fresh}
+
+    @staticmethod
+    def gpu_stats() -> dict | None:
+        c = getattr(Service, "_gpu", None)
+        if c and time.time() - c[0] < 1.5:
+            return c[1]
+        res = None
+        try:
+            out = subprocess.run(["nvidia-smi", "--query-gpu=name,utilization.gpu,memory.used,memory.total,temperature.gpu",
+                                  "--format=csv,noheader,nounits"], capture_output=True, text=True, timeout=2).stdout.strip().splitlines()[0]
+            n, u, mu, mt, t = [x.strip() for x in out.split(",")]
+            res = {"name": n, "util": int(u), "mem_used": int(mu), "mem_total": int(mt), "temp": int(t)}
+        except Exception:  # noqa: BLE001
+            res = None
+        Service._gpu = (time.time(), res)
+        return res
+
+    @staticmethod
+    def loaded_models() -> list[dict]:
+        u = urllib.parse.urlparse(sa.DEFAULT_CONFIG["llm_api"])
+        try:
+            with urllib.request.urlopen(f"{u.scheme}://{u.netloc}/api/ps", timeout=1.5) as r:
+                return [{"name": m.get("name", ""), "vram_gb": round(m.get("size_vram", 0) / 1e9, 1)} for m in json.loads(r.read()).get("models", [])]
+        except Exception:  # noqa: BLE001
+            return []
+
+    def dashboard(self) -> dict:
+        """Everything the Dashboard shows: running agents, live token/char rates, totals, GPU and loaded models."""
+        rows, tot = [], {"calls": 0, "tokens": 0, "chars": 0, "day_calls": 0, "day_tokens": 0, "day_chars": 0}
+        sources = [(p.name, p, self.summary(p)) for p in sa.list_projects(self.projects)]
+        for name, ws, summ in sources:
+            a = ws / "agent"
+            live = self.live_rate(read_live(a / "llm_stream.json", summ["running"]))
+            m = sa.read_json(a / "metrics.json", {})
+            for k in tot:
+                tot[k] += m.get(k, 0)
+            sched = sa.read_json(a / "sched.json", {}) if summ["running"] else {}
+            rows.append({"name": name, "running": summ["running"], "priority": summ["priority"], "iteration": summ["iteration"],
+                         "state": sched.get("state", ""), "live": live, "calls": m.get("calls", 0), "tokens": m.get("tokens", 0),
+                         "chars": m.get("chars", 0), "coder_chars": (a / "coder_live.txt").stat().st_size if summ["running"] and (a / "coder_live.txt").exists() else 0})
+        tool_on = alive("tool")
+        if tool_on:
+            rows.append({"name": "Self-improve", "tool": True, "running": True, "priority": "main", "iteration": 0, "state": "",
+                         "live": self.live_rate(read_live(ROOT / "self_improve" / "llm_stream.json", True)), "calls": 0, "tokens": 0, "chars": 0, "coder_chars": 0})
+        running = [r for r in rows if r["running"]]
+        return {"time": time.time(), "projects": rows,
+                "agents_running": len(running), "calls_active": sum(1 for r in running if r["live"]["active"]),
+                "tps": round(sum(r["live"]["tps"] for r in running), 1),
+                "live_tokens": sum(r["live"]["tokens"] for r in running), "live_chars": sum(r["live"]["chars"] for r in running),
+                "totals": tot, "gpu": self.gpu_stats(), "models": self.loaded_models()}
+
     def tool_stream(self) -> dict:
         d, running = ROOT / "self_improve", alive("tool")
         return {"stream": read_live(d / "llm_stream.json", running), "llm": read_live(d / "llm_now.json", running),
@@ -879,6 +941,8 @@ def make_handler(svc: Service, port: int, token: str | None = None):
                     return svc.list()
                 if path == "/api/master":
                     return svc.get_master()
+                if path == "/api/dashboard":
+                    return svc.dashboard()
                 if path == "/api/languages":
                     return svc.languages()
                 if path == "/api/ui-settings":
