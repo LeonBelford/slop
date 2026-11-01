@@ -503,10 +503,28 @@ class Backlog:
         self.save()
         return item
 
+    def reload(self) -> None:
+        """Merges changes made from outside (web UI: new, cancelled or re-prioritised tasks) keeping the item objects in use."""
+        disk = read_json(self.path, None)
+        if not isinstance(disk, list):
+            return
+        mine = {i["id"]: i for i in self.items}
+        merged = []
+        for d in disk:
+            cur = mine.get(d.get("id"))
+            if cur is None:
+                merged.append(d)
+            else:
+                cur.clear()
+                cur.update(d)
+                merged.append(cur)
+        self.items[:] = merged
+
     def pending(self) -> list[dict]:
         return [i for i in self.items if i["status"] == "pending"]
 
     def next(self):
+        self.reload()
         p = self.pending()
         if not p:
             return None

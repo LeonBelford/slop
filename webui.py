@@ -10,10 +10,13 @@ import argparse
 import json
 import os
 import re
+import shutil
 import subprocess
 import sys
 import threading
 import urllib.parse
+import urllib.request
+import time
 import webbrowser
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
@@ -23,6 +26,9 @@ import codefactory as sa
 ROOT = Path(__file__).resolve().parent
 INDEX = ROOT / "web" / "index.html"
 MAX_BODY = 1_000_000
+MODEL_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_./:@-]{0,99}$")
+SETTING_LIMITS = {"max_hours": (1, 720), "max_iterations": (1, 5000), "max_attempts_per_task": (1, 8),
+                  "max_debug_rounds": (1, 8), "max_consecutive_failures": (1, 20), "min_review_score": (1, 10)}
 NAME_RE = re.compile(r"^[a-z0-9][a-z0-9-]{0,60}$")
 SHA_RE = re.compile(r"^[0-9a-f]{4,40}$")
 BRANCH_RE = re.compile(r"^self-improve/[0-9]{8}-[0-9]{6}$")
@@ -117,7 +123,18 @@ class Service:
             if key.startswith("init:") and not (self.projects / key[5:] / "agent" / "GOAL.md").exists():
                 jobs.append({"name": key[5:], "running": p.poll() is None, "code": p.poll(),
                              "log": tail(self.projects / ".ui" / f"init-{key[5:]}.log", 8)})
-        return {"projects": projects, "init_jobs": jobs, "master": bool(sa.read_master(self.master))}
+        return {"projects": projects, "init_jobs": jobs, "master": bool(sa.read_master(self.master)), "model_server": self.model_server()}
+
+    def model_server(self) -> dict:
+        """Is the model server reachable? Cached for 10 s because the UI polls."""
+        c = getattr(self, "_ms", None)
+        if c and time.time() - c[0] < 10:
+            return c[1]
+        api = sa.DEFAULT_CONFIG["llm_api"]
+        models = self.installed_models(api)
+        res = {"ok": bool(models), "models": len(models), "url": urllib.parse.urlparse(api).netloc}
+        self._ms = (time.time(), res)
+        return res
 
     def detail(self, name: str) -> dict:
         ws = self.ws(name)
@@ -247,6 +264,17 @@ class Service:
             if not msg:
                 raise UiError("Message is empty")
             sa.Agent(ws).add_feedback(msg)
+        elif action in ("task-cancel", "task-reopen", "task-top"):
+            self.backlog_edit(ws, action, body)
+        elif action == "settings":
+            self.save_settings(ws, body)
+            return {"ok": True, "applies": "next start" if self.summary(ws)["running"] else "now"}
+        elif action in ("rename", "delete"):
+            if self.summary(ws)["running"] or any(alive(f"{k}:{name}") for k in ("run", "do", "try")):
+                raise UiError("Stop the agent first (Stop or Force stop)", 409)
+            return self.rename(ws, body.get("name")) if action == "rename" else self.delete(ws, body)
+        elif action == "goal":
+            sa.write_text(a / "GOAL.md", str(body.get("text", "")))
         elif action == "ideas":
             sa.write_text(ws / "IDEAS.md", str(body.get("text", "")))
         elif action == "sources":
@@ -270,6 +298,94 @@ class Service:
             raise UiError("Project is already being created", 409)
         spawn(f"init:{name}", ["init", idea, name], self.projects / ".ui" / f"init-{name}.log", {"PRESET": preset})
         return {"ok": True, "name": name}
+
+    def settings(self, name: str) -> dict:
+        ws = self.ws(name)
+        conf = sa.read_json(ws / "agent" / "config.json", {})
+        eff = sa.Agent(ws).cfg
+        return {"settings": {"models": eff["models"], "coder_model": eff["coder_model"],
+                             "limits": {k: eff["limits"][k] for k in SETTING_LIMITS}, "web_mode": eff["web"]["mode"],
+                             "doc_language": eff["doc_language"], "preset": conf.get("preset", eff["preset"])},
+                "limit_bounds": SETTING_LIMITS, "installed_models": self.installed_models(eff["llm_api"])}
+
+    @staticmethod
+    def installed_models(api: str) -> list[str]:
+        u = urllib.parse.urlparse(api)
+        try:
+            with urllib.request.urlopen(f"{u.scheme}://{u.netloc}/api/tags", timeout=3) as r:
+                return sorted(m["name"] for m in json.loads(r.read()).get("models", []))
+        except Exception:  # noqa: BLE001
+            return []
+
+    def save_settings(self, ws: Path, body: dict) -> None:
+        conf = sa.read_json(ws / "agent" / "config.json", {})
+        models = body.get("models", {})
+        for role in ("planner", "reviewer", "summarizer"):
+            if role in models:
+                conf.setdefault("models", {})[role] = self.model_name(models[role])
+        if "coder_model" in body:
+            conf["coder_model"] = self.model_name(body["coder_model"])
+        for k, v in (body.get("limits") or {}).items():
+            if k not in SETTING_LIMITS:
+                raise UiError(f"Unknown limit: {k}")
+            lo, hi = SETTING_LIMITS[k]
+            try:
+                v = int(v)
+            except (TypeError, ValueError):
+                raise UiError(f"{k} must be a number")
+            if not lo <= v <= hi:
+                raise UiError(f"{k} must be between {lo} and {hi}")
+            conf.setdefault("limits", {})[k] = v
+        if "web_mode" in body:
+            if body["web_mode"] not in ("off", "sources", "open"):
+                raise UiError("Web mode must be off, sources or open")
+            conf.setdefault("web", {})["mode"] = body["web_mode"]
+        if "doc_language" in body:
+            lang = str(body["doc_language"]).strip()
+            if not re.fullmatch(r"[A-Za-z ]{2,30}", lang):
+                raise UiError("Invalid documentation language")
+            conf["doc_language"] = lang
+        sa.write_json(ws / "agent" / "config.json", conf)
+
+    @staticmethod
+    def model_name(v) -> str:
+        v = str(v).strip()
+        if not MODEL_RE.match(v):
+            raise UiError(f"Invalid model name: {v!r}")
+        return v
+
+    def rename(self, ws: Path, new: str) -> dict:
+        new = str(new or "").strip()
+        if not NAME_RE.match(new):
+            raise UiError("Name: lowercase letters, digits and dashes (max 61 characters)")
+        if (self.projects / new).exists():
+            raise UiError("A project with this name already exists", 409)
+        ws.rename(self.projects / new)
+        return {"ok": True, "name": new}
+
+    def delete(self, ws: Path, body: dict) -> dict:
+        if body.get("confirm") != ws.name:
+            raise UiError("Type the project name to confirm")
+        shutil.rmtree(ws)
+        return {"ok": True}
+
+    def backlog_edit(self, ws: Path, action: str, body: dict) -> None:
+        bl = sa.Backlog(ws / "agent" / "backlog.json")
+        item = next((i for i in bl.items if i["id"] == body.get("id")), None)
+        if not item:
+            raise UiError("Task not found", 404)
+        if action == "task-cancel":
+            if item["status"] not in ("pending", "blocked"):
+                raise UiError("Only open tasks can be cancelled")
+            bl.set(item, status="cancelled", notes=item.get("notes", []) + ["cancelled by you in the UI"])
+        elif action == "task-reopen":
+            if item["status"] not in ("blocked", "cancelled"):
+                raise UiError("Only blocked or cancelled tasks can be reopened")
+            bl.set(item, status="pending", attempts=0)
+        else:  # task-top
+            if item["status"] != "pending":
+                raise UiError("Only open tasks can be moved up")
+            bl.set(item, priority=max(i["priority"] for i in bl.items) + 1)
 
     def languages(self) -> dict:
         return {"stacks": sa.stacks.availability()}
@@ -351,6 +467,9 @@ def make_handler(svc: Service, port: int):
                 m = re.fullmatch(r"/api/project/([^/]+)", path)
                 if m:
                     return svc.detail(m.group(1))
+                m = re.fullmatch(r"/api/project/([^/]+)/settings", path)
+                if m:
+                    return svc.settings(m.group(1))
                 m = re.fullmatch(r"/api/project/([^/]+)/(llm|changes|diff)", path)
                 if m:
                     if m.group(2) == "llm":

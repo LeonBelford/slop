@@ -90,6 +90,7 @@ Two levels, both bounded:
 - **Change the tool itself** (sidebar): describe a change to the tool (Makefile, UI, ...). It runs `improve --task` on a branch `self-improve/<timestamp>`, never merges, and keeps `webaccess.py`, `selfimprove.py`, `.github/`, `.env` off limits. Review with `git diff HEAD...<branch>` and merge yourself. Autonomous `make self-improve` stays CLI-only.
 - **Live "Now" panel:** current step (plan, implement, build, review, cleanup, docs, merge), task, attempt, whether the agent waits for the model or Aider is editing, and recent events. Backed by `agent/activity.json`, `events.jsonl`, `llm_now.json`, `coder_now.json`.
 - **AI activity** tab shows every prompt and answer (`agent/llm.log`); **File changes** shows uncommitted files, files by churn and per-commit diffs.
+- **Managing projects:** the **Settings** tab edits models (with suggestions from your installed Ollama models), limits, web mode and documentation language (saved to `agent/config.json`, applied at the next start), renames a project and deletes it (agent must be stopped; you type the name to confirm). The **Goal** tab is editable. In the backlog you can move a task to the top, cancel it or reopen blocked/cancelled ones; a running agent picks these changes up on its next task. The sidebar shows whether the model server is reachable.
 
 ## Structure
 ```
