@@ -23,6 +23,25 @@ class SchedTests(unittest.TestCase):
     def tearDown(self):
         self.tmp.cleanup()
 
+    def test_two_projects_same_model_share_slots_different_model_waits(self):
+        a, b, c = (gpusched.Scheduler(n, "main", 0, lambda m: None, directory=Path(self.d), slots=2) for n in "abc")
+        with a.gpu("x", "ollama_chat/m1"):
+            with b.gpu("y", "m1"):  # same model (name normalised): runs side by side
+                got = threading.Event()
+                t = threading.Thread(target=lambda: (c.gpu("z", "m2").__enter__(), got.set()), daemon=True)
+                t.start()
+                self.assertFalse(got.wait(1.5))  # other model has to wait for the card
+            self.assertFalse(got.wait(1.5))
+        self.assertTrue(got.wait(5))
+
+    def test_third_call_waits_when_slots_are_full(self):
+        a, b, c = (gpusched.Scheduler(n, "main", 0, lambda m: None, directory=Path(self.d), slots=2) for n in "abc")
+        with a.gpu("x", "m"), b.gpu("y", "m"):
+            got = threading.Event()
+            threading.Thread(target=lambda: (c.gpu("z", "m").__enter__(), got.set()), daemon=True).start()
+            self.assertFalse(got.wait(1.5))
+        self.assertTrue(got.wait(5))
+
     def test_side_runs_freely_without_main(self):
         side = make(self.d, "side")
         with side.gpu("x"):

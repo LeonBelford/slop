@@ -237,7 +237,11 @@ class Service:
                 pass
         running = pid_alive(a / "agent.pid") or alive(f"run:{name}") or alive(f"do:{name}")
         live = tail(a / "coder_live.txt", 120, 60_000) if running else ""
-        return {"entries": rows[::-1], "stream": read_live(a / "llm_stream.json", running), "coder_live": live,
+        archived = 0
+        for f in (a / "thoughts-archive").glob("*.jsonl.gz"):
+            lo, _, hi = f.name.split(".")[0].partition("-")
+            archived += int(hi) - int(lo) + 1 if lo.isdigit() and hi.isdigit() else 0
+        return {"entries": rows[::-1], "archived": archived, "stream": read_live(a / "llm_stream.json", running), "coder_live": live,
                 "cmd": read_live(a / "cmd_now.json", running), "cmd_live": tail(a / "cmd_live.txt", 120, 60_000) if running else ""}
 
     def stream(self, name: str) -> dict:
@@ -259,6 +263,30 @@ class Service:
         tps = round(tokens / max(upd - t0, 0.5), 1) if fresh else 0.0
         return {"active": True, "tokens": tokens, "chars": chars, "tps": tps, "role": st.get("role", ""), "tag": st.get("tag", ""),
                 "model": st.get("model", ""), "since": st.get("since"), "streaming": fresh}
+
+    def coder_rate(self, name: str, a: Path) -> dict | None:
+        """Aider gives no token counter while it works: estimate tokens/s from how fast its output file grows (~4 chars per token)."""
+        now_t, now_j = time.time(), sa.read_json(a / "coder_now.json", None)
+        try:
+            size = (a / "coder_live.txt").stat().st_size
+        except OSError:
+            size = None
+        if not now_j or size is None:
+            return None
+        hist = self.__dict__.setdefault("_cgrow", {})
+        prev = hist.get(name)
+        if not prev or prev[2] != now_j.get("since") or size < prev[0]:
+            prev = (size, now_t, now_j.get("since"), 0.0, now_t)
+        dt = now_t - prev[1]
+        rate = prev[3]
+        if dt >= 1.0:
+            rate = 0.6 * prev[3] + 0.4 * (size - prev[0]) / 4 / dt
+            prev = (size, now_t, now_j.get("since"), rate, now_t)
+        elif size != prev[0]:
+            pass
+        hist[name] = prev
+        return {"active": True, "tokens": size // 4, "chars": size, "tps": round(rate, 1), "role": "coder", "tag": now_j.get("tag", ""),
+                "model": now_j.get("model", ""), "since": now_j.get("since"), "streaming": rate > 0, "estimated": True}
 
     @staticmethod
     def gpu_stats() -> dict | None:
@@ -292,6 +320,8 @@ class Service:
         for name, ws, summ in sources:
             a = ws / "agent"
             live = self.live_rate(read_live(a / "llm_stream.json", summ["running"]))
+            if not live["active"] and summ["running"]:
+                live = self.coder_rate(name, a) or live
             m = sa.read_json(a / "metrics.json", {})
             for k in tot:
                 tot[k] += m.get(k, 0)
@@ -607,6 +637,12 @@ class Service:
             conf["run"] = {"mode": rn.get("mode", "default"), "rounds": rounds}
         sc = body.get("scheduler")
         if sc:
+            try:
+                slots = int(sc.get("slots", 2))
+            except (TypeError, ValueError):
+                raise UiError("Parallel calls must be a whole number") from None
+            if not 1 <= slots <= 4:
+                raise UiError("Parallel calls must be between 1 and 4")
             if sc.get("priority", "main") not in ("main", "side"):
                 raise UiError("Priority must be main or side")
             try:
@@ -615,7 +651,7 @@ class Service:
                 raise UiError("min_idle must be a number") from None
             if not 0 <= idle <= 3600:
                 raise UiError("min_idle must be between 0 and 3600")
-            conf["scheduler"] = {"priority": sc.get("priority", "main"), "min_idle": idle}
+            conf["scheduler"] = {"priority": sc.get("priority", "main"), "min_idle": idle, "slots": slots}
         if "web_mode" in body:
             if body["web_mode"] not in ("off", "sources", "open"):
                 raise UiError("Web mode must be off, sources or open")

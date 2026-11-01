@@ -424,7 +424,8 @@ function reasoningBody(){
   const src=view==="tool"?(extra&&extra.act):(extra&&extra.kind==="reasoning"?extra:null);
   if(!src)return `<div class="hint">Loading…</div>`;
   const cards=src.entries.map(thoughtCard).join("");
-  return `<p class="hint">Every model call in full, live: the reasoning, the answer and the prompt, plus what Aider is writing (newest first). Models that think (deepseek-r1, qwen3, ...) show their reasoning too.</p>
+  const arch=view!=="tool"&&src.archived?`<p class="hint">${src.archived} older calls are stored compressed in <code>agent/thoughts-archive/</code>.</p>`:"";
+  return `${arch}<p class="hint">Every model call in full, live: the reasoning, the answer and the prompt, plus what Aider is writing (newest first). Models that think (deepseek-r1, qwen3, ...) show their reasoning too.</p>
   <div id="reasonlive"></div>
   <div class="reason-list">${cards||'<div class="hint">Nothing recorded yet. Every thought appears here as soon as the agent works.</div>'}</div>`;
 }
@@ -503,6 +504,7 @@ function renderNow(){
   ${stepper}${schedLine(a.sched)}${call}${a.queued_user_tasks&&a.queued_user_tasks.length?`<div class="sub" style="margin-top:8px">Your queued tasks: ${a.queued_user_tasks.map(esc).join("; ")}</div>`:""}${timeline(a.events)}`;
 }
 function schedLine(sc){
+  if(sc&&sc.state==="queued")return `<div class="call"><b class="lg-warn">⏳ Queued: ${esc(sc.detail||"waiting for another project")}</b></div>`;
   if(!sc||sc.priority!=="side")return "";
   const m={waiting:["lg-warn","⏸ Side agent: waiting for a free GPU (the main agent is working)"],preempted:["lg-warn","⏸ Side agent: stopped for the main agent, retrying when it is idle"],running:["lg-ok","▶ Side agent: using the GPU while main is idle"]}[sc.state]||["",sc.state];
   return `<div class="call"><b class="${m[0]}">${m[1]}</b>${sc.detail?` <span class="hint">${esc(sc.detail)}</span>`:""}</div>`;
@@ -628,8 +630,9 @@ function settingsBody(d){
     <label class="fld">documentation language<input id="doc-lang" value="${esc(st.doc_language)}"></label>
     <label class="fld">run mode<select id="run-mode"><option value="default" ${st.run.mode==="default"?"selected":""}>default: stop when 3 idea rounds find nothing</option><option value="rounds" ${st.run.mode==="rounds"?"selected":""}>fixed number of idea rounds</option><option value="endless" ${st.run.mode==="endless"?"selected":""}>endless: build until I stop it</option></select></label>
     <label class="fld">idea rounds (for "fixed")<input id="run-rounds" type="number" min="1" max="1000" value="${esc(st.run.rounds)}"></label>
-    <label class="fld">GPU priority<select id="sc-prio"><option value="main" ${st.scheduler.priority==="main"?"selected":""}>main (keeps the GPU)</option><option value="side" ${st.scheduler.priority==="side"?"selected":""}>side (only while main is idle)</option></select></label>
-    <label class="fld">side waits until main is idle for (s)<input id="sc-idle" type="number" min="0" max="3600" value="${esc(st.scheduler.min_idle)}"></label></div>
+    <label class="fld">GPU priority<select id="sc-prio"><option value="main" ${st.scheduler.priority==="main"?"selected":""}>normal (shares the GPU fairly)</option><option value="side" ${st.scheduler.priority==="side"?"selected":""}>side (only while main is idle)</option></select></label>
+    <label class="fld">side waits until main is idle for (s)<input id="sc-idle" type="number" min="0" max="3600" value="${esc(st.scheduler.min_idle)}"></label>
+    <label class="fld">Parallel model calls (same model only)<input id="sc-slots" type="number" min="1" max="4" value="${esc(st.scheduler.slots||2)}"></label></div>
     <p class="hint">Run one project as <b>main</b> and others as <b>side</b>: side agents use the GPU only in the pauses of main (its builds, tests, waiting) and are stopped as soon as main needs the model again.</p>
     <div class="row" style="justify-content:space-between;margin-top:10px"><span class="hint">Stack: <b>${esc(st.preset)}</b> (fixed after creation). ${d.running?"Changes apply at the next start.":""}</span><button class="primary" onclick="saveSettings()">Save settings</button></div></div>
     <div class="panel" style="margin-top:16px"><h3>Smart model routing (optional)</h3>
@@ -647,7 +650,7 @@ function settingsBody(d){
 async function saveSettings(){
   const v=id=>$("#"+id).value,limits={};
   document.querySelectorAll("[id^=lim-]").forEach(e=>limits[e.id.slice(4)]=e.value);
-  try{const r=await api(`/api/project/${sel}/settings`,{models:{planner:v("m-planner"),reviewer:v("m-reviewer"),summarizer:v("m-summarizer")},coder_model:v("m-coder"),limits,web_mode:v("web-mode"),routing:{mode:v("rt-mode"),light:v("rt-light"),heavy:v("rt-heavy"),final_reviewer:v("rt-final")},doc_language:v("doc-lang"),run:{mode:v("run-mode"),rounds:v("run-rounds")},scheduler:{priority:v("sc-prio"),min_idle:v("sc-idle")}});
+  try{const r=await api(`/api/project/${sel}/settings`,{models:{planner:v("m-planner"),reviewer:v("m-reviewer"),summarizer:v("m-summarizer")},coder_model:v("m-coder"),limits,web_mode:v("web-mode"),routing:{mode:v("rt-mode"),light:v("rt-light"),heavy:v("rt-heavy"),final_reviewer:v("rt-final")},doc_language:v("doc-lang"),run:{mode:v("run-mode"),rounds:v("run-rounds")},scheduler:{priority:v("sc-prio"),min_idle:v("sc-idle"),slots:v("sc-slots")}});
     dirty=false;toast(r.applies==="now"?"Settings saved":"Saved, applies at the next start");extra=null;await fetchExtra();lastBody="";renderProject()}catch(e){toast(e.message,true)}
 }
 async function renameProject(){
@@ -657,7 +660,7 @@ async function deleteProject(){
   const n=sel;if(!confirm(`Delete "${n}" and all its files permanently?`))return;
   try{await api(`/api/project/${n}/delete`,{confirm:$("#delconfirm").value});toast("Project deleted");sel=null;localStorage.removeItem("sel");tab="overview";dirty=false;detail=null;extra=null;lastBody=lastHead=lastTabs="";await refresh()}catch(e){toast(e.message,true)}
 }
-function setTab(k){LS=null;liveHtml="";tab=k;dirty=false;extra=null;lastBody="";$("#body").dataset.tab="";lastTabs="";renderProject();fetchExtra().then(renderProject)}
+function setTab(k){$("#main").scrollTop=0;LS=null;liveHtml="";tab=k;dirty=false;extra=null;lastBody="";$("#body").dataset.tab="";lastTabs="";renderProject();fetchExtra().then(renderProject)}
 async function fetchExtra(){
   try{
     if(view==="chat"||view==="dash")return;
@@ -695,7 +698,7 @@ async function runTask(){
 
 /* ---- tool view ---- */
 const TOOL_STEPS=[["plan","Plan"],["backup","Backup"],["impact","Impact"],["implement","Implement"],["security","Security"],["test","Test"],["review","Review"],["docs","Docs"]];
-function toolTab(k){LS=null;liveHtml="";toolTab_=k;dirty=false;lastBody=lastTabs="";extra=null;codeView=null;renderTool();refresh()}
+function toolTab(k){$("#main").scrollTop=0;LS=null;liveHtml="";toolTab_=k;dirty=false;lastBody=lastTabs="";extra=null;codeView=null;renderTool();refresh()}
 function renderTool(){
   $("#head").innerHTML=`<div class="top"><div><h1>Change the tool itself</h1><div class="idea">Tell it what to change in this program (Makefile, scripts, web UI, agent loop, docs). It does only what you write, on a separate git branch, and never merges by itself.</div></div></div>`;
   const tabs=[["tool","Task"],["reason","Reasoning"],["changes","Changes"],["log","Live log"]];
@@ -933,6 +936,19 @@ async function openQr(){
     $("#dQr").showModal()}catch(e){toast(e.message,true)}
 }
 api("/api/lan").then(r=>{if(r&&r.lan)$("#qrBtn").style.display=""}).catch(()=>{});
+/* Re-rendering must never move what the user scrolled: keep scroll positions (also horizontal ones: tables, tabs) across innerHTML swaps */
+(()=>{
+  const d=Object.getOwnPropertyDescriptor(Element.prototype,"innerHTML"),KEEP=new Set(["body","now","tabs","head"]);
+  Object.defineProperty(Element.prototype,"innerHTML",{get(){return d.get.call(this)},set(v){
+    if(!this.id||!KEEP.has(this.id)){d.set.call(this,v);return}
+    const main=document.getElementById("main"),top=main?main.scrollTop:0,pos=[];
+    this.querySelectorAll("*").forEach((e,i)=>{if(e.scrollLeft||e.scrollTop)pos.push([i,e.scrollLeft,e.scrollTop])});
+    d.set.call(this,v);
+    const all=this.querySelectorAll("*");
+    pos.forEach(([i,l,t])=>{const e=all[i];if(e){e.scrollLeft=l;e.scrollTop=t}});
+    if(main&&this.id!=="body"&&main.scrollTop!==top)main.scrollTop=top;
+  }});
+})();
 const mobileQ=matchMedia("(max-width:800px)");
 function toggleSb(){
   if(mobileQ.matches)document.body.classList.toggle("sb-open");
@@ -974,8 +990,10 @@ async function renderDash(){
     card("All time",nfmt(t.tokens)+"<small> tokens</small>",`${t.calls} calls · ${nfmt(t.chars)} chars`),
   ].join("");
   const rows=d.projects.map(p=>{const l=p.live,st=!p.running?`<span class="pill">idle</span>`:l.active?`<span class="pill ok">${l.streaming?"generating":"working"}</span>`:`<span class="pill info">${p.state?esc(p.state):"running"}</span>`;
-    return `<tr><td><b>${esc(p.name)}</b> ${p.priority==="side"?`<span class="pill info">side</span>`:""}</td><td>${st}</td><td>${l.active?esc(l.role||l.tag)+`<br><span class="hint" style="margin:0">${esc(l.model||"")}</span>`:"–"}</td><td>${l.tps||"–"}</td><td>${l.active?nfmt(l.tokens):"–"}</td><td>${l.active?nfmt(l.chars):"–"}</td><td>${p.coder_chars?nfmt(p.coder_chars):"–"}</td><td>${nfmt(p.tokens)}</td></tr>`}).join("");
+    return `<tr><td><b>${esc(p.name)}</b> ${p.priority==="side"?`<span class="pill info">side</span>`:""}</td><td>${st}</td><td>${l.active?esc(l.role||l.tag)+`<br><span class="hint" style="margin:0">${esc(l.model||"")}</span>`:"–"}</td><td>${l.tps?(l.estimated?"~":"")+l.tps:"–"}</td><td>${l.active?nfmt(l.tokens):"–"}</td><td>${l.active?nfmt(l.chars):"–"}</td><td>${p.coder_chars?nfmt(p.coder_chars):"–"}</td><td>${nfmt(p.tokens)}</td></tr>`}).join("");
+  const keepTop=$("#main").scrollTop;
   $("#body").innerHTML=`<div class="dash-cards">${cards}</div><div class="panel"><h3>Per project</h3><div class="tblwrap"><table><tr><th>Project</th><th>State</th><th>Current call</th><th>tok/s</th><th>Tokens</th><th>Chars</th><th>Aider output</th><th>Total tokens</th></tr>${rows||`<tr><td colspan="8" class="hint">No projects yet</td></tr>`}</table></div></div>`;
+  $("#main").scrollTop=keepTop;
 }
 setInterval(()=>{if(view==="dash")renderDash().catch(()=>{})},1500);
 refresh(); setInterval(refresh,3000); setInterval(renderNow,1000);

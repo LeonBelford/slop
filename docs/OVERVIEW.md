@@ -78,3 +78,12 @@ LAN login cookie is `SameSite=Lax` (a QR scanner opens the link cross-site and `
 `GET /api/dashboard` feeds the Dashboard view (polled every 1.5 s only while it is open). `LLM._read` counts stream chunks (Ollama emits about one token per chunk) and publishes `tokens`, `chars` and `t0` in `agent/llm_stream.json`; tokens/s is `tokens / (updated - t0)` and drops to 0 after 3 s of silence. Finished calls add to `agent/metrics.json` (totals and per-day counters; Aider output is not counted). GPU numbers come from `nvidia-smi` and loaded models from Ollama `/api/ps`; both are optional and silently absent when unavailable.
 
 The layout switches at 800 px: the sidebar becomes an off-canvas drawer (☰ top left, backdrop, closes on selection or Escape), tables scroll horizontally, grids stack, inputs use 16 px to prevent iOS zoom. On desktop the « button collapses the sidebar and the choice is stored in `localStorage`.
+
+## Smart GPU queue (no marking needed)
+All non-side agents share the model server through `gpusched.py`: at most `scheduler.slots` (default 2, Settings → "Parallel model calls") calls run at once, first come first served, and only calls with the same model run side by side (Aider and the API name models differently, they are normalised). A different model waits for the card so a 12 GB GPU never swaps models back and forth; while one project builds or tests, the next one gets the GPU. The UI shows "Queued" in the Now box. `side` projects still only run while everybody else is idle. For real parallel decoding start Ollama with `OLLAMA_NUM_PARALLEL=2`.
+
+## Token numbers
+Calls send `stream_options.include_usage`, so finished calls add exact `completion_tokens`/`prompt_tokens` to `agent/metrics.json`; live values count stream chunks. Aider runs are counted from its "Tokens: X sent, Y received" lines; its live rate is an estimate (`~`, output growth / 4 chars).
+
+## Reasoning log archive
+`thoughts.jsonl` keeps the newest 150 calls; older ones move (gzip, prompts cut to 1500 chars) to `agent/thoughts-archive/<first>-<last>.jsonl.gz`. The Reasoning tab always opens at the top.
