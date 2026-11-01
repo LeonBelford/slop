@@ -4,6 +4,7 @@ from __future__ import annotations
 from pathlib import Path
 from infra.webaccess import WebError
 from core import blueprint
+from core.cfa_rules import fail_rate
 from dash import estimate
 import json
 from infra import knowledge
@@ -330,9 +331,10 @@ class ResearchMixin:
                  "avg_review": round(sum(r["review_score"] for r in done if isinstance(r["review_score"], (int, float)))
                                      / max(1, len(done)), 2),
                  "blocked": sum(1 for i in self.backlog.items if i["status"] == "blocked")}
+        self.judge_playbook(rows)
         old = (self.dir / "playbook.md").read_text("utf-8") if (self.dir / "playbook.md").exists() else ""
         lp = self.mem.dir / "lessons.jsonl"
-        lessons = [json.loads(l)["lesson"] for l in lp.read_text("utf-8").splitlines()[-15:] if l.strip()] if lp.exists() else []
+        lessons = [r["lesson"] for r in sorted(self.mem.lessons(), key=self.mem.lesson_weight, reverse=True)[:15]] if lp.exists() else []
         try:
             d = self.llm.json("reflect", "planner",
                               "You are the agent reviewing your own performance on this project. Find recurring causes of failed "
@@ -343,13 +345,14 @@ class ResearchMixin:
                               f"Recent failures: {json.dumps([{k: r.get(k) for k in ('title', 'type', 'why')} for r in failed[-10:]])}\n"
                               f"Recent lessons: {lessons}\nCurrent playbook:\n{clip(old, 2500)}\n"
                               'Schema: {"playbook": "markdown, max 15 bullet rules, replaces the current playbook", '
-                              '"tuning": {"<limit name>": <int>}, '
+                              '"tuning": {"<limit name>": <int>}, "master_suggestions": ["up to 3 rules that are NOT project specific"], '
                               '"tool_improvements": ["problems or ideas about the agent tool itself (prompts, loop, tooling)"]}')
         except Exception as e:  # noqa: BLE001
             self.log(f"Reflection skipped: {e}")
             return
         if str(d.get("playbook", "")).strip():
-            write_text(self.dir / "playbook.md", clip(str(d["playbook"]), 4000))
+            self.save_playbook(str(d["playbook"]), fail_rate(rows)[0])
+        self.master_suggestions(d.get("master_suggestions") or [])
         tuning = read_json(self.dir / "tuning.json", {})
         for k, v in (d.get("tuning") or {}).items():
             try:

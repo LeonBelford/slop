@@ -16,6 +16,7 @@ class ConductorMixin:
     # ---- Task journal: shared working memory of one task
     def journal_start(self, item: dict) -> None:
         self.journal: list[str] = []
+        self.pinned, self.tried = "", []
         self.note("task", f"{item['id']} {item['title']} | acceptance: {clip(str(item.get('acceptance')), 300)}")
 
     def note(self, kind: str, text: str) -> None:
@@ -24,10 +25,12 @@ class ConductorMixin:
             self.journal = []
         self.journal.append(f"- [{kind}] {' '.join(str(text).split())[:400]}")
         body = "\n".join(self.journal)
-        self.llm.session_note = body[:300] + "\n...\n" + body[-(JOURNAL_CHARS - 300):] if len(body) > JOURNAL_CHARS else body
+        body = body[:300] + "\n...\n" + body[-(JOURNAL_CHARS - 300):] if len(body) > JOURNAL_CHARS else body
+        pinned = getattr(self, "pinned", "")
+        self.llm.session_note = (pinned + "\n\nJournal:\n" if pinned else "") + body
         rd = getattr(self, "run_dir", None)
         if rd:
-            write_text(rd / "journal.md", "# Task journal\n" + body + "\n")
+            write_text(rd / "journal.md", "# Task journal\n" + (pinned + "\n\n" if pinned else "") + body + "\n")
 
     def journal_file(self) -> list[str]:
         p = getattr(self, "run_dir", None)
@@ -84,6 +87,14 @@ class ConductorMixin:
     def replan_if_stuck(self) -> bool:
         """When several tasks are blocked or failing, re-think the plan (strategist) instead of grinding on; at most every few merges."""
         blocked = sum(1 for i in self.backlog.items if i["status"] == "blocked")
+        if self.state.pop("milestone_replan", False):  # the milestone review found the product drifting from the vision
+            self.state["auto_replan_at"] = self.state["merged"]
+            self.log("Conductor: the milestone review asks for a new plan")
+            try:
+                self.reevaluate()
+            except Exception as e:  # noqa: BLE001
+                self.log(f"Conductor: re-evaluation failed ({e})")
+            return True
         stuck = blocked >= 3 or self.state.get("consecutive_failures", 0) >= 3
         if not stuck or self.state["merged"] - self.state.get("auto_replan_at", -REPLAN_EVERY_MERGES) < REPLAN_EVERY_MERGES:
             return False

@@ -104,6 +104,7 @@ class PlanMixin:
             self.mem.refresh_architecture()
         except Exception as e:  # noqa: BLE001  (bookkeeping only)
             self.log(f"Layer bookkeeping skipped: {clip(str(e), 200)}")
+        self.milestone_review(layer, name)
 
     def reevaluate(self) -> dict:
         """Thinks the plan through again for an existing project: new layers, every open task re-ordered into them, gaps in the

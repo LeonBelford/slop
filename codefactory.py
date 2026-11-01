@@ -95,9 +95,13 @@ from core.cfa_ops import OpsMixin
 from core.cfa_plan import PlanMixin
 from core.cfa_split import SplitMixin
 from core.cfa_conductor import ConductorMixin
+from core.cfa_handoff import HandoffMixin
+from core.cfa_milestone import MilestoneMixin
+from core.cfa_rules import RulesMixin
+from core.cfa_spike import SpikeMixin
 
 
-class Agent(BuildMixin, FlowMixin, VerifyMixin, SecurityMixin, ResearchMixin, OpsMixin, PlanMixin, SplitMixin, ConductorMixin):
+class Agent(BuildMixin, FlowMixin, VerifyMixin, SecurityMixin, ResearchMixin, OpsMixin, PlanMixin, SplitMixin, ConductorMixin, SpikeMixin, MilestoneMixin, RulesMixin, HandoffMixin):
     def __init__(self, ws: Path, cfg: dict | None = None):
         self.ws = ws.resolve()
         self.repo, self.dir = self.ws / "repo", self.ws / "agent"

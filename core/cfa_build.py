@@ -35,6 +35,7 @@ class BuildMixin:
 
     # ---- Coder (Aider)
     def code(self, tag: str, edit: list[str], read: list[str], prompt: str) -> str:
+        prompt = self.handoff_text() + prompt
         if self.coder_mock:
             return self.coder_mock(self.repo, tag, edit, read, prompt)
         pf = self.run_dir / f"{tag}.prompt.md"
@@ -53,12 +54,27 @@ class BuildMixin:
         cmd += edit
         env = {"OLLAMA_API_BASE": os.getenv("OLLAMA_API_BASE", "http://localhost:11434"), "PYTHONUNBUFFERED": "1"}
         t0 = time.time()
-        while True:
-            with self.llm.sched.gpu(f"coder/{tag}", model) as gate:
-                rc, out = sh_live(cmd, self.repo, self.lim["coder_timeout"], self.dir / "coder_live.txt", env=env, gate=gate, idle=True)
-            if rc != gpusched.PREEMPTED_RC:
-                break
-            self.log(f"⏸ [coder/{tag}] Aider stopped for the main agent, retrying when the GPU is idle")
+
+        def run_aider(args: list[str]) -> tuple[int, str]:
+            while True:
+                with self.llm.sched.gpu(f"coder/{tag}", model) as gate:
+                    rc, out = sh_live(args, self.repo, self.lim["coder_timeout"], self.dir / "coder_live.txt", env=env, gate=gate, idle=True)
+                if rc != gpusched.PREEMPTED_RC:
+                    return rc, out
+                self.log(f"⏸ [coder/{tag}] Aider stopped for the main agent, retrying when the GPU is idle")
+
+        before = self.work_fingerprint(edit)
+        rc, out = run_aider(cmd)
+        if edit and self.work_fingerprint(edit) == before and out.count("```") >= 2:
+            # reasoning models often write the code into the chat only; force a real file write before anything is tested again
+            self.log(f"[coder/{tag}] code was only written into the chat, no file changed: retrying once in whole-file mode")
+            write_text(pf, prompt + "\n\nIMPORTANT: your last answer put code only in the chat and changed NO file. Do not explain. "
+                                     "Return the complete updated content of each file you must change so that it is written to disk.")
+            rc, out2 = run_aider(cmd + ["--edit-format", "whole"])
+            out += "\n" + out2
+            if self.work_fingerprint(edit) == before:
+                self.log(f"[coder/{tag}] still no file written")
+                self.note("coder", f"{tag} produced no file change even in whole-file mode")
         (self.dir / "coder_now.json").unlink(missing_ok=True)
         (self.dir / "coder_live.txt").unlink(missing_ok=True)
         self.llm.record(tag, "coder", model, prompt, out, "", time.time() - t0)
@@ -66,6 +82,14 @@ class BuildMixin:
         if rc != 0:
             self.log(f"Aider exit code {rc} for {tag}: {tail(out, 300)}")
         return out
+
+    def work_fingerprint(self, files: list[str]) -> str:
+        """Hash of the working tree state and the content of the files the coder may edit; equal before and after means nothing was written."""
+        parts = [self.git.run("status", "--porcelain")[1]]
+        for f in sorted(files):
+            fp = self.repo / f
+            parts.append(sha(fp.read_text("utf-8", "replace")) if fp.is_file() else "-")
+        return sha("\n".join(parts))
 
     # ---- Build/test
     def verify(self) -> tuple[bool, str]:
@@ -100,7 +124,7 @@ class BuildMixin:
         schema = ('{"understanding": "", "files_to_change": ["existing paths"], "new_files": ["new paths"], '
                   '"read_only_context": ["paths"], "affected_dependents": ["paths that might break"], '
                   '"invariants": ["..."], "risks": ["..."], "steps": ["..."], "tests_to_add": ["..."], '
-                  '"docs_to_update": ["..."], "test_files": ["paths of the test files to create or extend"], "security_impact": "new inputs, endpoints, files, commands, secrets or dependencies this change exposes, and how each is protected"}')
+                  '"docs_to_update": ["..."], "decisions": [{"decision": "", "because": ""}], "do_not": ["pitfalls the coder must avoid"], "done_when": ["observable checks that prove it works"], "test_files": ["paths of the test files to create or extend"], "security_impact": "new inputs, endpoints, files, commands, secrets or dependencies this change exposes, and how each is protected"}')
         plan = self.llm.json("impact", "planner", sys_p,
                              f"Task {item['id']} ({item['type']}): {item['title']}\n{item['description']}\n"
                              f"Acceptance: {item.get('acceptance')}\nStack: {self.cfg['stack']}\n"
@@ -128,6 +152,11 @@ class BuildMixin:
         plan["new_files"] = plan.get("new_files", [])
         write_json(self.run_dir / "plan.json", plan)
         write_text(self.run_dir / "context.md", ctx)
+        self.handoff("implementation", "planning", goal=f"{item['id']} {item['title']}: {plan.get('understanding', '')}",
+                     decided=[f"{d.get('decision')} because {d.get('because')}" for d in plan.get("decisions") or [] if isinstance(d, dict)],
+                     do=plan.get("steps") or [], do_not=list(plan.get("do_not") or []) + list(plan.get("risks") or []),
+                     done_when=list(plan.get("done_when") or []) + [str(item.get("acceptance") or "")],
+                     open=[f"watch dependents: {plan.get('affected_dependents')}"] if plan.get("affected_dependents") else [])
         self.note("plan", f"understanding: {plan.get('understanding', '')} | change: {plan.get('files_to_change')} new: {plan.get('new_files')} | "
                           f"steps: {plan.get('steps')} | invariants: {plan.get('invariants')}")
         return plan
@@ -158,6 +187,11 @@ class BuildMixin:
             self.code("implement" if len(groups) == 1 else f"implement{n}", edit, read + tests, prompt)
         if not self.coder_mock and not self.git.changed_files():
             raise RuntimeError("the coder made no usable edit")
+        self.handoff("build and debug", "implementation", goal=item["title"],
+                     decided=[f"changed or created: {self.git.changed_files()[:10]}", f"intended steps: {(plan.get('steps') or [])[:4]}"],
+                     do=["fix the root cause of any failure with the smallest edit that keeps the intended behaviour"],
+                     do_not=["delete or weaken tests", "rewrite code that already works", "change files unrelated to the failure"],
+                     done_when=["build and tests are green"])
 
     def debug_loop(self, item: dict) -> tuple[bool, str]:
         self.phase("Building and running tests", "build")
@@ -174,12 +208,17 @@ class BuildMixin:
             self.log(f"Debug round {n}: {report.splitlines()[0]}")
             self.note("debug", f"round {n} failed: {clip(report.splitlines()[0], 200)}")
             self.phase(f"Debugging, round {n}", "build", report.splitlines()[0])
+            self.handoff("debug fix", "build/test", goal=item["title"],
+                         decided=[f"current failure: {report.splitlines()[0]}"] + [f"already tried, did not fix it: {t}" for t in self.tried[-3:]],
+                         do=["find the cause, not the symptom, then fix it", "write every change into the files; code shown only in the chat is lost and the next test run is wasted"],
+                         do_not=["repeat an approach listed as already tried", "delete or weaken tests"], done_when=["build and tests are green"])
             mentioned = [f for f in re.findall(r"[\w./-]+\.(?:py|js|ts|html)", report) if (self.repo / f).exists()]
             files = sorted(set(self.git.changed_files()) | set(mentioned))[:self.lim["max_files_per_task"] + 4]
             self.code(f"debug{n}", files, [str(self.run_dir / "context.md")],
                       f"The build/test failed. Find the cause (not the symptoms) and fix it.\n"
                       f"The task was: {item['title']}\n\nError report:\n{report}\n\n{self.RULES}\n"
                       "Do not delete or weaken tests just to make them pass.")
+            self.tried.append(f"round {n} on '{clip(report.splitlines()[0], 100)}' edited {files[:4]}")
             ok, report = self.verify_stage()
             sig = failures.signature(report)
             if not ok and n >= 2 and sig == last_sig:
@@ -321,6 +360,11 @@ class BuildMixin:
                       + "\n".join(previous[-3:]) + f"\n\n{self.RULES}")
         else:
             plan = self.impact_analysis(item, previous)
+            if self.spike_due(item, plan):
+                worked, finding = self.spike(item, plan)
+                if not worked:
+                    previous.append(f"A throwaway spike of the planned approach failed: {finding}. Choose a different approach.")
+                    plan = self.impact_analysis(item, previous)
             self.implement(item, plan)
         ok, report = self.debug_loop(item)
         if not ok:
@@ -340,6 +384,10 @@ class BuildMixin:
         self.note("review", f"score {review.get('score')} {review.get('verdict')}: {clip(json.dumps(review.get('issues', [])), 300)}")
         if review.get("verdict") == "revise" or review.get("score", 10) < self.lim["min_review_score"]:
             self.log(f"Review requests revision (score {review.get('score')})")
+            self.handoff("review fix", "review", goal=item["title"],
+                         decided=[f"review score {review.get('score')}: {review.get('summary', '')}"],
+                         do=[f"{i.get('file')}: {i.get('problem')} -> {i.get('fix')}" for i in review.get("issues", []) if isinstance(i, dict)],
+                         do_not=["change behaviour the review did not criticise", "delete tests"], done_when=["every listed issue is fixed and tests stay green"])
             self.code("review_fix", sorted(set(self.git.changed_files()))[:self.lim["max_files_per_task"] + 4],
                       [str(self.run_dir / "context.md")],
                       f"Fix these review points:\n{json.dumps(review.get('issues', []), indent=1)}\n\n{self.RULES}")

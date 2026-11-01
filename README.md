@@ -207,11 +207,21 @@ At `init` the agent no longer builds a flat feature list. It designs an **archit
 
 **Tasks that do not finish:** after the failed attempts (or `max_task_minutes`, default 120) a task is not simply blocked: the strategist splits it into 2-4 smaller slices (smallest working core first; whoever waited for it waits for the last slice). A task that is blocked anyway gets a fresh start after 2 other merges, up to twice.
 
+**Spike, milestones, learning rules:** uncertain tasks (blocked before, many risks) first get a *spike*: the smallest proof of the approach on throwaway work, discarded afterwards; if it fails the plan is redone before real coding. After every finished layer a *milestone review* checks the product against the vision, adds missing tasks, cancels obsolete ones and can schedule a re-plan (`agent/milestones.jsonl`). The project playbook is versioned and judged by its effect: if the failure rate rises clearly after a rule change, the previous playbook is restored. General rules the agent finds are collected in `agent/master_suggestions.md` for you to copy into MASTER.md.
+
 **Conductor:** before each task the agent looks at its recent results and shapes the pipeline: *fast* for docs/tests, *flow* after five clean tasks (skips the plan critique), *careful* when half of the recent tasks failed (stronger model, one more debug round, no optional extras). Build, tests, security, review and acceptance are never skipped. If the project is stuck (3 blocked or 3 failures in a row) it re-evaluates the plan by itself. Every task also keeps a *journal* (plan, files, failed rounds, review) that is shown to every later prompt of that task, so stages no longer start blind.
 
 **Strict but productive:** every gate stays (build, tests, security, review, acceptance). Once build and tests are green the work is saved on a `agent/wip-<id>` branch; if a later gate rejects it, the retry continues from that work and only fixes the rejected points instead of rewriting everything.
 
 **Re-evaluate tasks:** the button *Re-evaluate tasks* (or `scripts/run.sh replan <name>`, agent stopped) lets the *strategist* model re-think architecture and layers, re-order open tasks, add missing foundation tasks and cancel redundant ones (your own tasks stay). The strategist model is set in the project settings; empty means the planner.
+
+## Handoffs between steps
+
+Every step ends with a structured instruction for the next one: goal, decisions with reasons, what to do, what not to do, when it is done and what is still open. Plan → implement, implement → debug, each debug round (with a list of what was already tried), review → fix, acceptance, security and a failed attempt → next attempt all use it. The block is pinned in front of every coder prompt and model call of the task and stored at the top of `journal.md`, so reasoning is not lost between fresh chats.
+
+## Write guard for reasoning models
+
+If a coder call (typically a reasoning model) answers with code only in the chat and no file changed, the agent retries once in Aider whole-file mode with an explicit "write it to disk" instruction, and notes it in the task journal if it still wrote nothing. Debug handoffs also remind the model that code shown only in the chat is lost.
 
 ## Models (RTX 3060, 12 GB)
 Rough guidelines, not measured on your hardware; check tags and licenses at [ollama.com/library](https://ollama.com/library).

@@ -6,7 +6,7 @@ import re
 
 from core.cfutil import clip
 
-FEATURE_DEFAULTS = {"test_first": "auto", "step_by_step": "auto", "acceptance_check": True, "retry_replan": True, "protect_tests": True}
+FEATURE_DEFAULTS = {"test_first": "auto", "step_by_step": "auto", "acceptance_check": True, "retry_replan": True, "protect_tests": True, "spike": True}
 TEST_DEF = re.compile(r"^\s*(?:async\s+def\s+test_|def\s+test_|func\s+Test|fn\s+test_|@Test\b|(?:it|test|describe)\s*\(|public\s+void\s+test)", re.M)
 
 
@@ -107,6 +107,8 @@ class FlowMixin:
         if not open_:
             return True
         self.log(f"Acceptance check: {len(open_)} of {len(crit)} criteria not met, one fix round")
+        self.handoff("acceptance fix", "acceptance check", goal=item["title"], do=[f"make this true: {c}" for c in open_],
+                     do_not=["remove existing behaviour or tests"], done_when=["every listed criterion is demonstrably met by code and a test"])
         self.code("acceptance_fix", sorted(set(self.git.changed_files()))[:self.lim["max_files_per_task"] + 4], [str(self.run_dir / "context.md")],
                   f"These acceptance criteria are not met yet:\n{json.dumps(open_, indent=1)}\n\n{self.RULES}")
         ok, _ = self.debug_loop(item)
@@ -121,6 +123,9 @@ class FlowMixin:
                               f"Task: {item['title']}\n{item['description']}\nFailed attempts:\n" + "\n".join(previous) +
                               '\nSchema: {"cause": "root cause in one sentence", "change": "what to do differently this time, concretely"}')
             previous.append(f"Strategy for the next attempt: cause: {d.get('cause', '')}; do differently: {d.get('change', '')}")
+            self.handoff("planning of the next attempt", "failure analysis", goal=item["title"],
+                         decided=[f"root cause of the last failure: {d.get('cause', '')}"], do=[str(d.get("change", ""))],
+                         do_not=["repeat the approach of the failed attempt"])
             self.log(f"Retry strategy: {clip(str(d.get('change', '')), 160)}")
         except Exception as e:  # noqa: BLE001
             self.log(f"Retry strategy failed: {e}")
