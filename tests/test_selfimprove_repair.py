@@ -153,3 +153,45 @@ class SmartHelpersTests(unittest.TestCase):
             msg = selfimprove._new_tests_red(repo, ["A\ttests/test_new.py"])
             self.assertIn("already pass", msg)
             self.assertEqual(selfimprove._fast_tests(repo, ["A\ttests/test_new.py"])[0], True)
+
+
+class RoutingTests(unittest.TestCase):
+    def test_route_uses_installed_models_and_falls_back(self):
+        class L:
+            installed = {"qwen2.5-coder:14b", "devstral:24b", "qwen2.5-coder:7b"}
+            overrides = {}
+        r = selfimprove._route(L())
+        self.assertEqual((r["light"], r["heavy"]), ("qwen2.5-coder:7b", "devstral:24b"))
+        L.installed = {"qwen2.5-coder:14b"}
+        r = selfimprove._route(L())
+        self.assertEqual((r["light"], r["heavy"]), (None, None))
+
+    def test_coder_for_picks_model_by_job_and_defaults(self):
+        def base(*a): return "base"
+        base.routes = {"light": "qwen2.5-coder:7b", "heavy": "devstral:24b"}
+        base.use = lambda name: (lambda *a: name)
+        self.assertEqual(selfimprove._coder_for(base, "heavy")(None, [], ""), "devstral:24b")
+        self.assertEqual(selfimprove._coder_for(base, "light")(None, [], ""), "qwen2.5-coder:7b")
+        self.assertIs(selfimprove._coder_for(base, "standard"), base)
+        plain = lambda *a: 1  # noqa: E731
+        self.assertIs(selfimprove._coder_for(plain, "heavy"), plain)
+
+    def test_last_repair_round_uses_heavy_model(self):
+        used = []
+
+        def coder(work, files, prompt):
+            if not prompt.startswith(("Add tests", "Documentation update")):
+                (work / "app.py").write_text("X = 5\n")
+        coder.routes = {"light": None, "heavy": "devstral:24b"}
+        coder.use = lambda name: (lambda w, f, p: (used.append(name), coder(w, f, p))[1])
+        with tempfile.TemporaryDirectory() as d:
+            repo = make_repo(Path(d))
+            sa.LLM.mock = lambda tag, *a: json.dumps({"files": ["app.py"]}) if tag == "tool_files" else "{}"
+            real = selfimprove._tests_green
+            selfimprove._tests_green = lambda w, t: (False, "red")
+            try:
+                selfimprove.directed("Change X to 5", repo=repo, coder=coder, log=lambda m: None)
+            finally:
+                sa.LLM.mock = None
+                selfimprove._tests_green = real
+        self.assertEqual(used, ["devstral:24b"])

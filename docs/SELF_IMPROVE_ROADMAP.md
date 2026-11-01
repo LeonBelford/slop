@@ -28,6 +28,7 @@ request → requirements checklist → one small step per requirement → per st
 - [x] Lessons notebook `self_improve/lessons.md` fed back into later prompts
 - [x] Content-based file candidates (`_keyword_files`) next to the planner's guess
 - [x] Optional stronger model for the last repair round (`CODER_MODEL_BIG`)
+- [x] Smart model routing across installed models (light docs coder, heavy coder for hard steps/late repair rounds, strongest reviewer)
 - [x] Track record in the UI (success rate, repaired steps, failed rounds)
 - [x] Per-round log (problem and diagnosis) in the Plan tab
 
