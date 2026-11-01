@@ -98,3 +98,9 @@ Tool → Changes tab → "Try it before you merge": `POST /api/tool/preview` che
 
 ## Aider timeout = silence, not total time
 `limits.coder_timeout` (1500 s) now only counts time **without output** from Aider (self-improve and the project agents). As long as it keeps writing it is never cut off; a hard cap of 6 h still stops a runaway. Build/test commands keep their absolute timeouts.
+
+## Self-change plan, todo and preview verification
+- `runledger.py` writes `self_improve/runs/<ts>.json` for every run (`Ledger`): the request as requirements (`tool_requirements`; a short request stays one), per proposal the stages impact / implement / tests_added / security / test / review / docs (`ok`, `failed`, `warn`, `skipped`), the impact plan, and after the run the requirement status from `tool_verify` (`done`, `partial`, `missing`, `unverified`). Auto runs use one requirement per proposal. UI: Tool → Plan tab (`/api/tool/run`), plus a summary above the preview box in Changes.
+- Tests: when code changed but no new test file exists, the coder gets one extra "Add tests for this change" round (existing tests stay protected); if it still has none, the stage shows `warn` and the summary says "no new tests".
+- Preview verification (`runledger.verify_checkout`, runs in a thread after "Try this version"): checkout == branch tip, no stray local changes, changed files identical to the branch, changed `.py` compile, preview server answers, `/api/build` reports exactly that commit, the served `index.html` equals the branch's, core routes answer, new `/api/...` routes found in the diff are listed. Merge asks for confirmation when the preview was not verified.
+- `/api/build` returns the commit the server was started from; `/api/tool` adds `build.restart_needed` when HEAD moved on (after a merge) so the UI shows a restart banner.

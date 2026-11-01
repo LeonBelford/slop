@@ -22,6 +22,7 @@ Two different things are called "agent memory", do not mix them up:
 | `selfimprove.py` | Self-improvement of this repo on `self-improve/<ts>` branches (worktree, tests, security gate, review, docs) |
 | `webui.py` | HTTP server + `Service` (JSON API, process spawning, dashboard, tool preview/merge) |
 | `web/index.html` | The whole UI in one file (CSS, markup, JS; no build step) |
+| `runledger.py` | Run ledger of self-changes (requirements checklist, plan, stages; `self_improve/runs/`) and `verify_checkout` for the preview |
 | `gpusched.py` | GPU queue between agents (fair slots, same-model affinity, side/main priority) |
 | `chat.py` | Chat store (`projects/.ui/chats/`), project context, SSE streaming |
 | `knowledge.py` | Per-project SQLite FTS5 + optional embeddings index (`knowledge.db`, a rebuildable view) |
@@ -68,20 +69,20 @@ LLM calls: `LLM.chat(tag, role, system, user)`; roles `planner`, `reviewer`, `su
   host/origin are checked (DNS-rebinding guard).
 - `Service` methods back the routes: projects (`summary`, `list`, `detail`, `activity`, `thoughts`, `stream`, `tree`, `changes`,
   settings), dashboard (`dashboard`, `live_rate`, `coder_rate`, `gpu_stats`, `loaded_models`), tool (`tool`, `tool_task`,
-  `tool_activity`, `tool_stream`, `tool_tree`, `tool_diff`, `preview_*`, `tool_merge`, `tool_undo_merge`), update, chats, models.
-- Route table is in `make_handler` (`handle_any`): GET `/api/projects`, `/api/project/<n>[/settings|llm|changes|diff|thoughts|tree|file|stream]`,
+  `tool_activity`, `tool_stream`, `tool_tree`, `tool_diff`, `tool_run`, `preview_*`, `tool_merge`, `tool_undo_merge`), update, chats, models.
+- Route table is in `make_handler` (`handle_any`): GET `/api/build`, `/api/tool/run[?id=|branch=]`, `/api/projects`, `/api/project/<n>[/settings|llm|changes|diff|thoughts|tree|file|stream]`,
   `/api/dashboard`, `/api/tool[/stream|activity|tree|file|diff]`, `/api/chats`, `/api/chat/<id>`, `/api/models`, `/api/lan`, `/api/update/*`;
   POST `/api/projects`, `/api/project/<n>/<action>`, `/api/tool/task`, `/api/tool/preview[/tests|stop]`, `/api/tool/merge`,
   `/api/tool/undo-merge`, `/api/chats`, `/api/ui-settings`, `/api/master`.
 - Processes started by the UI (`spawn`) go through `scripts/run.sh` in their own session so they survive the UI.
-- `index.html`: global `view` (`project` | `tool` | `chat` | `dash`), `tab`/`toolTab_`, `refresh()` (3 s), `renderNow()` (1 s),
+- `index.html`: global `view` (`project` | `tool` | `chat` | `dash`; tool tabs Task / Plan / Reasoning / Changes / Live log), `tab`/`toolTab_`, `refresh()` (3 s), `renderNow()` (1 s),
   fast 450 ms stream poll for the Reasoning tab (`LS`, `liveInto`), `setBody()` keeps scroll/open state, sidebar drawer on phones.
 
 ## 6. Self-improve (`selfimprove.py`)
 `gather_evidence` → planner proposes ≤ 3 changes (`main`) or the user gives one task (`directed`) → `_implement`: backup tag +
 bundle, git worktree on `self-improve/<ts>`, per proposal: `_impact` → Aider → protected-file check → `_security_gate` →
-`_tests_green` (selftest + unit tests) → `_review` → commit → `_docs_pass`. Nothing is merged automatically. The UI can try a
-branch in a separate worktree/port (`preview_*`) and merge it with a backup tag and undo (`tool_merge`).
+`_tests_green` (selftest + unit tests) → `_review` → commit → `_docs_pass`. Every run writes a ledger (`runledger.Ledger`): the request split into requirements (`tool_requirements`), per proposal the stages impact / implement / new tests / security / test / review / docs, and at the end a requirement check against the diff (`tool_verify`). A change without a new test file gets one extra "Add tests" round. Nothing is merged automatically. The UI can try a
+branch in a separate worktree/port (`preview_*`; `runledger.verify_checkout` proves the preview runs that exact commit, UI and routes; `/api/build` reports the commit a server was started from) and merge it with a backup tag and undo (`tool_merge`).
 
 ## 7. Protected files and invariants (do not weaken)
 - Protected from self-change: `webaccess.py`, `security.py`, `selfimprove.py`, `.github/`, `.env`, `scripts/quick-setup-popos.sh`

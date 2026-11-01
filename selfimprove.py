@@ -7,6 +7,9 @@ concrete code improvements. They are implemented in a separate git worktree on a
   * every proposal is committed only if `selftest` and the unit tests stay green
   * safety-critical files (web fetch guard, UI guard, this module, existing tests, CI) are off limits; a proposal that
     changes them is reverted
+  * every run keeps a ledger (self_improve/runs/<ts>.json, runledger.py): the requirements as a checklist, the plan, the stage of
+    every proposal and the verification result; the UI shows it in the "Plan" tab. A change without new tests gets one extra
+    round to add them
   * PROJECT_MAP.md (complete project description) is mandatory: it is part of every planning prompt and passed to Aider
     with --read; without it the run aborts
   * you review the branch (`git diff main...self-improve/<ts>`) and merge it yourself
@@ -22,6 +25,7 @@ import time
 from pathlib import Path
 
 import codefactory as sa
+import runledger
 import security
 
 PROTECTED = ("webaccess.py", "security.py", "webui.py", "selfimprove.py", ".github/", ".env", "scripts/quick-setup-popos.sh")
@@ -271,10 +275,12 @@ def main(projects: Path, dry_run: bool = False, repo: Path | None = None, llm=No
     STATE = out_dir
     _wire(llm, stamp)
     _phase("plan", "Reading evidence from the projects and proposing improvements")
+    ledger = runledger.Ledger(out_dir, stamp, "auto", "Autonomous improvement from the evidence of all projects")
 
     evidence = gather_evidence(projects)
     if not any(p["tool_ideas"] or p["failed_attempts"] for p in evidence["projects"]):
         log("No evidence yet: let at least one project run and reflect first (it records tool ideas every few merges).")
+        ledger.status("failed", "No evidence yet")
         return {"branch": None, "proposals": []}
     pmap = project_map(repo, required=_is_tool(repo))  # mandatory for the real tool: without the map there is no plan
     code_files = sorted(p.name for p in repo.glob("*.py") if p.name not in PROTECTED) + ["scripts/run.sh", "MASTER.md"]
@@ -293,11 +299,13 @@ def main(projects: Path, dry_run: bool = False, repo: Path | None = None, llm=No
         for i, p in enumerate(proposals, 1)]
     sa.write_text(out_dir / f"proposals-{stamp}.md", "\n".join(md))
     log(f"{len(proposals)} proposals written to self_improve/proposals-{stamp}.md")
+    ledger.set_requirements([f"{p['title']}: {p.get('rationale', '')}" for p in proposals])
     if dry_run or not proposals:
+        ledger.status("done", "Proposals only" if proposals else "No proposals")
         return {"branch": None, "proposals": proposals}
 
     try:
-        return _implement(repo, proposals, coder, stamp, out_dir, log, PROTECTED, llm)
+        return _implement(repo, proposals, coder, stamp, out_dir, log, PROTECTED, llm, ledger)
     finally:
         _phase("")
 
@@ -319,8 +327,63 @@ def make_backup(repo: Path, stamp: str, out_dir: Path, log) -> str:
     return tag
 
 
-def _implement(repo: Path, proposals: list[dict], coder, stamp: str, out_dir: Path, log, protected: tuple, llm=None) -> dict:
+def _changes(work: Path) -> list[str]:
+    _git(work, "add", "-A")
+    return [l for l in _git(work, "diff", "--cached", "--name-status")[1].splitlines() if l.strip()]
+
+
+def _needs_tests(changes: list[str]) -> tuple[bool, bool]:
+    """(code changed, a new test file is part of the change)."""
+    paths = [(l.split("\t")[0][:1], l.split("\t")[-1]) for l in changes]
+    code = any(not f.startswith(("tests/", "docs/")) and f.endswith((".py", ".html", ".sh")) for _, f in paths)
+    new = any(st == "A" and f.startswith("tests/") and f.endswith(".py") for st, f in paths)
+    return code, new
+
+
+def _verify_requirements(repo: Path, base: str, branch: str, ledger, llm, log) -> None:
+    """Marks every requirement done / partial / missing by comparing it with the finished diff."""
+    reqs = ledger.d["requirements"]
+    if ledger.d["kind"] == "auto":  # one requirement per proposal, in the same order
+        for r, pr in zip(reqs, ledger.d["proposals"]):
+            ledger.mark_requirement(r["id"], "done" if pr["status"] == "kept" else "failed", pr["note"] or "kept after green tests")
+        return
+    diff = _git(repo, "diff", f"{base}..{branch}")[1]
+    results = []
+    if llm is not None and reqs:
+        try:
+            d = llm.json("tool_verify", "reviewer",
+                         "You check whether each requirement of the user is implemented by the diff. Be strict: 'done' only if the diff clearly "
+                         "does it, 'partial' if something is missing, 'missing' if it is not there.",
+                         f"Requirements: {json.dumps([{'id': r['id'], 'text': r['text']} for r in reqs])}\nDiff:\n{sa.clip(diff, 14000)}\nSchema: "
+                         '{"results": [{"id": 1, "status": "done|partial|missing", "evidence": "file or reason"}]}')
+            results = d.get("results", []) if isinstance(d, dict) else []
+        except Exception as e:  # noqa: BLE001
+            log(f"  requirement check failed: {e}")
+    seen = set()
+    for r in results:
+        if isinstance(r, dict) and isinstance(r.get("id"), int) and r.get("status") in ("done", "partial", "missing"):
+            ledger.mark_requirement(r["id"], r["status"], r.get("evidence", ""))
+            seen.add(r["id"])
+    for r in reqs:
+        if r["id"] not in seen:
+            ledger.mark_requirement(r["id"], "unverified", "could not be checked automatically; review the diff")
+    log("  requirements: " + ", ".join(f"{r['id']}={r['status']}" for r in ledger.d["requirements"]))
+
+
+def _implement(repo: Path, proposals: list[dict], coder, stamp: str, out_dir: Path, log, protected: tuple, llm=None, ledger=None) -> dict:
+    ledger = ledger or runledger.Ledger(out_dir, stamp, "auto")
+    if not ledger.d["requirements"]:
+        ledger.set_requirements([p["title"] for p in proposals])
+    try:
+        return _implement_run(repo, proposals, coder, stamp, out_dir, log, protected, llm, ledger)
+    except Exception as e:  # noqa: BLE001
+        ledger.status("failed", f"{type(e).__name__}: {e}")
+        raise
+
+
+def _implement_run(repo: Path, proposals: list[dict], coder, stamp: str, out_dir: Path, log, protected: tuple, llm, ledger) -> dict:
     """Implements proposals one by one in a worktree on a new branch; keeps only green, non-protected changes."""
+    ledger.status("working")
     branch, work = f"self-improve/{stamp}", out_dir / "work" / stamp
     _phase("backup", "Saving a backup of the current version")
     make_backup(repo, stamp, out_dir, log)  # always, before the new version can be merged or pushed
@@ -331,54 +394,106 @@ def _implement(repo: Path, proposals: list[dict], coder, stamp: str, out_dir: Pa
     kept = []
     try:
         for p in proposals:
+            pi = ledger.add_proposal(p["title"])
+            ledger.proposal(pi, "running")
             files = [f for f in p.get("files", []) if isinstance(f, str) and (work / f).is_file()
                      and not f.startswith(protected)]
             log(f"▶ [implement] {p['title']}")
             _phase("implement", p["title"])
+            ledger.stage(pi, "impact", "running")
             files, impact = _impact(work, p, files, llm, log, protected)
+            ledger.stage(pi, "impact", "ok" if impact else "skipped")
+            ledger.proposal(pi, plan=f"Files: {files}\n{sa.clip(impact, 1500)}")
             _phase("implement", p["title"])
+            ledger.stage(pi, "implement", "running")
             coder(work, files, f"{p['change']}\n\nRationale: {p.get('rationale', '')}\n{impact}\n"
                   "Write secure code: validate input, no shell injection, no secrets, never disable or loosen a safeguard. Keep the change small and focused. Do not modify existing tests; add new tests if sensible. Standard library only. "
                   "Documentation is updated in a separate step afterwards.")
-            _git(work, "add", "-A")
-            changes = [l for l in _git(work, "diff", "--cached", "--name-status")[1].splitlines() if l.strip()]
+            changes = _changes(work)
             bad = protected_violations(changes, protected)
             if bad:
                 ok, report = False, f"touches protected files: {bad}"
             elif not changes:
                 ok, report = False, "no changes"
             else:
-                ok, report = _security_gate(work, p, llm, coder, log)
+                code, has_tests = _needs_tests(changes)
+                if code and not has_tests:
+                    _phase("implement", "Adding tests for the change")
+                    ledger.stage(pi, "tests_added", "running")
+                    coder(work, [f for f in files if (work / f).is_file()][:4],
+                          f"Add tests for this change: {p['title']}.\nCreate a NEW unittest file in tests/ (standard library only) that "
+                          "checks the new behavior and would fail without it. Do not modify existing tests and do not change non-test code.")
+                    changes = _changes(work)
+                    bad = protected_violations(changes, protected)
+                    has_tests = _needs_tests(changes)[1]
+                if bad:
+                    ok, report = False, f"touches protected files: {bad}"
+                else:
+                    ledger.stage(pi, "implement", "ok")
+                    ledger.stage(pi, "tests_added", "ok" if has_tests else ("warn" if code else "skipped"),
+                                 "" if has_tests else "no new test file was written")
+                    ledger.stage(pi, "security", "running")
+                    ok, report = _security_gate(work, p, llm, coder, log)
+                    ledger.stage(pi, "security", "ok" if ok else "failed", report)
                 if ok:
                     _phase("test", "Selftest and unit tests on the changed copy")
+                    ledger.stage(pi, "test", "running")
                     ok, report = _tests_green(work, 900)
+                    ledger.stage(pi, "test", "ok" if ok else "failed", report)
                 if ok:
                     _git(work, "add", "-A")
+                    ledger.stage(pi, "review", "running")
                     ok, report = _review(work, p, llm, log)
+                    ledger.stage(pi, "review", "ok" if ok else "failed", report)
+            if not ok and ledger.d["proposals"][pi]["stages"]["implement"] == "running":
+                ledger.stage(pi, "implement", "failed", report)
             if ok:
                 _git(work, "-c", "user.name=codefactory", "-c", "user.email=agent@localhost", "commit", "-q", "-m",
                      f"self-improve: {p['title']}\n\n{p.get('rationale', '')}")
                 kept.append(p["title"])
+                ledger.proposal(pi, "kept")
                 log("  kept (tests green)")
                 _phase("docs", "Updating README and docs")
+                ledger.stage(pi, "docs", "running")
                 _docs_pass(work, p, coder, log)
+                ledger.stage(pi, "docs", "ok")
             else:
                 _git(work, "reset", "-q", "--hard", "HEAD")
                 _git(work, "clean", "-qfd")
+                ledger.proposal(pi, "reverted", note=report[:500])
                 log(f"  reverted: {report}")
     finally:
         _git(repo, "worktree", "remove", "--force", str(work))
         shutil.rmtree(work, ignore_errors=True)
     if not kept:
         _git(repo, "branch", "-D", branch)
+        _verify_requirements(repo, base, branch, ledger, llm, log)
+        ledger.finish("failed", summary="No proposal survived the checks. Nothing to review.", base=base)
         log("No proposal survived the checks. Nothing to review.")
         return {"branch": None, "proposals": proposals}
+    _verify_requirements(repo, base, branch, ledger, llm, log)
+    ledger.finish("done", branch=branch, base=base, summary=f"{len(kept)} of {len(proposals)} proposal(s) kept",
+                  **runledger.describe_branch(repo, base, branch))
     log(f"Branch {branch} has {len(kept)} commit(s). Review: git diff main...{branch}   Merge: git merge {branch}")
     return {"branch": branch, "proposals": proposals, "kept": kept, "base": base}
 
 
 if __name__ == "__main__":
     main(Path("projects"))
+
+
+def _requirements(llm, instruction: str, log) -> list[str]:
+    """The user's request as a checklist of separate, checkable requirements (falls back to the request itself)."""
+    try:
+        d = llm.json("tool_requirements", "planner",
+                     "Split the user's request for a code change into separate, checkable requirements. Keep the user's words, do not invent "
+                     "extra work. A short request is a single requirement.",
+                     f"Request:\n{instruction}\nSchema: " '{"requirements": ["..."]}')
+        reqs = [r.strip() for r in d.get("requirements", []) if isinstance(r, str) and r.strip()] if isinstance(d, dict) else []
+    except Exception as e:  # noqa: BLE001
+        log(f"Could not split the request: {e}")
+        reqs = []
+    return reqs[:10] or [instruction.strip()]
 
 
 def directed(instruction: str, repo: Path | None = None, llm=None, coder=None, log=print) -> dict:
@@ -395,6 +510,8 @@ def directed(instruction: str, repo: Path | None = None, llm=None, coder=None, l
     STATE = out_dir
     _wire(llm, stamp)
     _phase("plan", "Choosing which files must change")
+    ledger = runledger.Ledger(out_dir, stamp, "directed", instruction.strip())
+    requirements = _requirements(llm, instruction, log)
     pmap = project_map(repo, required=_is_tool(repo))  # mandatory for the real tool: without the map there is no plan
     tracked = sorted(l for l in _git(repo, "ls-files")[1].splitlines()
                      if not l.startswith(PROTECTED_DIRECTED) and not l.startswith("tests/") and l.count("/") <= 2)
@@ -410,7 +527,8 @@ def directed(instruction: str, repo: Path | None = None, llm=None, coder=None, l
     proposal = {"title": sa.clip(instruction.strip().splitlines()[0], 80), "rationale": "Requested directly by the user.",
                 "files": files, "change": instruction.strip(), "risk": "user"}
     sa.write_text(out_dir / f"task-{stamp}.md", f"# Directed task {stamp}\n\n{instruction}\n\nFiles: {files}\n")
+    ledger.set_requirements(requirements)
     try:
-        return _implement(repo, [proposal], coder, stamp, out_dir, log, PROTECTED_DIRECTED, llm)
+        return _implement(repo, [proposal], coder, stamp, out_dir, log, PROTECTED_DIRECTED, llm, ledger)
     finally:
         _phase("")

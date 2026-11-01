@@ -31,6 +31,7 @@ import chat as chatlib
 import codefactory as sa
 import models
 import qr
+import runledger
 import update
 
 ROOT = Path(__file__).resolve().parent
@@ -57,6 +58,14 @@ class UiError(Exception):
     def __init__(self, msg: str, code: int = 400):
         super().__init__(msg)
         self.code = code
+
+
+def head_sha() -> str:
+    p = subprocess.run(["git", "rev-parse", "HEAD"], cwd=str(ROOT), capture_output=True, text=True, timeout=10)
+    return p.stdout.strip() if p.returncode == 0 else ""
+
+
+BUILD = {"sha": "", "started": time.time()}  # the commit this process was started from (set in main())
 
 
 def alive(key: str) -> bool:
@@ -445,7 +454,9 @@ class Service:
             name, date, subject = (line.split("\x1f") + ["", ""])[:3]
             stat = git(ROOT, "diff", "--stat", f"HEAD...{name}").strip().splitlines()
             branches.append({"name": name, "date": date, "subject": subject, "stat": stat[-12:]})
+        head = head_sha()
         return {"running": alive("tool"), "log": tail(ROOT / "self_improve" / "ui.log", 60), "branches": branches, "preview": self.preview_state(),
+                "runs": runledger.list_runs(ROOT / "self_improve"), "build": {"sha": BUILD["sha"], "head": head, "restart_needed": bool(BUILD["sha"] and head != BUILD["sha"])},
                 "last_merge": sa.read_json(ROOT / "self_improve" / "last_merge.json", None)}
 
     # ---- try a self-improve branch locally before merging: separate checkout, separate port, empty projects folder
@@ -460,8 +471,27 @@ class Service:
             sa.write_json(self.PREVIEW.parent / "preview.json", info)
         up = alive("preview")
         return {"branch": info.get("branch") if up or alive("ptest") else None, "running": up, "port": info.get("port") if up else None,
-                "tests_running": alive("ptest"), "tests_rc": None if alive("ptest") else info.get("tests_rc"),
+                "verify": info.get("verify") if up else None, "tests_running": alive("ptest"), "tests_rc": None if alive("ptest") else info.get("tests_rc"),
                 "log": tail(self.PREVIEW.parent / "preview.log", 40), "tests_log": tail(self.PREVIEW.parent / "preview-tests.log", 40)}
+
+    def tool_run(self, run_id: str, branch: str = "") -> dict:
+        """The plan/todo ledger of one run (latest if none given; the run that produced `branch` if a branch is given)."""
+        out = ROOT / "self_improve"
+        d = runledger.run_for_branch(out, branch) if branch else None
+        if d is None:
+            runs = runledger.list_runs(out, 1)
+            d = runledger.load_run(out, run_id or (runs[0]["id"] if runs else ""))
+        return {"run": d, "phase": sa.read_json(out / "phase.json", None), "running": alive("tool")}
+
+    def _verify_preview(self, branch: str, port: int, out: Path) -> None:
+        info = sa.read_json(out / "preview.json", {})
+        info["verify"] = {"state": "running", "checks": []}
+        sa.write_json(out / "preview.json", info)
+        checks = runledger.verify_checkout(ROOT, self.PREVIEW, branch, port, alive=lambda: alive("preview"))
+        info = sa.read_json(out / "preview.json", {})
+        if info.get("branch") == branch and info.get("port") == port:  # skip if the preview was replaced meanwhile
+            info["verify"] = {"state": "done", "ok": all(c["ok"] for c in checks), "checks": checks, "at": time.time()}
+            sa.write_json(out / "preview.json", info)
 
     def preview_stop(self) -> dict:
         for key in ("preview", "ptest"):
@@ -496,6 +526,7 @@ class Service:
                                             start_new_session=True, env={**os.environ, "CODEFACTORY_GPU_DIR": str(out / "preview-gpu")})
         if body.get("tests"):
             self.preview_tests()
+        threading.Thread(target=self._verify_preview, args=(branch, port, out), daemon=True).start()
         time.sleep(1.2)
         return self.preview_state()
 
@@ -1102,6 +1133,10 @@ def make_handler(svc: Service, port: int, token: str | None = None):
                     return {"lan": True, "url": url, "svg": qr.svg(url)}
                 if path == "/api/tool":
                     return svc.tool()
+                if path == "/api/build":
+                    return {"sha": BUILD["sha"], "head": head_sha(), "started": BUILD["started"]}
+                if path == "/api/tool/run":
+                    return svc.tool_run(q.get("id", ""), q.get("branch", ""))
                 if path == "/api/chats":
                     return svc.chat_list()
                 if path == "/api/models":
@@ -1224,6 +1259,7 @@ def load_token(projects: Path) -> str:
 
 
 def serve(projects: Path, port: int, open_browser: bool = True, lan: bool = False) -> None:
+    BUILD["sha"], BUILD["started"] = head_sha(), time.time()
     svc = Service(projects)
     token = load_token(projects.resolve()) if lan else None
     srv = ThreadingHTTPServer(("0.0.0.0" if lan else "127.0.0.1", port), make_handler(svc, port, token))
