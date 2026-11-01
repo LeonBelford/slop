@@ -331,6 +331,10 @@ def make_handler(svc: Service, port: int, token: str | None = None):
                     return svc.tool()
                 if path == "/api/tool/models":
                     return svc.tool_models()
+                mc = re.fullmatch(r"/api/project/([^/]+)/chat", path)
+                if mc:
+                    svc.require_chat()
+                    return svc.chat_project(mc.group(1))
                 if path == "/api/tool/chat":
                     svc.require_chat()
                     return svc.chat_tool()

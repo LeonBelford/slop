@@ -5,7 +5,8 @@ import time
 from pathlib import Path
 
 import codefactory as sa
-from dash import chat as chatlib, toolchat, toolmodels
+from dash import chat as chatlib, chatweb, toolchat, toolmodels
+from infra.webaccess import Web
 
 from webapi import common
 from webapi.common import UiError
@@ -37,6 +38,19 @@ class ChatMixin:
         names = self.chats.clean_links(body.get("projects"))
         return self.chats.create(body, self.chat_default_model(names))
 
+    def chat_project(self, name: str) -> dict:
+        """The chat of one project; its model defaults to the project's planner."""
+        self.ws(name)
+        return self.chats.project_chat(name, self.chat_default_model([name]))
+
+    def chat_web(self, chat: dict, query: str) -> tuple[str, list[dict]]:
+        """Web results for the question when the chat has web search on (the first linked project's web settings apply)."""
+        if not chat.get("web"):
+            return "", []
+        ws = next((w for w in (self.chat_ws(n) for n in chat["projects"]) if w), None)
+        cfg = {**sa.DEFAULT_CONFIG["web"], **(sa.read_json(ws / "agent" / "config.json", {}).get("web", {}) if ws else {})}
+        return chatweb.search_context(Web(cfg), query)
+
     def chat_tool(self) -> dict:
         """The assistant chat about CodeFactory itself; its model defaults to the self-improve planner choice."""
         saved = toolmodels.load(common.ROOT / "self_improve").get("planner", "")
@@ -60,7 +74,10 @@ class ChatMixin:
         chat["updated"] = time.time()
         self.chats.save(chat)
         cfg = sa.DEFAULT_CONFIG
-        msgs = chatlib.build_messages(chat, self.chat_ws, cfg["llm_api"], cfg["api_key"], self.tool_context)
+        web_ctx, sources = self.chat_web(chat, text)
+        if sources:
+            write({"sources": sources})
+        msgs = chatlib.build_messages(chat, self.chat_ws, cfg["llm_api"], cfg["api_key"], self.tool_context, web_ctx)
         answer, err = "", ""
         try:
             for d in chatlib.stream_completion(cfg["llm_api"], cfg["api_key"], chat["model"], msgs):
@@ -72,7 +89,8 @@ class ChatMixin:
             err = f"{type(e).__name__}: {e}"
         finally:
             if answer:
-                chat["messages"].append({"role": "assistant", "content": answer, "t": time.time(), "model": chat["model"]})
+                chat["messages"].append({"role": "assistant", "content": answer, "t": time.time(), "model": chat["model"],
+                                         **({"sources": sources} if sources else {})})
                 chat["updated"] = time.time()
                 self.chats.save(chat)
         if err:
