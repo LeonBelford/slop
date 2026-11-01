@@ -33,6 +33,16 @@ request → requirements checklist → one small step per requirement → per st
 - [x] Track record in the UI (success rate, repaired steps, failed rounds)
 - [x] Per-round log (problem and diagnosis) in the Plan tab
 
+## Evaluation: making a small model succeed
+
+| Option | Verdict |
+|---|---|
+| Split the 2700-line `codefactory.py` into small modules | **Chosen.** A 14B model with a 16k window cannot hold a 30k-token file; with modules under 700 lines it edits whole files reliably, steps stay local, `_fit` fits more files |
+| Bigger context window | Rejected: KV cache pushes the model onto the CPU on 12 GB VRAM, slower overall |
+| Plugin system with auto-discovery | Later: more moving parts than the benefit; mixins + re-export already give the same locality |
+| Rewrite the pipeline as one agent loop | Rejected: the gate pipeline (tests, security, review) is what keeps small-model output safe |
+| Run review beside the tests, pin context, cut endless reasoning | **Done** (see Speed in the README) |
+
 ## 4. Next
 
 - [ ] Benchmark set of fixed tasks run against a scratch copy; compare success rate before/after a change to self-improve
