@@ -238,6 +238,20 @@ class Service:
         return {"entries": rows[::-1], "stream": read_live(a / "llm_stream.json", running), "coder_live": live,
                 "cmd": read_live(a / "cmd_now.json", running), "cmd_live": tail(a / "cmd_live.txt", 120, 60_000) if running else ""}
 
+    def stream(self, name: str) -> dict:
+        """Lightweight live state for the fast poll: only what is being written right now."""
+        a = self.ws(name) / "agent"
+        running = pid_alive(a / "agent.pid") or alive(f"run:{name}") or alive(f"do:{name}")
+        return {"stream": read_live(a / "llm_stream.json", running), "llm": read_live(a / "llm_now.json", running),
+                "coder_live": tail(a / "coder_live.txt", 400, 120_000) if running else "",
+                "cmd_live": tail(a / "cmd_live.txt", 400, 120_000) if running else ""}
+
+    def tool_stream(self) -> dict:
+        d, running = ROOT / "self_improve", alive("tool")
+        return {"stream": read_live(d / "llm_stream.json", running), "llm": read_live(d / "llm_now.json", running),
+                "coder_live": tail(d / "coder_live.txt", 400, 120_000) if running else "",
+                "cmd_live": tail(d / "cmd_live.txt", 400, 120_000) if running else ""}
+
     def _base(self, repo: Path, base: str) -> str:
         """Maps the UI's comparison choice to a git revision ('head' = uncommitted work, 'last:N' = last N commits)."""
         if not git(repo, "rev-parse", "--verify", "-q", "HEAD").strip():
@@ -853,6 +867,8 @@ def make_handler(svc: Service, port: int, token: str | None = None):
                 m = re.fullmatch(r"/api/chat/([a-f0-9]{12})", path)
                 if m:
                     return svc.chats.load(m.group(1))
+                if path == "/api/tool/stream":
+                    return svc.tool_stream()
                 if path == "/api/tool/activity":
                     return svc.tool_activity()
                 if path == "/api/tool/tree":
@@ -867,8 +883,10 @@ def make_handler(svc: Service, port: int, token: str | None = None):
                 m = re.fullmatch(r"/api/project/([^/]+)/settings", path)
                 if m:
                     return svc.settings(m.group(1))
-                m = re.fullmatch(r"/api/project/([^/]+)/(llm|changes|diff|thoughts|tree|file)", path)
+                m = re.fullmatch(r"/api/project/([^/]+)/(llm|changes|diff|thoughts|tree|file|stream)", path)
                 if m:
+                    if m.group(2) == "stream":
+                        return svc.stream(m.group(1))
                     if m.group(2) == "thoughts":
                         return svc.thoughts(m.group(1))
                     if m.group(2) == "tree":

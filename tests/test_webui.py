@@ -53,6 +53,14 @@ class ManageTests(unittest.TestCase):
             with self.assertRaises(webui.UiError):
                 self.svc.act("demo", "settings", bad)
 
+    def test_stream_endpoint_is_light_and_empty_when_idle(self):
+        (self.ws / "agent" / "llm_stream.json").write_text('{"tag": "plan", "thinking": "x", "answer": ""}')
+        r = self.svc.stream("demo")
+        self.assertEqual(set(r), {"stream", "llm", "coder_live", "cmd_live"})
+        self.assertIsNone(r["stream"])
+        self.assertEqual(r["coder_live"], "")
+        self.assertEqual(set(self.svc.tool_stream()), set(r))
+
     def test_task_edit_and_reload_by_running_agent(self):
         self.svc.act("demo", "task-top", {"id": "T0001"})
         self.svc.act("demo", "task-cancel", {"id": "T0002"})

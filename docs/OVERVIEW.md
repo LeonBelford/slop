@@ -35,7 +35,7 @@ Optional research with guards: http/https only, no private addresses, blocked do
 - Directed tasks ("Do a task"), project create/rename/delete/settings, kill switch.
 - **Chat:** streaming, Markdown rendering, Enter sends, thinking animation, link projects for context, "Add to ideas"/"Run as task".
 - **Settings → Models:** install and remove Ollama models with live progress (recommended list included); all model fields are dropdowns of installed models.
-- **Reasoning tab:** every model call in full (prompt, the model's own reasoning when it has one, answer), streamed live while it is written, plus live Aider and build/test output. Stored in `agent/thoughts.jsonl`.
+- **Reasoning tab:** every model call in full (prompt, the model's own reasoning when it has one, answer), streamed live while it is written, plus live Aider and build/test output. Stored in `agent/thoughts.jsonl`. The live boxes are updated incrementally (lightweight `/stream` endpoints, fast poll, text appended to one DOM node), never re-rendered, so selection and scroll position survive while text is generated.
 - **File changes tab:** collapsible folder tree of the whole codebase; pick a file to read it with line numbers, new/changed lines highlighted, comparable against uncommitted work or the last N commits.
 - **Update:** `make update` or the sidebar button pulls the latest version (fast-forward only, backup tag, dependency refresh, import check with automatic rollback). Blocked while agents run.
 - **Chat toggle:** the chat AI can be switched off in the sidebar so it never competes with the agent for the model server.

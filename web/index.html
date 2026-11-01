@@ -132,7 +132,10 @@ button.ghost.danger{color:var(--bad)}
 .loglegend{display:flex;gap:14px;font-size:12px;margin-bottom:8px}
 .loglegend .lg-step,.loglegend .lg-ok,.loglegend .lg-sec,.loglegend .lg-warn,.loglegend .lg-err{padding:1px 8px;border:1px solid currentColor;border-radius:10px}
 .think{display:flex;align-items:center;gap:12px;color:var(--mute)}
-.stream pre{max-height:240px;margin-top:4px}
+.stream pre{max-height:320px;margin-top:4px;resize:vertical;overflow:auto}
+.stream .meta{display:flex;align-items:center;gap:8px}.live-badge{color:#56d364;font-size:11px;animation:pulse 1.4s ease-in-out infinite}
+@keyframes pulse{50%{opacity:.35}}
+.jump{display:none;margin-left:auto}.stream.away .jump{display:inline-block}
 .reason-card pre[data-p],.reason-card .fold{cursor:zoom-in;transition:max-height .2s}
 .reason-card pre[data-p].big,.reason-card .fold.big{max-height:85vh!important;cursor:zoom-out;border-color:#56d364}
 .reason-card .fold{max-height:260px;overflow:auto}.thinktxt{color:#b8a8d8;font-style:italic}
@@ -283,34 +286,60 @@ function reasoningLive(){
   if(view==="tool")return liveInto(el,extra&&extra.act,extra&&extra.act);
   liveInto(el,detail&&detail.activity,extra&&extra.kind==="reasoning"?extra:{});
 }
+let LS=null;
 function liveInto(el,a,x){
+  if(!a||!a.running){if(el.innerHTML){el.innerHTML="";el.dataset.sig="";liveHtml=""}return}
+  const d=LS||x||{},st=d.stream,t=Date.now()/1000;
+  let kind,key,head,boxes=[];
+  if(a.llm){
+    const [cls,label]=tagInfo(a.llm.tag),got=st&&st.tag===a.llm.tag,s=Math.round(t-a.llm.since);
+    kind="llm";key=a.llm.tag;
+    head=`Thinking as <b class="${cls}">${esc(label)}</b> (<code>${esc(a.llm.model)}</code>) · ${s}s${!got&&s>=8?" (model may still be loading)":""}`;
+    if(got)boxes=[["Reasoning so far",st.thinking,"thinktxt"],["Answer so far",st.answer,""]];
+  }else if(a.coder){
+    kind="coder";key=a.coder.tag;head=`Aider is writing code for <b class="lg-step">${esc(a.coder.tag)}</b> · ${Math.round(t-a.coder.since)}s`;boxes=[["Aider output",d.coder_live,""]];
+  }else if(a.cmd){
+    kind="cmd";key=a.cmd.name;head=`Running <b class="lg-warn">${esc(a.cmd.name)}</b>: <code>${esc(a.cmd.cmd)}</code> · ${Math.round(t-a.cmd.since)}s (no model involved, this is your project's own build/tests)`;boxes=[["Output",d.cmd_live,""]];
+  }else{if(el.innerHTML){el.innerHTML="";el.dataset.sig="";liveHtml=""}return}
+  boxes=boxes.filter(b=>b[1]);
+  const sig=kind+"|"+key+"|"+boxes.map(b=>b[0]).join(",");
   const main=$("#main"),h0=main.scrollHeight,top=main.scrollTop;
-  const keep={};el.querySelectorAll("pre[data-p]").forEach(p=>{keep[p.dataset.p]={t:p.scrollTop,end:p.scrollHeight-p.scrollTop-p.clientHeight<30}});
-  liveBuild(el,a,x);
-  el.querySelectorAll("pre[data-p]").forEach(p=>{const k=keep[p.dataset.p];p.scrollTop=!k||k.end?p.scrollHeight:k.t});
+  if(el.dataset.sig!==sig){
+    el.dataset.sig=sig;
+    el.innerHTML=`<div class="msg assistant reason-card" style="max-width:100%"><div class="think"><span class="dots"><span></span><span></span><span></span></span><span class="lhead"></span></div>
+      ${boxes.map(([label,,cls])=>`<div class="stream"><div class="meta"><span class="live-badge">● live</span> ${esc(label)} <span class="lcount"></span><button class="small jump" onclick="jumpLatest(this)">↓ latest</button></div>
+      <pre data-p="live-${esc(label)}" class="${cls} ${bigPre.has("live-"+label)?"big":""}"><span class="lt"></span><span class="caret"></span></pre></div>`).join("")}</div>`;
+  }
+  el.querySelector(".lhead").innerHTML=head;
+  boxes.forEach(([label,text])=>{
+    const pre=[...el.querySelectorAll("pre[data-p]")].find(p=>p.dataset.p==="live-"+label);if(!pre)return;
+    if(pre._target===undefined){pre._target=text;pre._shown=text.length;pre.querySelector(".lt").textContent=text;pre.scrollTop=pre.scrollHeight}
+    else pre._target=text;
+    el.querySelectorAll(".lcount")[boxes.findIndex(b=>b[0]===label)].textContent=text.length.toLocaleString()+" chars";
+  });
   liveHtml=el.innerHTML;
   if(top>20)main.scrollTop=top+(main.scrollHeight-h0);
 }
-function liveBuild(el,a,x){
-  if(!a||!a.running){el.innerHTML="";return}
-  x=x||{};
-  const st=x.stream,cl=x.coder_live;
-  if(a.llm){
-    const [cls,label]=tagInfo(a.llm.tag),s=Math.round(Date.now()/1000-a.llm.since);
-    const got=st&&st.tag===a.llm.tag;
-    el.innerHTML=`<div class="msg assistant reason-card" style="max-width:100%"><div class="think"><span class="dots"><span></span><span></span><span></span></span>
-      <span>Thinking as <b class="${cls}">${esc(label)}</b> (<code>${esc(a.llm.model)}</code>) · ${s}s${!got&&s>=8?" (model may still be loading)":""}</span></div>
-      ${got?liveBox("Reasoning so far",st.thinking,"thinktxt")+liveBox("Answer so far",st.answer):""}</div>`;
-  } else if(a.coder){
-    const s=Math.round(Date.now()/1000-a.coder.since);
-    el.innerHTML=`<div class="msg assistant reason-card" style="max-width:100%"><div class="think"><span class="dots"><span></span><span></span><span></span></span>
-      <span>Aider is writing code for <b class="lg-step">${esc(a.coder.tag)}</b> · ${s}s</span></div>${liveBox("Aider output",cl)}</div>`;
-  } else if(a.cmd){
-    const s=Math.round(Date.now()/1000-a.cmd.since);
-    el.innerHTML=`<div class="msg assistant reason-card" style="max-width:100%"><div class="think"><span class="dots"><span></span><span></span><span></span></span>
-      <span>Running <b class="lg-warn">${esc(a.cmd.name)}</b>: <code>${esc(a.cmd.cmd)}</code> · ${s}s (no model involved, this is your project's own build/tests)</span></div>${liveBox("Output",x.cmd_live)}</div>`;
-  } else el.innerHTML="";
+function jumpLatest(btn){const pre=btn.closest(".stream").querySelector("pre");pre.scrollTop=pre.scrollHeight}
+/* typewriter: reveals streamed text smoothly instead of in 0.4 s bursts; never rebuilds the DOM, so selection and scroll survive */
+function typeTick(){
+  document.querySelectorAll("#reasonlive pre[data-p]").forEach(pre=>{
+    const tg=pre._target;if(tg===undefined)return;
+    const node=pre.querySelector(".lt");let sh=pre._shown||0;
+    const near=pre.scrollHeight-pre.scrollTop-pre.clientHeight<48;
+    if(sh>tg.length){node.textContent=tg;sh=tg.length}
+    else if(sh<tg.length){
+      const n=Math.max(3,Math.ceil((tg.length-sh)/10));
+      if(node.firstChild)node.firstChild.appendData(tg.slice(sh,sh+n));else node.textContent=tg.slice(sh,sh+n);
+      sh=Math.min(tg.length,sh+n);
+    }
+    pre._shown=sh;
+    if(near)pre.scrollTop=pre.scrollHeight;
+    pre.closest(".stream").classList.toggle("away",!near);
+  });
+  requestAnimationFrame(typeTick);
 }
+requestAnimationFrame(typeTick);
 const bp=(k,cls,html)=>`<pre data-p="${k}" class="${cls} ${bigPre.has(k)?"big":""}">${html}</pre>`;
 function thoughtCard(e,i){
   const [cls,label]=tagInfo(e.tag);
@@ -327,7 +356,7 @@ function reasoningBody(){
   if(!src)return `<div class="hint">Loading…</div>`;
   const cards=src.entries.map(thoughtCard).join("");
   return `<p class="hint">Every model call in full, live: the reasoning, the answer and the prompt, plus what Aider is writing (newest first). Models that think (deepseek-r1, qwen3, ...) show their reasoning too.</p>
-  <div id="reasonlive">${liveHtml}</div>
+  <div id="reasonlive"></div>
   <div class="reason-list">${cards||'<div class="hint">Nothing recorded yet. Every thought appears here as soon as the agent works.</div>'}</div>`;
 }
 
@@ -548,7 +577,7 @@ async function deleteProject(){
   const n=sel;if(!confirm(`Delete "${n}" and all its files permanently?`))return;
   try{await api(`/api/project/${n}/delete`,{confirm:$("#delconfirm").value});toast("Project deleted");sel=null;localStorage.removeItem("sel");tab="overview";dirty=false;detail=null;extra=null;lastBody=lastHead=lastTabs="";await refresh()}catch(e){toast(e.message,true)}
 }
-function setTab(k){tab=k;dirty=false;extra=null;lastBody="";$("#body").dataset.tab="";lastTabs="";renderProject();fetchExtra().then(renderProject)}
+function setTab(k){LS=null;liveHtml="";tab=k;dirty=false;extra=null;lastBody="";$("#body").dataset.tab="";lastTabs="";renderProject();fetchExtra().then(renderProject)}
 async function fetchExtra(){
   try{
     if(view==="chat")return;
@@ -585,7 +614,7 @@ async function runTask(){
 
 /* ---- tool view ---- */
 const TOOL_STEPS=[["plan","Plan"],["backup","Backup"],["impact","Impact"],["implement","Implement"],["security","Security"],["test","Test"],["review","Review"],["docs","Docs"]];
-function toolTab(k){toolTab_=k;dirty=false;lastBody=lastTabs="";extra=null;codeView=null;renderTool();refresh()}
+function toolTab(k){LS=null;liveHtml="";toolTab_=k;dirty=false;lastBody=lastTabs="";extra=null;codeView=null;renderTool();refresh()}
 function renderTool(){
   $("#head").innerHTML=`<div class="top"><div><h1>Change the tool itself</h1><div class="idea">Tell it what to change in this program (Makefile, scripts, web UI, agent loop, docs). It does only what you write, on a separate git branch, and never merges by itself.</div></div></div>`;
   const tabs=[["tool","Task"],["reason","Reasoning"],["changes","Changes"],["log","Live log"]];
@@ -817,10 +846,24 @@ document.addEventListener("click",e=>{
   lastBody="";
 });
 refresh(); setInterval(refresh,3000); setInterval(renderNow,1000);
+let fastBusy=false,slowTick=0;
 setInterval(async()=>{
-  if(view==="tool"&&toolTab_==="reason"&&extra&&extra.act&&extra.act.running){try{const act=await api("/api/tool/activity");const n=extra.act.entries.length;extra.act=act;if(act.entries.length!==n)renderTool();else reasoningLive()}catch(e){}return}
-  if(view!=="project"||tab!=="reasoning"||!sel||!detail||!detail.running)return;
-  try{const r=await api(`/api/project/${encodeURIComponent(sel)}/thoughts`);const n=extra&&extra.entries?extra.entries.length:-1;extra={kind:"reasoning",...r};if(r.entries.length!==n)renderProject();else reasoningLive()}catch(e){}},1000);
+  const tool=view==="tool"&&toolTab_==="reason"&&extra&&extra.act&&extra.act.running;
+  const proj=view==="project"&&tab==="reasoning"&&sel&&detail&&detail.running;
+  if((!tool&&!proj)||fastBusy)return;
+  fastBusy=true;
+  try{
+    const r=await api(tool?"/api/tool/stream":`/api/project/${encodeURIComponent(sel)}/stream`);
+    const prev=LS&&LS.stream&&LS.stream.tag,prevLlm=LS&&LS.llm&&LS.llm.since;
+    LS=r;reasoningLive();
+    const finished=(prev&&!r.stream)||(prevLlm&&r.llm&&r.llm.since!==prevLlm);
+    if(finished||++slowTick%6===0){ // a call ended (new card) or periodic sync of the card list
+      if(tool){const act=await api("/api/tool/activity");const n=extra.act.entries.length;extra.act=act;if(act.entries.length!==n)renderTool()}
+      else{const f=await api(`/api/project/${encodeURIComponent(sel)}/thoughts`);const n=extra&&extra.entries?extra.entries.length:-1;extra={kind:"reasoning",...f};if(f.entries.length!==n)renderProject()}
+    }
+  }catch(e){}
+  fastBusy=false;
+},450);
 </script>
 </body>
 </html>

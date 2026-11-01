@@ -98,7 +98,7 @@ Two levels, both bounded:
 
 ## Code, update and chat toggle (Web UI / CLI)
 - **File changes** shows the whole repo as a folder tree. Click a file to read it; new/changed lines are green (choose the comparison: uncommitted, last commit, last 5/20 ...).
-- **Reasoning** streams every model call live (reasoning, answer, prompt) and the live output of Aider and build/test.
+- **Reasoning** streams every model call live (reasoning, answer, prompt) and the live output of Aider and build/test. Live text is appended in place at a ~0.45 s poll with a typewriter reveal, so you can select and read it while it is written; it only follows the end if you are at the bottom (otherwise a "↓ latest" button appears), and the boxes are resizable.
 - **Update:** `make update` (CLI) or the sidebar "Update" button. Fast-forward only, backup tag, rollback if the new code does not import. Stop running agents first.
 - **Chat AI enabled** checkbox in the sidebar turns the chat off so it does not compete with the agent for the GPU.
 
