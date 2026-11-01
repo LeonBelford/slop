@@ -57,6 +57,7 @@ import threading
 import time
 import urllib.request
 
+from core import cfprofile
 from core.cfutil import (  # noqa: F401
     DEFAULT_CONFIG,
     IDEAS_TEMPLATE,
@@ -183,7 +184,8 @@ class Agent(BuildMixin, SecurityMixin, ResearchMixin, OpsMixin):
         """Master prompt of this session as a text block for prompts (empty if none is set)."""
         p = self.dir / "master_session.md"
         out = "\n\nMaster prompt (binding for all projects):\n" + clip(p.read_text("utf-8"), 2000) if p.exists() else ""
-        return out + self.playbook
+        prof = cfprofile.profile_block(self.dir)
+        return out + (f"\n\n{prof}" if prof else "") + self.playbook
 
     @property
     def playbook(self) -> str:

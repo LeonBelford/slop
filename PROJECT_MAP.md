@@ -25,6 +25,7 @@ Code lives in four places: the entry points in the root (`codefactory.py`, `webu
 | `core/cfllm.py` | `LLM` client (streaming, reasoning capture, reasoning cap, JSON answers) |
 | `core/cfgit.py` | `Git`, `Backlog` |
 | `core/cfmemory.py` | `Memory` (code map, dependency graph, ADRs, lessons, docs upkeep) |
+| `core/cfprofile.py` | Per-project agent profile (`agent/profile.json`) and context files (`agent/context/`) fed into prompts |
 | `core/cfa_build.py` | `BuildMixin`: model choice, coder call, verify, debug loop, review, `attempt` |
 | `core/cfa_security.py` | `SecurityMixin`: security gate/probe/audit, e2e check |
 | `core/cfa_research.py` | `ResearchMixin`: ideation, product review, web research, sources/ideas sync, reflection |
