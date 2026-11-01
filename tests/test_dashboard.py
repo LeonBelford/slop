@@ -45,3 +45,20 @@ class DashboardTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class CompactTests(unittest.TestCase):
+    def test_old_thoughts_are_archived_compressed_and_seq_survives(self):
+        import gzip
+        with tempfile.TemporaryDirectory() as tmp:
+            f = Path(tmp) / "thoughts.jsonl"
+            f.write_text("".join(json.dumps({"n": i, "prompt": "p" * 5000, "thinking": "t", "answer": "a"}) + "\n" for i in range(1, 401)))
+            self.assertTrue(sa.compact_thoughts(f, keep=100))
+            self.assertEqual(len(f.read_text().splitlines()), 100)
+            self.assertEqual(sa.last_seq(f), 400)
+            arch = list((Path(tmp) / "thoughts-archive").glob("*.gz"))
+            rows = [json.loads(x) for x in gzip.open(arch[0], "rt").read().splitlines()]
+            self.assertEqual((len(rows), len(rows[0]["prompt"])), (300, 1500))
+
+    def test_aider_token_lines(self):
+        self.assertEqual(sa.aider_tokens("Tokens: 1.2k sent, 345 received.\nTokens: 8,432 sent, 1,023 received. Cost"), (9632, 1368))

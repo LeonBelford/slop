@@ -31,6 +31,7 @@ from __future__ import annotations
 import argparse
 import ast
 import difflib
+import gzip
 import hashlib
 import json
 import os
@@ -101,7 +102,7 @@ DEFAULT_CONFIG = {
     # (ignores max_iterations/max_hours; still stops on repeated failures).
     "run": {"mode": "default", "rounds": 3},
     # GPU scheduling between agents: "main" keeps priority, "side" only uses the model while main is idle for min_idle seconds
-    "scheduler": {"priority": "main", "min_idle": 20},
+    "scheduler": {"priority": "main", "min_idle": 20, "slots": 2},
     "web": {"mode": "sources", "refresh_hours": 24, "max_chars": 20000, "timeout": 20, "research_every": 4,
             "queries_per_research": 3, "results_per_query": 2, "max_new_pages_per_session": 40,
             "search_url": "https://html.duckduckgo.com/html/?q={q}", "blocked_domains": []},
@@ -153,6 +154,66 @@ def tail(s: str, n: int) -> str:
 
 def sha(text: str) -> str:
     return hashlib.sha1(text.encode("utf-8", "replace")).hexdigest()[:16]
+
+
+def last_seq(path: Path) -> int:
+    """Number (n) of the newest recorded call; survives compaction, which removes old rows from the file."""
+    try:
+        with open(path, "rb") as f:
+            f.seek(max(0, f.seek(0, os.SEEK_END) - 200_000))
+            lines = f.read().decode("utf-8", "replace").splitlines()
+        for line in reversed(lines):
+            try:
+                return int(json.loads(line)["n"])
+            except (ValueError, KeyError, TypeError):
+                continue
+    except OSError:
+        pass
+    return 0
+
+
+def compact_thoughts(path: Path, keep: int = 150, max_bytes: int = 4_000_000) -> bool:
+    """Moves old calls out of thoughts.jsonl into thoughts-archive/<first>-<last>.jsonl.gz (gzip, prompts cut to 1500 chars)
+    so the live file and the UI stay fast. The newest `keep` calls stay; the full reasoning and answers are preserved."""
+    try:
+        if path.stat().st_size < max_bytes // 8 and sum(1 for _ in open(path, "rb")) <= keep * 2:
+            return False
+        lines = path.read_text("utf-8", errors="replace").splitlines()
+    except OSError:
+        return False
+    if len(lines) <= keep:
+        return False
+    old, new = lines[:-keep], lines[-keep:]
+    packed, nums = [], []
+    for line in old:
+        try:
+            row = json.loads(line)
+        except ValueError:
+            continue
+        row["prompt"] = (row.get("prompt") or "")[-1500:]
+        nums.append(row.get("n", 0))
+        packed.append(json.dumps(row, ensure_ascii=False))
+    if not packed:
+        return False
+    arch = path.parent / "thoughts-archive"
+    arch.mkdir(exist_ok=True)
+    with gzip.open(arch / f"{min(nums):06d}-{max(nums):06d}.jsonl.gz", "wt", encoding="utf-8") as g:
+        g.write("\n".join(packed) + "\n")
+    tmp = path.with_suffix(".tmp")
+    tmp.write_text("\n".join(new) + "\n", "utf-8")
+    os.replace(tmp, path)
+    return True
+
+
+def aider_tokens(out: str) -> tuple[int, int]:
+    """(sent, received) summed over all "Tokens: 1.2k sent, 345 received." lines of an Aider run."""
+    def num(t: str) -> int:
+        t = t.replace(",", "").lower()
+        return int(float(t[:-1]) * 1000) if t.endswith("k") else int(float(t))
+    sent = recv = 0
+    for m in re.finditer(r"Tokens:\s*([\d.,]+k?) sent,\s*([\d.,]+k?) received", out):
+        sent, recv = sent + num(m.group(1)), recv + num(m.group(2))
+    return sent, recv
 
 
 def read_json(path: Path, default):
@@ -415,25 +476,30 @@ class LLM:
             return
         self._metrics(role, user, answer, thinking, seconds)
         if not self.seq and self.thoughts.exists():
-            self.seq = sum(1 for _ in open(self.thoughts, "rb"))
+            self.seq = last_seq(self.thoughts)
         self.seq += 1
         row = {"n": self.seq, "time": now(), "task": self.ctx(), "role": role, "tag": tag, "model": model, "seconds": round(seconds, 1),
                "prompt": user[-8000:], "thinking": thinking[-40000:], "answer": answer[:30000]}
         with open(self.thoughts, "a", encoding="utf-8") as f:
             f.write(json.dumps(row, ensure_ascii=False) + "\n")
+        if self.seq % 25 == 0:
+            compact_thoughts(self.thoughts)
 
     def _metrics(self, role: str, user: str, answer: str, thinking: str, seconds: float) -> None:
         """Running totals for the dashboard (agent/metrics.json): calls, tokens (counted from the stream, else estimated), characters."""
-        if role == "coder":
-            return
         chars = len(answer) + len(thinking)
-        tokens = self.tok["tokens"] if self.tok["tokens"] and self.tok["chars"] else chars // 4
+        usage = self.tok.get("usage") or {}
+        tokens = usage.get("completion_tokens") or (self.tok["tokens"] if self.tok["tokens"] and self.tok["chars"] else chars // 4)
+        sent = usage.get("prompt_tokens", 0)
+        if role == "coder":  # Aider prints "Tokens: 12k sent, 1.2k received." per request
+            sent, tokens = aider_tokens(answer)
+            chars = len(answer)
         f = self.thoughts.parent / "metrics.json"
         m = read_json(f, {})
         day = time.strftime("%Y-%m-%d")
         if m.get("day") != day:
             m.update(day=day, day_calls=0, day_tokens=0, day_chars=0)
-        for k, v in (("calls", 1), ("tokens", tokens), ("chars", chars), ("gen_seconds", round(seconds, 1)),
+        for k, v in (("calls", 1), ("prompt_tokens", sent), ("tokens", tokens), ("chars", chars), ("gen_seconds", round(seconds, 1)),
                      ("day_calls", 1), ("day_tokens", tokens), ("day_chars", chars)):
             m[k] = round(m.get(k, 0) + v, 1) if k == "gen_seconds" else m.get(k, 0) + v
         write_json(f, m)
@@ -463,8 +529,14 @@ class LLM:
                 if payload == "[DONE]":
                     break
                 try:
-                    delta = json.loads(payload)["choices"][0].get("delta", {})
-                except (ValueError, KeyError, IndexError):
+                    obj = json.loads(payload)
+                except ValueError:
+                    continue
+                if obj.get("usage"):
+                    self.tok["usage"] = obj["usage"]
+                try:
+                    delta = obj["choices"][0].get("delta", {})
+                except (KeyError, IndexError, TypeError):
                     continue
                 piece, think_piece = delta.get("content") or "", delta.get("reasoning") or delta.get("reasoning_content") or ""
                 content += piece
@@ -523,6 +595,7 @@ class LLM:
             "messages": [{"role": "system", "content": system}, {"role": "user", "content": user}],
             "temperature": temperature,
             "stream": True,
+            "stream_options": {"include_usage": True},  # exact token counts for the dashboard
         }).encode()
         t_start = time.time()
         last = None
@@ -546,7 +619,7 @@ class LLM:
                 req = urllib.request.Request(
                     self.cfg["llm_api"], data=body,
                     headers={"Content-Type": "application/json", "Authorization": "Bearer " + self.cfg["api_key"]})
-                with self.sched.gpu(f"{role}/{tag}"):
+                with self.sched.gpu(f"{role}/{tag}", model):
                     t_start = time.time()
                     with urllib.request.urlopen(req, timeout=self.cfg["limits"]["llm_timeout"]) as r:
                         answer, thinking = self._read(r, tag, role, model, t_start)
@@ -1396,7 +1469,7 @@ class Agent:
         env = {"OLLAMA_API_BASE": os.getenv("OLLAMA_API_BASE", "http://localhost:11434"), "PYTHONUNBUFFERED": "1"}
         t0 = time.time()
         while True:
-            with self.llm.sched.gpu(f"coder/{tag}") as gate:
+            with self.llm.sched.gpu(f"coder/{tag}", model) as gate:
                 rc, out = sh_live(cmd, self.repo, self.lim["coder_timeout"], self.dir / "coder_live.txt", env=env, gate=gate)
             if rc != gpusched.PREEMPTED_RC:
                 break

@@ -1,6 +1,10 @@
 """GPU scheduling between several agents on one machine.
 
-One agent is the MAIN agent and keeps priority. Agents set to "side" only use the model server while the main agent
+Agents that are not "side" share the model server fairly (smart queue, no marking needed): at most `slots` model calls
+run at once, in first-come-first-served order, and calls run side by side only when they use the same model (so a 12 GB
+card never swaps models back and forth). While one project builds or tests, another one gets the GPU, so it idles less.
+
+Among them one agent can be the MAIN agent that keeps priority. Agents set to "side" only use the model server while the main agent
 is idle (building, testing, reading, waiting for a human) and step aside again the moment main needs it: a running
 model call is aborted (closing the connection stops generation in Ollama) or Aider is stopped, and the work is
 retried once main is idle again. Only one side agent uses the model at a time.
@@ -13,12 +17,14 @@ from __future__ import annotations
 import atexit
 import contextlib
 import fcntl
+import itertools
 import json
 import os
 import threading
 import time
 from pathlib import Path
 
+_COUNTER = itertools.count()
 PREEMPTED_RC = 75  # exit code sh_live() returns when a side agent was stopped for main
 HEARTBEAT = 3.0  # a busy main refreshes its file this often
 STALE = 20.0  # a "busy" marker older than this is ignored (crashed agent)
@@ -68,7 +74,7 @@ class NullScheduler:
     waiting = False
 
     @contextlib.contextmanager
-    def gpu(self, label: str = ""):
+    def gpu(self, label: str = "", model: str = ""):
         yield self
 
     def check(self) -> None:
@@ -76,13 +82,15 @@ class NullScheduler:
 
 
 class Scheduler:
-    def __init__(self, name: str, priority: str, min_idle: float, log, status_file: Path | None = None, directory: Path | None = None):
+    def __init__(self, name: str, priority: str, min_idle: float, log, status_file: Path | None = None, directory: Path | None = None, slots: int = 2):
         self.name, self.prio, self.min_idle, self.log = name, priority if priority in ("main", "side") else "main", float(min_idle), log
         self.dir = directory or shared_dir()
-        self.me = self.dir / f"{os.getpid()}.json"
+        self.me = self.dir / f"{os.getpid()}-{next(_COUNTER)}.json"
         self.status_file = status_file
+        self.slots = max(1, int(slots))
         self.waiting = False
-        self.s = {"pid": os.getpid(), "name": name, "prio": self.prio, "busy": False, "since": time.time(), "ts": time.time()}
+        self.s = {"pid": os.getpid(), "name": name, "prio": self.prio, "busy": False, "since": time.time(), "ts": time.time(),
+                  "hold": False, "wait": None, "model": ""}
         self._depth = 0
         self._lock = threading.Lock()
         self._side_fd = None
@@ -174,14 +182,66 @@ class Scheduler:
         if main_state(self.dir)[0]:
             raise Preempted()
 
-    @contextlib.contextmanager
-    def gpu(self, label: str = ""):
-        if self.prio == "main":
-            self._main_enter()
-            self._status("running", label)
+    # ---- everyone but side: fair queue with model affinity
+    def _peers(self) -> list[dict]:
+        out, now = [], time.time()
+        for f in self.dir.glob("*.json"):
             try:
+                s = json.loads(f.read_text("utf-8"))
+            except (OSError, ValueError):
+                continue
+            if f == self.me or s.get("prio") != "main" or not _alive(int(s.get("pid", 0))) or now - s.get("ts", 0) > STALE:
+                continue
+            out.append(s)
+        return out
+
+    def _slot_acquire(self, label: str, model: str) -> None:
+        model, since, told = norm_model(model), time.time(), False
+        lock = open(self.dir / "admit.lock", "w")
+        try:
+            while True:
+                fcntl.flock(lock, fcntl.LOCK_EX)  # decide and register atomically, so two agents never both take the last slot
+                try:
+                    peers = self._peers()
+                    holders = [p for p in peers if p.get("hold")]
+                    older = [p for p in peers if p.get("wait") and not p.get("hold") and (p["wait"], p["pid"]) < (since, os.getpid())]
+                    fits = not holders or (len(holders) < self.slots and all(p.get("model") == model for p in holders))
+                    if not older and fits:
+                        self.s.update(hold=True, wait=None, model=model)
+                        self._write()
+                        break
+                    self.s.update(hold=False, wait=since, model=model)
+                    self._write()
+                    who = ", ".join(sorted({p.get("name", "?") for p in holders})) or "another agent"
+                finally:
+                    fcntl.flock(lock, fcntl.LOCK_UN)
+                if not told:
+                    self.log(f"⏳ [{label}] queued: the GPU is used by {who}; runs next (up to {self.slots} calls at once, same model only)")
+                    told = self.waiting = True
+                self._status("queued", f"{label}: waiting for {who}")
+                time.sleep(0.7)
+        finally:
+            lock.close()
+        if told:
+            self.log(f"▶ [{label}] GPU slot free, continuing")
+        self.waiting = False
+        self._status("running", label)
+
+    def _slot_release(self) -> None:
+        self.s.update(hold=False, wait=None)
+
+    @contextlib.contextmanager
+    def gpu(self, label: str = "", model: str = ""):
+        if self.prio == "main":
+            outer = self._depth == 0
+            self._main_enter()
+            try:
+                if outer:
+                    self._slot_acquire(label, model)
                 yield self
             finally:
+                if outer:
+                    self._slot_release()
                 self._main_leave()
             return
         self._acquire(label)
@@ -195,7 +255,15 @@ class Scheduler:
             self._release()
 
 
+def norm_model(name: str) -> str:
+    """Aider and the OpenAI API name the same Ollama model differently (ollama_chat/x, ollama/x, x)."""
+    for p in ("ollama_chat/", "ollama/", "openai/"):
+        if name.startswith(p):
+            return name[len(p):]
+    return name
+
+
 def make(cfg: dict, name: str, log, status_file: Path | None = None) -> Scheduler:
     sc = cfg.get("scheduler", {})
     prio = os.getenv("CODEFACTORY_PRIORITY") or sc.get("priority", "main")
-    return Scheduler(name, prio, sc.get("min_idle", 20), log, status_file)
+    return Scheduler(name, prio, sc.get("min_idle", 20), log, status_file, slots=sc.get("slots", 2))
