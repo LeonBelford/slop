@@ -127,7 +127,7 @@ def _impact(work: Path, p: dict, files: list[str], llm, log, protected: tuple) -
         return files, ""
     _phase("impact", "Analysing what this change can break")
     deps = _dependents(work, files)
-    pmap = project_map(work, required=False, limit=9000)
+    pmap = project_map(work, required=False, limit=5000)
     src = "\n\n".join(f"### {f}\n{sa.clip((work / f).read_text('utf-8', 'replace'), 3500)}" for f in files[:4])
     try:
         plan = llm.json("tool_impact", "planner",
@@ -136,9 +136,11 @@ def _impact(work: Path, p: dict, files: list[str], llm, log, protected: tuple) -
                         "Base your analysis on the project map.",
                         f"Project map (whole repository):\n{pmap}\n\nChange: {p['title']}\n{p['change']}\nFiles: {files}\nImported by: {json.dumps(deps)}\nSource:\n{src}\nSchema: "
                         '{"risks": ["..."], "affected_dependents": ["paths"], "invariants": ["..."], "tests_to_add": ["..."], "security_impact": ""}')
-        crit = llm.json("tool_plan_critique", "reviewer", "You strictly critique plans for overlooked dependents and broken invariants.",
-                        f"Project map:\n{pmap}\n\nPlan: {json.dumps(plan)}\nImported by: {json.dumps(deps)}\nSchema: "
-                        '{"ok": true, "missing_files": ["..."], "concerns": ["..."]}')
+        # the critique runs on the planner model (no model swap) and only for changes that touch several files or have dependents
+        crit = (llm.json("tool_plan_critique", "planner", "You strictly critique plans for overlooked dependents and broken invariants.",
+                         f"Plan: {json.dumps(plan)}\nImported by: {json.dumps(deps)}\nSchema: "
+                         '{"ok": true, "missing_files": ["..."], "concerns": ["..."]}')
+                if len(files) > 1 or any(deps.values()) else {"ok": True, "missing_files": [], "concerns": []})
     except Exception as e:  # noqa: BLE001
         log(f"  impact analysis failed: {e}")
         return files, ""
@@ -222,7 +224,8 @@ def _aider(model: str, timeout: int):
                "--model", model, "--message-file", str(pf)]
         if (work / MAP_FILE).is_file():
             cmd += ["--read", MAP_FILE]  # the coder sees the whole-project map for every edit
-        cmd += files
+        cmd += ["--edit-format", sa.os.getenv("AIDER_EDIT_FORMAT", "diff"), "--map-tokens", "1024"]  # diff: the model writes only the changed parts
+        cmd += files if prompt.startswith("Documentation update") else _fit(work, files)
         STATE.mkdir(exist_ok=True)
         sa.write_json(STATE / "coder_now.json", {"tag": "self-change", "files": files[:12], "model": model, "since": time.time()})
         t0 = time.time()
@@ -397,6 +400,23 @@ def _route(llm) -> dict:
     if r["final_reviewer"] and isinstance(llm, sa.LLM):
         llm.overrides["reviewer"] = r["final_reviewer"]  # review, plan critique and requirement checks use the strongest reviewer
     return r
+
+
+CONTEXT_TOKENS = 14000  # budget for the files Aider may edit; the model window is ~32k incl. map, prompt and answer
+
+
+def _fit(work: Path, files: list[str], budget: int = CONTEXT_TOKENS) -> list[str]:
+    """Only files that need edits, as many as fit the context budget. Docs and the project map are read-only (and updated in the docs pass)."""
+    out, used = [], 0
+    for f in dict.fromkeys(files):
+        if f == MAP_FILE or f.startswith("docs/") or f.endswith(".md") and f != "README.md" or not (work / f).is_file():
+            continue
+        tokens = (work / f).stat().st_size // 3
+        if out and used + tokens > budget:
+            continue  # the first file is always kept (edited with the compact diff format), later big ones wait for their own step
+        out.append(f)
+        used += tokens
+    return out
 
 
 def _plain(name: str) -> str:
@@ -658,6 +678,7 @@ def _implement_run(repo: Path, proposals: list[dict], coder, stamp: str, out_dir
     base = _git(work, "rev-parse", "HEAD")[1].strip()
     kept = []
     try:
+        shared = None
         for p in proposals:
             pi = ledger.add_proposal(p["title"])
             ledger.proposal(pi, "running")
@@ -666,7 +687,12 @@ def _implement_run(repo: Path, proposals: list[dict], coder, stamp: str, out_dir
             log(f"▶ [implement] {p['title']}")
             _phase("implement", p["title"])
             ledger.stage(pi, "impact", "running")
-            files, impact = _impact(work, p, files, llm, log, protected)
+            if pi > 0 and p.get("risk") == "user" and shared:
+                files, impact = shared  # steps of one request share the analysis: no repeated planning before the code is written
+                log("  impact: reused from the first step")
+            else:
+                files, impact = _impact(work, p, files, llm, log, protected)
+                shared = (list(files), impact) if p.get("risk") == "user" else None
             ledger.stage(pi, "impact", "ok" if impact else "skipped")
             ledger.proposal(pi, plan=f"Files: {files}\n{sa.clip(impact, 1500)}")
             ok, report = _work_on(work, p, files, impact, llm, coder, log, ledger, pi, protected, out_dir, stamp)

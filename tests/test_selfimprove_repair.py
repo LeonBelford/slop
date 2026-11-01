@@ -225,3 +225,38 @@ class AdaptiveRoutingTests(unittest.TestCase):
             def coder(*a): pass
             coder.model, coder.routes = "ollama_chat/qwen2.5-coder:14b", {"heavy": "devstral:24b", "light": None}
             self.assertEqual(selfimprove._learned_cls(coder, "heavy", 0)[0], "standard")
+
+
+class LeanContextTests(unittest.TestCase):
+    def test_fit_drops_docs_map_and_over_budget_files(self):
+        with tempfile.TemporaryDirectory() as d:
+            w = Path(d)
+            (w / "docs").mkdir()
+            for name, size in {"a.py": 3000, "big.py": 90000, "small.py": 300, "PROJECT_MAP.md": 100, "docs/x.md": 100, "README.md": 100}.items():
+                (w / name).write_text("x" * size)
+            got = selfimprove._fit(w, ["PROJECT_MAP.md", "a.py", "docs/x.md", "big.py", "small.py", "missing.py", "README.md"], budget=5000)
+            self.assertEqual(got, ["a.py", "small.py", "README.md"])
+            self.assertEqual(selfimprove._fit(w, ["big.py", "a.py"], budget=5000), ["big.py"])
+
+    def test_directed_steps_share_one_impact_analysis(self):
+        calls = []
+        sa.LLM.mock = lambda tag, *a: (calls.append(tag), json.dumps({"requirements": ["one thing", "two thing"]}) if tag == "tool_requirements"
+                                       else json.dumps({"files": ["app.py"]}) if tag == "tool_files" else "{}")[1]
+
+        def coder(work, files, prompt):
+            if not prompt.startswith(("Add tests", "Documentation update")):
+                with open(work / "app.py", "a") as f:
+                    f.write("# s\n")
+        try:
+            with tempfile.TemporaryDirectory() as d:
+                repo = make_repo(Path(d))
+                real = selfimprove._tests_green
+                selfimprove._tests_green = lambda w, t: (True, "ok")
+                try:
+                    selfimprove.directed("do one thing and two thing", repo=repo, coder=coder, log=lambda m: None)
+                finally:
+                    selfimprove._tests_green = real
+        finally:
+            sa.LLM.mock = None
+        self.assertEqual(calls.count("tool_impact"), 1)
+        self.assertEqual(calls.count("tool_plan_critique"), 0)  # one file, no dependents: no critique round
