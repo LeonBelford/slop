@@ -51,6 +51,7 @@ from pathlib import Path
 import e2e
 import knowledge
 import models
+import security
 import stacks
 from webaccess import Web, WebError
 
@@ -83,6 +84,7 @@ DEFAULT_CONFIG = {
         "ideation_min_score": 6,
         "refactor_every": 4,
         "coverage_every": 5,
+        "security_every": 3,
         "product_review_every": 6,
         "architecture_refresh_every": 3,
         "health_every": 5,
@@ -100,7 +102,7 @@ DEFAULT_CONFIG = {
     # Lessons fade out: weight halves every half_life_days without confirmation; archived below min_weight.
     "knowledge": {"embeddings": "auto", "embed_model": "nomic-embed-text", "half_life_days": 60, "min_weight": 0.15,
                   "hits_per_kind": {"code": 4, "decision": 4, "lesson": 5, "web": 3, "feature": 3}},
-    "features": {"cleanup_pass": True, "require_tests": True, "plan_critique": True, "e2e": "auto"},
+    "features": {"cleanup_pass": True, "require_tests": True, "plan_critique": True, "e2e": "auto", "security": "on"},
     "commands": {},  # filled by the preset, overridable in config.json
     "source_exts": [".py", ".js", ".ts", ".tsx", ".jsx", ".html", ".css", ".sql", ".toml", ".yml", ".yaml"],
     "src_dirs": ["app"],
@@ -1062,7 +1064,7 @@ class Agent:
         self.state = read_json(self.dir / "state.json", {
             "iteration": 0, "elapsed": 0.0, "merged": 0, "consecutive_failures": 0, "empty_refills": 0,
             "req_hash": "", "ideation_min_score": self.lim["ideation_min_score"], "last_review_at": 0,
-            "last_refactor_at": 0, "last_coverage_at": 0, "last_arch_at": 0})
+            "last_refactor_at": 0, "last_coverage_at": 0, "last_arch_at": 0, "last_security_at": 0})
         self.run_dir = self.dir
         self.ideas_path = self.ws / "IDEAS.md"
         self.sources_path = self.ws / "SOURCES.md"
@@ -1267,7 +1269,7 @@ class Agent:
         schema = ('{"understanding": "", "files_to_change": ["existing paths"], "new_files": ["new paths"], '
                   '"read_only_context": ["paths"], "affected_dependents": ["paths that might break"], '
                   '"invariants": ["..."], "risks": ["..."], "steps": ["..."], "tests_to_add": ["..."], '
-                  '"docs_to_update": ["..."]}')
+                  '"docs_to_update": ["..."], "security_impact": "new inputs, endpoints, files, commands, secrets or dependencies this change exposes, and how each is protected"}')
         plan = self.llm.json("impact", "planner", sys_p,
                              f"Task {item['id']} ({item['type']}): {item['title']}\n{item['description']}\n"
                              f"Acceptance: {item.get('acceptance')}\nStack: {self.cfg['stack']}\n"
@@ -1300,13 +1302,16 @@ class Agent:
     RULES = ("Rules: Change only what is necessary for the task. Respect the stated invariants. Adapt all "
              "affected callers. Write/update tests (happy path and error cases). Small, typed "
              "functions with docstrings, no dead code leftovers, no new dependencies without an entry in the project's dependency manifest. "
+             "Security by default: no secrets or API keys in code (environment variables, documented in .env.example), "
+             "passwords only as salted argon2id/scrypt/bcrypt hashes, parameterized SQL, validate and bound all input, escape output, "
+             "no eval/exec/shell=True/unsafe deserialization, confine file paths, constant-time secret comparison, generic error messages. "
              "The project must build and all tests must pass after your change.")
 
     def implement(self, item: dict, plan: dict) -> None:
         self.phase("Implementing the change with Aider", "implement", "; ".join(str(x) for x in plan.get("steps", [])[:4]))
         prompt = (f"Task {item['id']}: {item['title']}\n{item['description']}\nAcceptance: {item.get('acceptance')}\n\n"
                   f"Understanding: {plan.get('understanding', '')}\nSteps: {plan.get('steps')}\nInvariants: {plan.get('invariants')}\n"
-                  f"Risks: {plan.get('risks')}\nKnown consequences (earlier decisions/lessons): {plan.get('known_consequences')}\n"
+                  f"Risks: {plan.get('risks')}\nSecurity impact: {plan.get('security_impact')}\nKnown consequences (earlier decisions/lessons): {plan.get('known_consequences')}\n"
                   f"Affected callers: {plan.get('affected_dependents')}\n"
                   f"Tests to write: {plan.get('tests_to_add')}\nNew files: {plan.get('new_files')}\n\n{self.RULES}")
         edit = plan["files_to_change"] + plan["new_files"]
@@ -1399,6 +1404,101 @@ class Agent:
             lesson = clip(why, 300)
         self.mem.add_lesson(lesson, [], item["id"])
 
+    def security_on(self) -> bool:
+        return self.cfg["features"].get("security", "on") not in (False, "off")
+
+    def save_security(self, kind: str, findings: list[dict], tools: list[str] | None = None) -> None:
+        data = read_json(self.dir / "security.json", {})
+        data[kind] = {"time": now(), "summary": security.summary(findings), "tools": tools or [], "findings": findings[:100]}
+        write_json(self.dir / "security.json", data)
+
+    def security_review(self, item: dict) -> list[dict]:
+        """LLM threat model of the diff: only concrete, exploitable problems introduced by this change."""
+        try:
+            data = self.llm.json(
+                "security_review", "reviewer",
+                "You are a penetration tester reviewing a diff. Report only concrete, exploitable problems introduced or exposed by this change, "
+                "no style remarks. Think like an attacker: which new input, endpoint, file, command or dependency can they reach?",
+                f"Task: {item['title']}\nChecklist: broken authentication/authorization, injection (SQL, command, template), remote code execution, "
+                "unsafe deserialization, XSS/CSRF, SSRF, path traversal, hard-coded or logged secrets, weak password hashing (must be argon2id/scrypt/bcrypt "
+                "with salt), insecure randomness, missing input validation or limits, verbose errors, vulnerable or unpinned dependencies, "
+                f"missing rate limiting on auth.\nDiff:\n{clip(self.git.diff(), 12000)}\nSchema: "
+                '{"findings": [{"severity": "critical|high|medium|low", "file": "", "problem": "", "fix": "", "confidence": 1-10}]}')
+        except Exception as e:  # noqa: BLE001
+            self.log(f"Security review failed: {e}")
+            return []
+        out = []
+        for f in data.get("findings", []) if isinstance(data, dict) else []:
+            if f.get("severity") in security.SEVERITIES and int(f.get("confidence", 5) or 5) >= 6:
+                out.append(security.finding(f["severity"], "llm-review", str(f.get("file", "")), 0, str(f.get("problem", "")), str(f.get("fix", ""))))
+        return out
+
+    def security_gate(self, item: dict, plan: dict) -> tuple[bool, str]:
+        """Blocks a change with critical/high findings: static rules on the changed files plus an attacker-minded review."""
+        if not self.security_on() or item["type"] == "docs":
+            return True, ""
+        found: list[dict] = []
+        for rnd in range(1, 4):
+            self.phase(f"Security check, round {rnd}", "security", "static rules + threat review")
+            changed = [f for f in self.git.changed_files() if (self.repo / f).exists()]
+            found = security.dedupe(security.scan_repo(self.repo, changed) + (self.security_review(item) if rnd == 1 else []))
+            bad = security.blocking(found, "high")
+            self.save_security("last_change", found)
+            if not bad:
+                if found:
+                    self.log(f"Security: {security.summary(found)} (non-blocking, tracked)")
+                return True, ""
+            self.log(f"Security: {len(bad)} blocking finding(s), round {rnd}")
+            if rnd == 3:
+                break
+            self.code("security_fix", sorted(set(changed))[:self.lim["max_files_per_task"] + 4], [str(self.run_dir / "context.md")],
+                      f"Fix these security problems without changing behavior otherwise. Never hide them with comments:\n"
+                      f"{security.render(bad)}\n\n{self.RULES}")
+            ok, report = self.verify()
+            if not ok:
+                return False, "Build red after security fix:\n" + report
+        self.mem.add_lesson("Security gate: " + "; ".join(sorted({f["rule"] for f in found})[:4]) + " must not appear in new code",
+                            sorted({f["file"] for f in found})[:4], item["id"])
+        return False, security.render(security.blocking(found, "high"))
+
+    def security_probe(self, url: str) -> tuple[bool, str]:
+        """Black-box probe of the running app (localhost only). Exposed secrets/files block, hardening gaps are tracked."""
+        if not self.security_on():
+            return True, ""
+        self.phase("Security probe of the running app", "security", url)
+        found = security.probe(url)
+        self.save_security("runtime", found)
+        bad = security.blocking(found, "high")
+        if bad:
+            return False, "[security probe]\n" + security.render(bad)
+        if found:
+            self.log(f"Security probe: {security.summary(found)} (tracked)")
+        return True, ""
+
+    def security_audit(self) -> int:
+        """Periodic full audit of the whole repository (static + installed scanners) that turns findings into backlog tasks."""
+        if not self.security_on():
+            return 0
+        self.phase("Security audit of the whole project", "security")
+        found = security.scan_repo(self.repo)
+        ext, tools = security.external_scans(self.repo)
+        found = security.dedupe(found + ext)
+        self.save_security("audit", found, tools)
+        self.metric(kind="security_audit", summary=security.summary(found), tools=tools)
+        by_file: dict[str, list[dict]] = {}
+        for f in found:
+            if f["severity"] != "low":
+                by_file.setdefault(f["file"], []).append(f)
+        added = 0
+        for file, fs in sorted(by_file.items(), key=lambda kv: security.SEVERITIES.index(kv[1][0]["severity"]))[:4]:
+            top = fs[0]["severity"]
+            if self.backlog.add(f"Security: fix {len(fs)} finding(s) in {file}", security.render(fs, 12), "bug",
+                                9.5 if top in ("critical", "high") else 6.0,
+                                ["No finding of these rules remains in the file", "Build and tests green"], "Security audit", "security"):
+                added += 1
+        self.log(f"Security audit: {security.summary(found)}, {added} new tasks, tools: {', '.join(tools) or 'built-in rules'}")
+        return added
+
     def e2e_check(self, item: dict) -> tuple[bool, str]:
         """Real-browser check of web products: smoke test plus a generated Playwright script. Skipped when unavailable."""
         feat = self.cfg["features"].get("e2e", "auto")
@@ -1443,7 +1543,7 @@ class Agent:
                     res = e2e.run_script(py, script, url, out)
                     if res.get("ok"):
                         self.log(f"Browser test passed ({script.name}).")
-                        return True, ""
+                        return self.security_probe(url)
                     fail = f"[e2e script] {res.get('error') or ''}\n" + "\n".join(res.get("problems", [])) \
                         + f"\nPage now:\n{res.get('snapshot', '')[:2000]}"
                 self.log("Browser test failed: " + fail.splitlines()[0][:150])
@@ -1473,6 +1573,9 @@ class Agent:
         ok, report = self.e2e_check(item)
         if not ok:
             return False, "Browser test failed:\n" + report
+        ok, report = self.security_gate(item, plan)
+        if not ok:
+            return False, "Security gate failed:\n" + report
         review = self.review(item, plan)
         if review.get("verdict") == "revise" or review.get("score", 10) < self.lim["min_review_score"]:
             self.log(f"Review requests revision (score {review.get('score')})")
@@ -1597,6 +1700,9 @@ class Agent:
 
     def schedule_hygiene(self) -> None:
         merged = self.state["merged"]
+        if merged - self.state.get("last_security_at", 0) >= self.lim["security_every"]:
+            self.security_audit()
+            self.state["last_security_at"] = merged
         if merged - self.state["last_refactor_at"] >= self.lim["refactor_every"]:
             churn = self.git.churn()
             ranked = sorted(self.mem.codemap, key=lambda r: -(self.mem.codemap[r].get("loc", 0) * churn.get(r, 1)))[:3]
@@ -2119,6 +2225,8 @@ def selftest() -> None:
                                "type": "feature", "acceptance": ["x"], "priority": 7}], "reprioritize": [], "cancel": []})
         if tag == "plan_critique":
             return json.dumps({"ok": True, "missing_files": [], "concerns": []})
+        if tag == "security_review":
+            return json.dumps({"findings": []})
         if tag == "review":
             return json.dumps({"score": 8, "verdict": "approve", "summary": "added things", "issues": []})
         if tag == "decision":

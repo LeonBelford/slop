@@ -113,11 +113,12 @@ Two levels, both bounded:
 codefactory/
 ├─ codefactory.py        the complete loop (standard library only)
 ├─ webui.py, web/       local web interface (make ui, make ui-lan)
+├─ security.py          security rules, scanners and runtime probe
 ├─ models.py            optional model catalog and routing (make models)
 ├─ MASTER.md            global directives for all projects (picked up per session)
 ├─ Makefile, scripts/   quick-setup-popos.sh · setup.sh (venv + model only) · run.sh · Modelfile
 ├─ .env.example, config.example.json
-├─ docs/                GUIDE.md (usage) · ARCHITECTURE.md (technical details)
+├─ docs/                OVERVIEW.md (what it does) · GUIDE.md (usage) · ARCHITECTURE.md (technical) · SECURITY.md (security plan)
 ├─ tests/, .github/     selftest and CI
 └─ projects/            one folder per idea (not in Git)
    └─ <name>/
@@ -169,11 +170,6 @@ Tasks are classified from the plan (type, number of files, attempt); there is no
 ## Network access
 `make ui-lan` listens on all interfaces and prints a link with an access token (stored in `projects/.ui/token`). Open it once per device; a cookie keeps you logged in. It is plain HTTP, so use it on trusted networks only; the UI can start agents and delete projects. `make ui` stays local-only.
 
-## Rust engines?
-There is no "Rust model"; Rust lives in inference engines. Open source (checked on GitHub): mistral.rs (MIT), candle and burn
-(Apache-2.0). Switching away from Ollama is hardly worthwhile for this agent, since speed comes from the model and the GPU. It is possible via
-any OpenAI-compatible server (`LLM_API`, for Aider `CODER_MODEL=openai/<name>` + `OPENAI_API_BASE`), untested.
-
 ## Troubleshooting
 See [docs/GUIDE.md](docs/GUIDE.md#10-troubleshooting).
 
@@ -181,5 +177,7 @@ See [docs/GUIDE.md](docs/GUIDE.md#10-troubleshooting).
 - **"Cannot reach the model server" / "Model(s) not installed":** the agent now checks Ollama and the model names from `.env` before starting; follow the printed hint (`ollama serve`, `ollama list`).
 
 ## Security
+Every change passes a security gate (static rules, attacker-minded review, runtime probe) and the whole project is audited regularly; see [docs/SECURITY.md](docs/SECURITY.md).
+
 The agent works only in `projects/<name>/repo/`, but runs build and test commands there without a sandbox. Use a container or VM
 if needed. It publishes nothing and spends no money; review the code before deploying.
