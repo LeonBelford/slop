@@ -129,6 +129,10 @@ Before merging a result branch you can try it locally: **Changes → "Try this v
 
 Each project has an **Agent** page (Copilot-Studio style): name, answer style, instructions and capability toggles (plan critique, require tests, cleanup pass, security gate, browser tests). **Knowledge files** lets you upload (or paste) text files that are injected into the agent's prompts, ranked by relevance (max 200 KB per file, 40 files, 1.5 MB total). **Customize** stores per-project look and layout (accent, compact mode, start page, header figures, hidden pages) in the browser.
 
+## Throughput figures (Web UI)
+
+The header of every project and of "Change the tool itself" shows tokens used, tokens/s, words/s (~0.75 per token), tokens/min averaged over working time, the GPU (live from `nvidia-smi`, plus the share of work time the model was generating) and the average time per call. Self-improve also shows the average step time, calculated from its past steps. Pick the figures per project under Customize.
+
 ## Directed tasks, transparency and file changes (Web UI)
 - **Do a task** tab: write what you want ("add a dark mode toggle"); the agent does exactly that and nothing else, ahead of its own backlog. If the agent is running it is queued, otherwise it starts, finishes and stops. CLI: `make task P=<project> TASK="..."` or `python3 codefactory.py do --project P --task "..."`.
 - **Change the tool itself** (sidebar): describe a change to the tool (Makefile, UI, ...). It runs `improve --task` on a branch `self-improve/<timestamp>`, never merges, and keeps `webaccess.py`, `selfimprove.py`, `.github/`, `.env` off limits. Review with `git diff HEAD...<branch>` and merge yourself. Autonomous `make self-improve` stays CLI-only.

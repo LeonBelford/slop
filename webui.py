@@ -27,7 +27,7 @@ import webbrowser
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 
-from dash import chat as chatlib
+from dash import throughput, chat as chatlib
 import codefactory as sa
 from core import cfprofile
 from dash import diagnostics
@@ -215,7 +215,11 @@ class Service:
         feats = sa.read_json(a / "memory" / "features.json", {})
         backlog = sorted(sa.read_json(a / "backlog.json", []), key=lambda i: -i["priority"])
         read = lambda p: p.read_text("utf-8") if p.exists() else ""
-        return {**self.summary(ws), "ideas": read(ws / "IDEAS.md"), "goal": read(a / "GOAL.md"), "testing": read(ws / "TESTING.md"), "sources": read(ws / "SOURCES.md"), "web_mode": sa.read_json(a / "config.json", {}).get("web", {}).get("mode", "sources"),
+        sm = self.summary(ws)
+        live = self.live_rate(read_live(a / "llm_stream.json", sm["running"]))
+        if not live["active"] and sm["running"]:
+            live = self.coder_rate(name, a) or live
+        return {**sm, "perf": throughput.perf(sa.read_json(a / "metrics.json", {})), "live": live, "gpu": self.gpu_stats(), "ideas": read(ws / "IDEAS.md"), "goal": read(a / "GOAL.md"), "testing": read(ws / "TESTING.md"), "sources": read(ws / "SOURCES.md"), "web_mode": sa.read_json(a / "config.json", {}).get("web", {}).get("mode", "sources"),
                 "activity": self.activity(ws), "log": tail(a / "agent.log"), "run_out": tail(a / "run.out", 15), "do_out": tail(a / "do.out", 15), "try_out": tail(a / "try.out", 15),
                 "features": [{"id": k, "title": v.get("title", k)} if isinstance(v, dict) else {"id": k, "title": str(v)}
                              for k, v in feats.items()],
@@ -354,7 +358,7 @@ class Service:
         tool_on = alive("tool")
         if tool_on:
             rows.append({"name": "Self-improve", "tool": True, "running": True, "priority": "main", "iteration": 0, "state": "",
-                         "live": self.live_rate(read_live(ROOT / "self_improve" / "llm_stream.json", True)), "calls": 0, "tokens": 0, "chars": 0, "coder_chars": 0})
+                         "live": self.live_rate(read_live(ROOT / "self_improve" / "llm_stream.json", True)), **{k: sa.read_json(ROOT / "self_improve" / "metrics.json", {}).get(k, 0) for k in ("calls", "tokens", "chars")}, "coder_chars": 0})
         running = [r for r in rows if r["running"]]
         return {"time": time.time(), "projects": rows,
                 "agents_running": len(running), "calls_active": sum(1 for r in running if r["live"]["active"]),
@@ -485,7 +489,10 @@ class Service:
             stat = git(ROOT, "diff", "--stat", f"HEAD...{name}").strip().splitlines()
             branches.append({"name": name, "date": date, "subject": subject, "stat": stat[-12:], **self.branch_status(name)})
         head = head_sha()
-        return {"running": alive("tool"), "log": tail(ROOT / "self_improve" / "ui.log", 60), "branches": branches, "preview": self.preview_state(),
+        perf = throughput.perf(sa.read_json(ROOT / "self_improve" / "metrics.json", {}))
+        live = self.live_rate(read_live(ROOT / "self_improve" / "llm_stream.json", alive("tool")))
+        return {"perf": perf, "live": live, "gpu": self.gpu_stats(), "tool_durations": diagnostics.tool_durations(ROOT / "self_improve"),
+                "running": alive("tool"), "log": tail(ROOT / "self_improve" / "ui.log", 60), "branches": branches, "preview": self.preview_state(),
                 "runs": runledger.list_runs(ROOT / "self_improve"), "stats": runledger.stats(ROOT / "self_improve"), "build": {"sha": BUILD["sha"], "head": head, "restart_needed": bool(BUILD["sha"] and head != BUILD["sha"])},
                 "last_merge": sa.read_json(ROOT / "self_improve" / "last_merge.json", None)}
 

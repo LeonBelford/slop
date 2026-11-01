@@ -61,9 +61,12 @@ class LLM:
         day = time.strftime("%Y-%m-%d")
         if m.get("day") != day:
             m.update(day=day, day_calls=0, day_tokens=0, day_chars=0)
-        for k, v in (("calls", 1), ("prompt_tokens", sent), ("tokens", tokens), ("chars", chars), ("gen_seconds", round(seconds, 1)),
+        t = time.time()
+        gap = min(t - m["last_ts"], 600) if m.get("last_ts") else seconds  # wall time covered by this call; long idle gaps are capped
+        m["last_ts"] = round(t, 1)
+        for k, v in (("words", len(answer.split()) + len(thinking.split())), ("wall_seconds", round(max(gap, seconds), 1)), ("calls", 1), ("prompt_tokens", sent), ("tokens", tokens), ("chars", chars), ("gen_seconds", round(seconds, 1)),
                      ("day_calls", 1), ("day_tokens", tokens), ("day_chars", chars)):
-            m[k] = round(m.get(k, 0) + v, 1) if k == "gen_seconds" else m.get(k, 0) + v
+            m[k] = round(m.get(k, 0) + v, 1) if k in ("gen_seconds", "wall_seconds") else m.get(k, 0) + v
         write_json(f, m)
         self.tok = {"tokens": 0, "chars": 0, "t0": None}
 
