@@ -86,6 +86,7 @@ branch in a separate worktree/port (`preview_*`; `runledger.verify_checkout` pro
 
 ## 7. Protected files and invariants (do not weaken)
 - Protected from self-change: `webaccess.py`, `security.py`, `selfimprove.py`, `.github/`, `.env`, `scripts/quick-setup-popos.sh`
+- Repair loop (`_work_on`, `FIX_ROUNDS=2`): gates (`_gates`) failing → `_diagnose` → coder repair round → re-check. Directed runs auto-restore protected files and may edit (not delete) existing tests (`tests_modified` in the ledger); auto runs revert immediately on a protected violation.
   (`webui.py` too, except for directed user tasks). Existing tests may not be modified, only new test files added.
 - Never loosen: URL/SSRF checks, UI host/origin/token checks, shell-injection safety, the rule "the script decides when to stop".
 - Standard library only for the tool itself (Aider and Playwright are optional external tools).
