@@ -68,6 +68,17 @@ class ManageTests(unittest.TestCase):
             with self.assertRaises(webui.UiError):
                 self.svc.act("demo", "settings", {"run": bad})
 
+    def test_side_task_spawns_with_side_priority(self):
+        seen = {}
+        orig = webui.spawn
+        webui.spawn = lambda key, args, out, env=None: seen.update(env=env, args=args)
+        try:
+            self.svc.act("demo", "do", {"task": "add a dark mode", "side": True})
+        finally:
+            webui.spawn = orig
+        self.assertEqual(seen["env"], {"CODEFACTORY_PRIORITY": "side"})
+        self.assertEqual(self.svc.summary(self.ws)["priority"], "main")
+
     def test_task_edit_and_reload_by_running_agent(self):
         self.svc.act("demo", "task-top", {"id": "T0001"})
         self.svc.act("demo", "task-cancel", {"id": "T0002"})

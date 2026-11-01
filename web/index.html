@@ -254,7 +254,7 @@ function renderList(){
   const m=list.model_server;if(m)$("#ms").innerHTML=`<span class="dot ${m.ok?"run":"stop"}" style="display:inline-block"></span> Model server ${m.ok?"online · "+m.models+" models":"offline ("+esc(m.url)+")"}`;
   const jobs=list.init_jobs.map(j=>`<div class="job">${j.running?"Creating":"Failed"}: <b>${esc(j.name)}</b><br><code>${esc((j.log||"").split("\n").slice(-3).join(" "))}</code></div>`).join("");
   $("#plist").innerHTML=jobs+(list.projects.map(p=>{const[c,t]=statusOf(p);
-    return `<div class="card ${view==="project"&&p.name===sel?"sel":""}" onclick="select('${esc(p.name)}')"><div class="n"><span class="dot ${c}"></span>${esc(p.name)}</div><div class="s">${t} · ${p.merged} features · ${p.backlog.pending||0} open</div></div>`}).join("")||(jobs?"":'<div class="hint" style="padding:10px">No projects yet.</div>'));
+    return `<div class="card ${view==="project"&&p.name===sel?"sel":""}" onclick="select('${esc(p.name)}')"><div class="n"><span class="dot ${c}"></span>${esc(p.name)}${p.priority==="side"?` <span class="pill info" title="Side agent: only uses the GPU while the main agent is idle">side</span>`:""}</div><div class="s">${t} · ${p.merged} features · ${p.backlog.pending||0} open</div></div>`}).join("")||(jobs?"":'<div class="hint" style="padding:10px">No projects yet.</div>'));
 }
 function select(n){view="project";sel=n;localStorage.setItem("sel",n);tab="overview";dirty=false;detail=null;extra=null;diffView=null;codeView=null;codeOpen=new Set();codeInit=false;lastBody=lastHead=lastTabs="";renderList();refresh()}
 function showTool(){view="tool";tab="tool";toolTab_="tool";codeView=null;codeInit=false;codeOpen=new Set();dirty=false;extra=null;diffView=null;lastBody=lastHead=lastTabs="";renderList();refresh()}
@@ -495,7 +495,7 @@ function projectBody(d){
     return `<div class="panel"><h3>Give the agent a concrete job</h3>
     <p class="hint">The agent does <b>exactly this</b> in the product, with the full pipeline (plan, implement, build, tests, review, merge), and nothing else: no new ideas. If it is idle it runs just this job and stops; if it is already running it does your job next.</p>
     <textarea id="task" rows="6" oninput="dirty=true" placeholder="e.g. Extend the website with a dark mode toggle, remembered across visits"></textarea>
-    <div class="row" style="justify-content:flex-end;margin-top:10px"><button class="primary" onclick="runTask()">Run this task</button></div></div>
+    <div class="row" style="justify-content:space-between;margin-top:10px"><label class="hint" style="display:flex;gap:6px;align-items:center;cursor:pointer" title="Needs another project to be the main agent (Settings → GPU priority). The job then only uses the GPU while main is idle and steps aside when main needs it."><input type="checkbox" id="task-side"> Side task: run only while the main agent is idle</label><button class="primary" onclick="runTask()">Run this task</button></div></div>
     <div class="panel" style="margin-top:16px"><h3>Your tasks</h3>${mine.length?`<table>${mine.map(i=>`<tr><td>${esc(i.id)}</td><td>${esc(i.title)}</td><td><span class="pill ${i.status==="done"?"ok":i.status==="blocked"?"bad":""}">${esc(i.status)}</span></td></tr>`).join("")}</table>`:'<div class="hint">None yet.</div>'}</div>`;
   }
   if(tab==="reasoning")return reasoningBody();
@@ -622,8 +622,9 @@ async function say(){const v=$("#say").value.trim();if(!v)return;try{await api(`
 async function saveFile(kind,label){try{await api(`/api/project/${sel}/${kind}`,{text:$("#"+kind).value});dirty=false;toast(label+" saved");await refresh()}catch(e){toast(e.message,true)}}
 async function runTask(){
   const v=$("#task").value.trim();if(v.length<5){toast("Describe the task first",true);return}
-  const r=await act("do",{task:v});
-  if(r){toast(r.queued?"Queued: the running agent does it next":"Started: the agent does only this task");$("#task").value="";dirty=false;setTab("overview")}
+  const side=$("#task-side")&&$("#task-side").checked;
+  const r=await act("do",{task:v,side});
+  if(r){toast(r.queued?"Queued: the running agent does it next":r.side?"Started as side task: it waits for a free GPU":"Started: the agent does only this task");$("#task").value="";dirty=false;setTab("overview")}
 }
 
 /* ---- tool view ---- */

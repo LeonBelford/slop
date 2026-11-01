@@ -131,7 +131,8 @@ class Service:
                 "stopping": running and (a / "STOP").exists(), "try_running": alive(f"try:{ws.name}"),
                 "iteration": state.get("iteration", 0), "merged": state.get("merged", 0),
                 "hours": round(state.get("elapsed", 0) / 3600, 2), "backlog": counts,
-                "failures": state.get("consecutive_failures", 0), "last_log": log[-220:]}
+                "failures": state.get("consecutive_failures", 0), "last_log": log[-220:],
+                "priority": os.getenv("CODEFACTORY_PRIORITY") or sa.read_json(a / "config.json", {}).get("scheduler", {}).get("priority", "main")}
 
     def list(self) -> dict:
         projects = [self.summary(p) for p in sa.list_projects(self.projects)]
@@ -439,8 +440,9 @@ class Service:
             if self.summary(ws)["running"]:
                 sa.Agent(ws).add_user_task(task)  # the running agent takes it next, before anything else
                 return {"ok": True, "queued": True}
-            spawn(f"do:{name}", ["do", name, task], a / "do.out")
-            return {"ok": True, "queued": False}
+            side = bool(body.get("side"))  # one-off side job: only uses the GPU while the main agent is idle
+            spawn(f"do:{name}", ["do", name, task], a / "do.out", {"CODEFACTORY_PRIORITY": "side"} if side else None)
+            return {"ok": True, "queued": False, "side": side}
         elif action == "say":
             msg = str(body.get("msg", "")).strip()
             if not msg:
@@ -884,7 +886,9 @@ def make_handler(svc: Service, port: int, token: str | None = None):
                 if path == "/api/lan":  # only in LAN mode: the phone link as a QR code (the request itself already needed the token)
                     if not token:
                         return {"lan": False}
-                    url = f"http://{lan_ip()}:{port}/?token={token}"
+                    host = self.headers.get("Host", "")  # the address you reached the UI by, if it is not a loopback one
+                    host = host if host and not re.match(r"^(127\.|localhost|\[::1\])", host) else f"{lan_ip()}:{port}"
+                    url = f"http://{host}/?token={token}"
                     return {"lan": True, "url": url, "svg": qr.svg(url)}
                 if path == "/api/tool":
                     return svc.tool()
@@ -957,7 +961,7 @@ def make_handler(svc: Service, port: int, token: str | None = None):
             if not token or not given or not hmac.compare_digest(given.encode(), token.encode()):
                 return False
             self.send_response(302)
-            self.send_header("Set-Cookie", f"cf_token={token}; Path=/; HttpOnly; SameSite=Strict; Max-Age=2592000")
+            self.send_header("Set-Cookie", f"cf_token={token}; Path=/; HttpOnly; SameSite=Lax; Max-Age=2592000")
             self.send_header("Location", "/")
             self.end_headers()
             return True
