@@ -1,4 +1,5 @@
 import json
+import os
 import sys
 import tempfile
 import time
@@ -6,7 +7,8 @@ import unittest
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
-import diagnostics as dg  # noqa: E402
+from dash import diagnostics as dg  # noqa: E402
+from dash import estimate  # noqa: E402
 import webui  # noqa: E402
 
 
@@ -59,6 +61,62 @@ class FigureTests(unittest.TestCase):
             self.assertEqual(d["projects"][0]["flow"]["done"], 1)
             self.assertIn("disk_free_gb", d["system"])
             self.assertIn("findings", d)
+
+
+class EstimateTests(unittest.TestCase):
+    def rows(self, d):
+        p = Path(d) / "durations.jsonl"
+        for t, ty, s in [("Add login form", "feature", 600), ("Add login validation", "feature", 700), ("Fix login redirect", "bug", 300),
+                         ("Export report as csv", "feature", 1800), ("Export report as pdf", "feature", 2000)]:
+            estimate.record(p, t, s, ty)
+        return estimate.load(p)
+
+    def test_similar_tasks_drive_the_estimate(self):
+        with tempfile.TemporaryDirectory() as d:
+            rows = self.rows(d)
+            e = estimate.estimate(rows, "Add login throttling", "feature")
+            self.assertEqual(e["basis"], "similar")
+            self.assertLess(e["seconds"], 800)
+            e = estimate.estimate(rows, "Export report as xml", "feature")
+            self.assertGreater(e["seconds"], 1700)
+
+    def test_fallbacks_and_no_data(self):
+        with tempfile.TemporaryDirectory() as d:
+            rows = self.rows(d)
+            self.assertEqual(estimate.estimate(rows, "Zebra quantum", "feature")["basis"], "type")
+            self.assertEqual(estimate.estimate(rows, "Zebra quantum", "refactor")["basis"], "all")
+            self.assertEqual(estimate.estimate([], "x y z", "feature")["basis"], "none")
+
+    def test_forecast_queue_and_running_task(self):
+        with tempfile.TemporaryDirectory() as d:
+            rows = self.rows(d)
+            backlog = [{"id": "7", "title": "Add login throttling", "type": "feature", "status": "in_progress"},
+                       {"id": "8", "title": "Export report as xml", "type": "feature", "status": "pending"}, {"id": "1", "status": "done"}]
+            f = estimate.forecast(rows, backlog, {"task": "7 Add login throttling", "since": time.time() - 60})
+            self.assertEqual((f["open"], f["known"]), (2, 2))
+            self.assertGreater(f["total_s"], 2000)
+            self.assertIn(f["running"]["elapsed_s"], range(59, 63))
+            self.assertFalse(f["running"]["overdue"])
+
+    def test_write_access_check_and_fix(self):
+        with tempfile.TemporaryDirectory() as d:
+            self.assertEqual(estimate.write_problems([Path(d) / "new" / "sub"]), [])
+            ro = Path(d) / "ro"
+            ro.mkdir()
+            ro.chmod(0o500)
+            problems = estimate.write_problems([ro], fix=False)
+            if os.geteuid() != 0:
+                self.assertTrue(problems)
+                self.assertEqual(estimate.write_problems([ro], fix=True), [])
+
+    def test_project_diagnostics_include_forecast(self):
+        with tempfile.TemporaryDirectory() as d:
+            ws = Path(d) / "p"
+            (ws / "agent").mkdir(parents=True)
+            (ws / "agent" / "backlog.json").write_text(json.dumps([{"id": "1", "title": "Add login form", "type": "feature", "status": "pending"}]))
+            p = dg.project(ws, False, 1.0, with_repo=False)
+            self.assertEqual(p["forecast"]["open"], 1)
+            self.assertEqual(p["write_problems"], [])
 
 
 if __name__ == "__main__":

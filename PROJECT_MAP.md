@@ -16,35 +16,38 @@ Two different things are called "agent memory", do not mix them up:
 - a **generated project**: `projects/<name>/repo/` (the product, own git repo) plus `projects/<name>/agent/` (agent state).
 
 ## 2. Repository layout
-Modules are kept small on purpose (each under 700 lines except `webui.py` and `selfimprove.py`, which are next in line; checked by `tests/test_module_size.py`): a small local model can read and edit a whole file within its context window. New features belong in a new or the matching small module, not into `codefactory.py`.
+Code lives in four places: the entry points in the root (`codefactory.py`, `webui.py`, `selfimprove.py`), `core/` (agent engine), `infra/` (GPU scheduling, models, security, web access, e2e, update, ...) and `dash/` (dashboard/Plan-tab logic: diagnostics, estimates, run ledger, chat). Imports are `from core import cfutil`, `from infra import gpusched`, `from dash import estimate`. Modules are kept small on purpose (each under 700 lines except `webui.py` and `selfimprove.py`, which are next in line; checked by `tests/test_module_size.py`): a small local model can read and edit a whole file within its context window. New features belong in a new or the matching small module, not into `codefactory.py`.
 
 | Path | Role |
 |---|---|
 | `codefactory.py` | Entry point: `Agent` core (init, config, loop), CLI (`main`), `selftest`. Re-exports everything below, so `import codefactory as sa` still gives `LLM`, shell helpers, ... as attributes |
-| `cfutil.py` | `DEFAULT_CONFIG`, constants, shell/JSON/process helpers |
-| `cfllm.py` | `LLM` client (streaming, reasoning capture, reasoning cap, JSON answers) |
-| `cfgit.py` | `Git`, `Backlog` |
-| `cfmemory.py` | `Memory` (code map, dependency graph, ADRs, lessons, docs upkeep) |
-| `cfa_build.py` | `BuildMixin`: model choice, coder call, verify, debug loop, review, `attempt` |
-| `cfa_security.py` | `SecurityMixin`: security gate/probe/audit, e2e check |
-| `cfa_research.py` | `ResearchMixin`: ideation, product review, web research, sources/ideas sync, reflection |
-| `cfa_ops.py` | `OpsMixin`: user tasks, stop, test version, feedback, status |
-| `diagnostics.py` | Dashboard key figures (`/api/diagnostics`): first-try rate, attempts, failure causes, model time, reasoning share, stalls, repo size, system load, findings |
-| `perf.py` | Ollama speed diagnostics and pinned context settings for Aider (`make doctor`) |
+| `core/cfutil.py` | `DEFAULT_CONFIG`, constants, shell/JSON/process helpers |
+| `core/cfllm.py` | `LLM` client (streaming, reasoning capture, reasoning cap, JSON answers) |
+| `core/cfgit.py` | `Git`, `Backlog` |
+| `core/cfmemory.py` | `Memory` (code map, dependency graph, ADRs, lessons, docs upkeep) |
+| `core/cfprofile.py` | Per-project agent profile (`agent/profile.json`) and context files (`agent/context/`) fed into prompts |
+| `dash/throughput.py` | Tokens, words/s, tokens/min and GPU share from `agent/metrics.json` (header cards, per project and for self-improve) |
+| `core/cfa_build.py` | `BuildMixin`: model choice, coder call, verify, debug loop, review, `attempt` |
+| `core/cfa_security.py` | `SecurityMixin`: security gate/probe/audit, e2e check |
+| `core/cfa_research.py` | `ResearchMixin`: ideation, product review, web research, sources/ideas sync, reflection |
+| `core/cfa_ops.py` | `OpsMixin`: user tasks, stop, test version, feedback, status |
+| `dash/estimate.py` | Duration estimates from comparable past tasks (`durations.jsonl` per project and for self-improve), queue forecast, write-access checks |
+| `dash/diagnostics.py` | Dashboard key figures (`/api/diagnostics`): first-try rate, attempts, failure causes, model time, reasoning share, stalls, repo size, system load, findings |
+| `infra/perf.py` | Ollama speed diagnostics and pinned context settings for Aider (`make doctor`) |
 | `selfimprove.py` | Self-improvement of this repo on `self-improve/<ts>` branches (worktree, tests, security gate, review, docs) |
 | `webui.py` | HTTP server + `Service` (JSON API, process spawning, dashboard, tool preview/merge) |
 | `web/index.html` | The whole UI in one file (CSS, markup, JS; no build step) |
-| `runledger.py` | Run ledger of self-changes (requirements checklist, plan, stages; `self_improve/runs/`) and `verify_checkout` for the preview |
-| `gpusched.py` | GPU queue between agents (fair slots, same-model affinity, side/main priority) |
-| `chat.py` | Chat store (`projects/.ui/chats/`), project context, SSE streaming |
-| `knowledge.py` | Per-project SQLite FTS5 + optional embeddings index (`knowledge.db`, a rebuildable view) |
-| `security.py` | Static security rules, external scanners, probes, LLM review for generated code |
-| `webaccess.py` | Read-only web fetch/search with SSRF guards (protected, see 7) |
-| `stacks.py` | Language/framework presets (toolchain, scaffold, build/test commands) |
-| `models.py` | Optional model catalog, routing by task weight |
-| `e2e.py`, `e2e_runner.py` | Optional Playwright browser tests (runner runs in a subprocess with Playwright) |
-| `update.py` | Update from `origin/main` (fast-forward only, backup tag, rollback) |
-| `qr.py` | Dependency-free QR encoder for the phone link |
+| `dash/runledger.py` | Run ledger of self-changes (requirements checklist, plan, stages; `self_improve/runs/`) and `verify_checkout` for the preview |
+| `infra/gpusched.py` | GPU queue between agents (fair slots, same-model affinity, side/main priority) |
+| `dash/chat.py` | Chat store (`projects/.ui/chats/`), project context, SSE streaming |
+| `infra/knowledge.py` | Per-project SQLite FTS5 + optional embeddings index (`knowledge.db`, a rebuildable view) |
+| `infra/security.py` | Static security rules, external scanners, probes, LLM review for generated code |
+| `infra/webaccess.py` | Read-only web fetch/search with SSRF guards (protected, see 7) |
+| `infra/stacks.py` | Language/framework presets (toolchain, scaffold, build/test commands) |
+| `infra/models.py` | Optional model catalog, routing by task weight |
+| `infra/e2e.py`, `infra/e2e_runner.py` | Optional Playwright browser tests (runner runs in a subprocess with Playwright) |
+| `infra/update.py` | Update from `origin/main` (fast-forward only, backup tag, rollback) |
+| `infra/qr.py` | Dependency-free QR encoder for the phone link |
 | `scripts/` | `run.sh` (CLI dispatcher, loads `.env`/venv), `setup.sh`, `quick-setup-popos.sh`, `Modelfile.qwen-coder-14b` |
 | `Makefile` | Thin targets over `scripts/run.sh` (`make help`) |
 | `MASTER.md` | Global instructions for all projects (copied into each run) |
@@ -97,13 +100,13 @@ bundle, git worktree on `self-improve/<ts>`, per proposal: `_impact` → Aider �
 branch in a separate worktree/port (`preview_*`; `runledger.verify_checkout` proves the preview runs that exact commit, UI and routes; `/api/build` reports the commit a server was started from) and merge it with a backup tag and undo (`tool_merge`).
 
 ## 7. Protected files and invariants (do not weaken)
-- Protected from self-change: `webaccess.py`, `security.py`, `selfimprove.py`, `.github/`, `.env`, `scripts/quick-setup-popos.sh`
+- Protected from self-change: `infra/webaccess.py`, `infra/security.py`, `selfimprove.py`, `.github/`, `.env`, `scripts/quick-setup-popos.sh`
 - Repair loop (`_work_on`, `FIX_ROUNDS=2`): gates (`_gates`) failing → `_diagnose` → coder repair round → re-check. Directed runs auto-restore protected files and may edit (not delete) existing tests (`tests_modified` in the ledger); auto runs revert immediately on a protected violation.
 - Helpers: `_fast_tests`, `_new_tests_red`, `_keyword_files`, `_lessons`/`_remember`; `runledger.stats` feeds the UI track record. Plan: `docs/SELF_IMPROVE_ROADMAP.md`.
 - Model routing (`_route`, `_coder_for`, built on `models.resolve`/`classify`): light/standard/heavy coder per job, strongest reviewer for review jobs, defaults when a model is not installed.
 - Learning router: `_learned_cls` + `runledger.model_stats` (attempts per model in the run ledger).
 - Context budget `_fit` (Aider edit files, `CONTEXT_TOKENS`); impact analysis shared between directed steps; plan critique only for multi-file changes.
-- Speed: `perf.py` (pinned num_ctx for Aider via `--model-settings-file`, Ollama diagnostics, `make doctor`), `scripts/ollama-tune.sh`; reasoning cap in `LLM._read`; review runs in a thread beside the full test suite in `_gates`.
+- Speed: `infra/perf.py` (pinned num_ctx for Aider via `--model-settings-file`, Ollama diagnostics, `make doctor`), `scripts/ollama-tune.sh`; reasoning cap in `LLM._read`; review runs in a thread beside the full test suite in `_gates`.
 - Directed tasks with several requirements run as one proposal per requirement (`directed`), so passing steps are kept on the branch.
   (`webui.py` too, except for directed user tasks). Existing tests may not be modified, only new test files added.
 - Never loosen: URL/SSRF checks, UI host/origin/token checks, shell-injection safety, the rule "the script decides when to stop".
@@ -130,11 +133,11 @@ selftest self-improve e2e-setup`.
 ## 11. Where to change what
 | Goal | Look at |
 |---|---|
-| Prompts / loop behaviour | `Agent.*` methods in `cfa_build.py`, `cfa_research.py`, `cfa_security.py`, `codefactory.py` (tags like `impact`, `review`, `ideate`) |
+| Prompts / loop behaviour | `Agent.*` methods in `core/cfa_build.py`, `core/cfa_research.py`, `core/cfa_security.py`, `codefactory.py` (tags like `impact`, `review`, `ideate`) |
 | Model calls, streaming, token counts | `LLM._read`, `_publish`, `record`, `_metrics` |
 | Aider invocation and timeouts | `Agent.code`, `sh_live` (`idle=True`) |
-| GPU sharing | `gpusched.py`, `Scheduler.gpu` |
+| GPU sharing | `infra/gpusched.py`, `Scheduler.gpu` |
 | A new UI page | `index.html` (view + render function) and a `Service` method + route in `webui.py` |
 | A new setting | `DEFAULT_CONFIG`, `webui.py` `save_settings` validation, settings form in `index.html`, docs |
-| A new language preset | `stacks.py` |
+| A new language preset | `infra/stacks.py` |
 | Docs | `README.md`, `docs/*.md`, and this file |

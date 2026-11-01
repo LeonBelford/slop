@@ -4,9 +4,9 @@ import unittest
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
-import stacks  # noqa: E402
+from infra import stacks  # noqa: E402
 import codefactory as sa  # noqa: E402
-from webaccess import Web, WebError  # noqa: E402
+from infra.webaccess import Web, WebError  # noqa: E402
 
 
 class StacksTest(unittest.TestCase):

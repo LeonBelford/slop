@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
 """Updates CodeFactory itself from origin/main (standard library only).
 
-  python3 update.py            check and apply a fast-forward update
-  python3 update.py --check    only report whether an update is available
+  python3 -m infra.update            check and apply a fast-forward update
+  python3 -m infra.update --check    only report whether an update is available
 
 Safe by design: refuses with local changes or a diverged branch, tags the current version first
 (`backup/pre-update-<time>`), only fast-forwards, installs changed Python requirements into .venv,
@@ -16,7 +16,7 @@ import sys
 import time
 from pathlib import Path
 
-ROOT = Path(__file__).resolve().parent
+ROOT = Path(__file__).resolve().parent.parent
 RESTART_SUFFIXES = (".py", ".html", ".sh", "Makefile")
 
 

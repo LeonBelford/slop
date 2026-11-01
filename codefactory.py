@@ -30,26 +30,26 @@ LLM endpoint (Ollama by default). Details: README.md and docs/.
 from __future__ import annotations
 
 from pathlib import Path
-from webaccess import Web
-from webaccess import WebError
+from infra.webaccess import Web
+from infra.webaccess import WebError
 import argparse
 import ast
 import difflib
-import e2e
-import gpusched
+from infra import e2e
+from infra import gpusched
 import gzip
 import hashlib
 import json
-import knowledge
-import models
+from infra import knowledge
+from infra import models
 import os
-import perf
+from infra import perf
 import re
-import security
+from infra import security
 import shlex
 import shutil
 import signal
-import stacks
+from infra import stacks
 import subprocess
 import sys
 import tempfile
@@ -57,7 +57,8 @@ import threading
 import time
 import urllib.request
 
-from cfutil import (  # noqa: F401
+from core import cfprofile
+from core.cfutil import (  # noqa: F401
     DEFAULT_CONFIG,
     IDEAS_TEMPLATE,
     LENSES,
@@ -90,20 +91,20 @@ from cfutil import (  # noqa: F401
     write_json,
     write_text,
 )
-from cfllm import (  # noqa: F401
+from core.cfllm import (  # noqa: F401
     LLM,
 )
-from cfgit import (  # noqa: F401
+from core.cfgit import (  # noqa: F401
     Backlog,
     Git,
 )
-from cfmemory import (  # noqa: F401
+from core.cfmemory import (  # noqa: F401
     Memory,
 )
-from cfa_build import BuildMixin
-from cfa_security import SecurityMixin
-from cfa_research import ResearchMixin
-from cfa_ops import OpsMixin
+from core.cfa_build import BuildMixin
+from core.cfa_security import SecurityMixin
+from core.cfa_research import ResearchMixin
+from core.cfa_ops import OpsMixin
 
 
 class Agent(BuildMixin, SecurityMixin, ResearchMixin, OpsMixin):
@@ -183,7 +184,8 @@ class Agent(BuildMixin, SecurityMixin, ResearchMixin, OpsMixin):
         """Master prompt of this session as a text block for prompts (empty if none is set)."""
         p = self.dir / "master_session.md"
         out = "\n\nMaster prompt (binding for all projects):\n" + clip(p.read_text("utf-8"), 2000) if p.exists() else ""
-        return out + self.playbook
+        prof = cfprofile.profile_block(self.dir)
+        return out + (f"\n\n{prof}" if prof else "") + self.playbook
 
     @property
     def playbook(self) -> str:

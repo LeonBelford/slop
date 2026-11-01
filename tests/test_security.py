@@ -6,7 +6,7 @@ import unittest
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
-import security  # noqa: E402
+from infra import security  # noqa: E402
 
 
 def rules(findings):

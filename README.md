@@ -125,6 +125,14 @@ Before merging a result branch you can try it locally: **Changes → "Try this v
 
 **Settings → Models:** install any Ollama model by name or from the recommended list (live progress, cancel) and remove models you no longer need (blocked while a running project uses them). All model fields in Settings and Chat are dropdowns of installed models.
 
+## Agent page, context files and Customize (Web UI)
+
+Each project has an **Agent** page (Copilot-Studio style): name, answer style, instructions and capability toggles (plan critique, require tests, cleanup pass, security gate, browser tests). **Knowledge files** lets you upload (or paste) text files that are injected into the agent's prompts, ranked by relevance (max 200 KB per file, 40 files, 1.5 MB total). **Customize** stores per-project look and layout (accent, compact mode, start page, header figures, hidden pages) in the browser.
+
+## Throughput figures (Web UI)
+
+The header of every project and of "Change the tool itself" shows tokens used, tokens/s, words/s (~0.75 per token), tokens/min averaged over working time, the GPU (live from `nvidia-smi`, plus the share of work time the model was generating) and the average time per call. Self-improve also shows the average step time, calculated from its past steps. Pick the figures per project under Customize.
+
 ## Directed tasks, transparency and file changes (Web UI)
 - **Do a task** tab: write what you want ("add a dark mode toggle"); the agent does exactly that and nothing else, ahead of its own backlog. If the agent is running it is queued, otherwise it starts, finishes and stops. CLI: `make task P=<project> TASK="..."` or `python3 codefactory.py do --project P --task "..."`.
 - **Change the tool itself** (sidebar): describe a change to the tool (Makefile, UI, ...). It runs `improve --task` on a branch `self-improve/<timestamp>`, never merges, and keeps `webaccess.py`, `selfimprove.py`, `.github/`, `.env` off limits. Review with `git diff HEAD...<branch>` and merge yourself. Autonomous `make self-improve` stays CLI-only.
@@ -134,9 +142,11 @@ Before merging a result branch you can try it locally: **Changes → "Try this v
 - **Learning router:** every coder attempt (model, result) is recorded in the run ledger. After a few attempts the router acts on it: a default coder that keeps failing is replaced by the heavy model, a heavy model that is not better is not used for file count alone (saves the VRAM swap). The UI track record shows successes per model.
 - **Lean context & planning:** Aider only gets files that need edits within a ~14k-token budget (docs and the project map are read-only), uses the compact `diff` edit format (`AIDER_EDIT_FORMAT=whole` to change) and a small repo map. The impact analysis is shared by all steps of one request; the plan critique only runs for multi-file changes and on the planner model (no model swap).
 - **Modular code:** the former 2700-line `codefactory.py` is split into small modules (`cfutil`, `cfllm`, `cfgit`, `cfmemory`, `cfa_*` mixins), each under 700 lines (`webui.py` and `selfimprove.py` are next), so a small model can load and edit a complete file in its context window. `codefactory.py` re-exports everything; `tests/test_module_size.py` keeps modules small.
- `perf.py` pins one context size (`CF_NUM_CTX`, default 16384, must equal `num_ctx` in `scripts/Modelfile.qwen-coder-14b`) for Aider and the model, because Ollama reloads a model whenever the context size changes. `make doctor` reports CPU offload (GPU waiting), several loaded models and context mismatches; `sudo bash scripts/ollama-tune.sh` sets flash attention, a q8 KV cache, one loaded model and a 30 min keep-alive. Reasoning longer than `limits.think_chars` is cut off and the model is asked to answer directly, answers are capped (`max_answer_tokens`), and the review (GPU) runs while the full test suite (CPU) runs. After updating run `ollama create qwen2.5-coder-agent -f scripts/Modelfile.qwen-coder-14b`.
+ `infra/perf.py` pins one context size (`CF_NUM_CTX`, default 16384, must equal `num_ctx` in `scripts/Modelfile.qwen-coder-14b`) for Aider and the model, because Ollama reloads a model whenever the context size changes. `make doctor` reports CPU offload (GPU waiting), several loaded models and context mismatches; `sudo bash scripts/ollama-tune.sh` sets flash attention, a q8 KV cache, one loaded model and a 30 min keep-alive. Reasoning longer than `limits.think_chars` is cut off and the model is asked to answer directly, answers are capped (`max_answer_tokens`), and the review (GPU) runs while the full test suite (CPU) runs. After updating run `ollama create qwen2.5-coder-agent -f scripts/Modelfile.qwen-coder-14b`.
 
  The Dashboard also shows diagnostics (`diagnostics.py`, `/api/diagnostics`): a "Needs attention" list (stalled agents, blocked tasks, low first-try rate, reasoning-heavy models, slowest step, idle GPU, low disk/RAM, Ollama issues), per-project key figures (tasks, first-try %, attempts, failure causes, review score, tasks/h, call time, reasoning share, files/lines/tests, idle time) and the self-improve track record.
+
+ Time estimates (`estimate.py`): every finished task and self-improve step stores its duration in that project's `durations.jsonl`. A new task is estimated from the most similar finished tasks (keyword overlap and type, so the categories adapt to each project), falling back to the type or overall median. The Dashboard shows the estimate and range per open task, the queue total, and elapsed vs. estimate for the running task. Before working, the agent and self-improve check that they can write files in the project, run and worktree directories (permissions are repaired where possible, otherwise the Dashboard shows a warning).
 - **Steps:** a directed task with several requirements runs as one small step per requirement (max 5), each checked and committed separately; steps that pass are kept even if a later one fails.
 - **Live "Now" panel:** current step (plan, implement, build, review, cleanup, docs, merge), task, attempt, whether the agent waits for the model or Aider is editing, and recent events. Backed by `agent/activity.json`, `events.jsonl`, `llm_now.json`, `coder_now.json`.
 - **AI activity** tab shows every prompt and answer (`agent/llm.log`); **File changes** shows uncommitted files, files by churn and per-commit diffs.
@@ -145,10 +155,12 @@ Before merging a result branch you can try it locally: **Changes → "Try this v
 ## Structure
 ```
 codefactory/
-├─ codefactory.py        the complete loop (standard library only)
+├─ codefactory.py       entry point: agent loop and CLI (standard library only)
 ├─ webui.py, web/       local web interface (make ui, make ui-lan)
-├─ security.py          security rules, scanners and runtime probe
-├─ models.py            optional model catalog and routing (make models)
+├─ selfimprove.py       self-improvement pipeline
+├─ core/                agent engine: LLM client, git/backlog, memory, build/security/research/ops mixins
+├─ infra/               GPU scheduler, perf/Ollama tuning, models, stacks, knowledge base, web access, security, e2e, update, QR
+├─ dash/                dashboard logic: diagnostics, time estimates, run ledger, chat
 ├─ MASTER.md            global directives for all projects (picked up per session)
 ├─ Makefile, scripts/   quick-setup-popos.sh · setup.sh (venv + model only) · run.sh · Modelfile
 ├─ .env.example, config.example.json
@@ -199,7 +211,7 @@ Installed models are detected and used automatically (`routing.mode` = `auto`, s
 - **standard**: your configured `coder_model`, used for normal tasks.
 - **heavy** (`qwen3-coder:30b`, `devstral:24b`, `qwen2.5-coder:32b`, `codestral:22b`): tasks touching 4+ files, retries after a failed attempt and debug rounds 2+.
 - **final reviewer** (strongest installed of the heavy list, else `deepseek-r1:14b`/`phi4:14b`): the last independent review of every change.
-Tasks are classified from the plan (type, number of files, attempt); there is no extra model call. Each switch costs a model load (seconds to a minute on 12 GB VRAM), models above ~12 GB spill into RAM and run slower. Force specific models with `routing.light`/`heavy`/`final_reviewer` in `config.json`. Logic in `models.py`.
+Tasks are classified from the plan (type, number of files, attempt); there is no extra model call. Each switch costs a model load (seconds to a minute on 12 GB VRAM), models above ~12 GB spill into RAM and run slower. Force specific models with `routing.light`/`heavy`/`final_reviewer` in `config.json`. Logic in `infra/models.py`.
 
 ## Network access
 `make ui-lan` listens on all interfaces and prints a link with an access token (stored in `projects/.ui/token`). Open it once per device; a cookie keeps you logged in. It is plain HTTP, so use it on trusted networks only; the UI can start agents and delete projects. `make ui` stays local-only.

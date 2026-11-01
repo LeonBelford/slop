@@ -2,11 +2,12 @@
 from __future__ import annotations
 
 from pathlib import Path
-from webaccess import WebError
+from infra.webaccess import WebError
+from dash import estimate
 import json
-import knowledge
+from infra import knowledge
 import time
-from cfutil import LENSES, QUALITY_CHECKLIST, TUNABLE, clip, now, read_ideas, read_json, read_sources, sha, write_json, write_text
+from core.cfutil import LENSES, QUALITY_CHECKLIST, TUNABLE, clip, now, read_ideas, read_json, read_sources, sha, write_json, write_text
 
 
 class ResearchMixin:
@@ -98,6 +99,8 @@ class ResearchMixin:
 
     def health_check(self) -> None:
         self.phase("Health check: building main", None)
+        for msg in estimate.write_problems([self.dir, self.dir / "runs", self.repo]):
+            self.log(f"WARNING: {msg}. The agent cannot write files there.")
         self.git.hard_reset()
         self.git.run("checkout", "-q", "main")
         ok, report = self.verify()

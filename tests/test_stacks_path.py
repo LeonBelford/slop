@@ -6,7 +6,7 @@ from pathlib import Path
 from unittest import mock
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
-import stacks  # noqa: E402
+from infra import stacks  # noqa: E402
 
 
 class ToolDetection(unittest.TestCase):

@@ -2,14 +2,14 @@
 from __future__ import annotations
 
 from pathlib import Path
-import gpusched
+from infra import gpusched
 import gzip
 import hashlib
 import json
 import os
 import re
 import signal
-import stacks
+from infra import stacks
 import subprocess
 import threading
 import time

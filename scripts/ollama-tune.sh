@@ -19,4 +19,4 @@ Environment="OLLAMA_KEEP_ALIVE=30m"
 CONF
 systemctl daemon-reload
 systemctl restart ollama
-echo "Ollama tuned. Check with: python3 perf.py"
+echo "Ollama tuned. Check with: python3 -m infra.perf"

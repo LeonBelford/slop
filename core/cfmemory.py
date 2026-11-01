@@ -4,14 +4,15 @@ from __future__ import annotations
 from pathlib import Path
 import ast
 import json
-import knowledge
+from infra import knowledge
 import os
 import re
 import shutil
 import tempfile
 import time
-from cfllm import LLM
-from cfutil import clip, now, read_ideas, read_json, sha, words, write_json, write_text
+from core import cfprofile
+from core.cfllm import LLM
+from core.cfutil import clip, now, read_ideas, read_json, sha, words, write_json, write_text
 
 
 # --------------------------------------------------------------------------- Memory
@@ -318,6 +319,12 @@ class Memory:
         goal = self.dir.parent / "GOAL.md"
         if goal.exists():
             parts.append("## Product goal\n" + clip(goal.read_text("utf-8"), 2500))
+        prof = cfprofile.profile_block(self.dir.parent)
+        if prof:
+            parts.append(prof)
+        ctx = cfprofile.context_block(self.dir.parent, query, 5000)
+        if ctx:
+            parts.append(ctx)
         master = self.dir.parent / "master_session.md"
         if master.exists():
             parts.append("## Master prompt (global, binding)\n" + clip(master.read_text("utf-8"), 2000))

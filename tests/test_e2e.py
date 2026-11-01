@@ -4,7 +4,7 @@ import threading
 import unittest
 from pathlib import Path
 
-import e2e
+from infra import e2e
 
 PY = e2e.find_python()
 if not PY and Path("/tmp/pwenv/bin/python").exists():

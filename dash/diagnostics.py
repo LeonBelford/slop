@@ -17,6 +17,7 @@ import re
 import shutil
 import subprocess
 import time
+from dash import estimate
 from collections import Counter, defaultdict
 from pathlib import Path
 
@@ -131,6 +132,13 @@ def project(ws: Path, running: bool, hours: float, with_repo: bool = True) -> di
         pass
     out = {"name": ws.name, "flow": flow(backlog, _jsonl(a / "metrics.jsonl"), hours), "models": models(_jsonl(a / "thoughts.jsonl")),
            "health": health(a, running)}
+    try:
+        cur = json.loads((a / "activity.json").read_text("utf-8")) if running else None
+    except (OSError, ValueError):
+        cur = None
+    out["forecast"] = estimate.forecast(estimate.load(a / "durations.jsonl"), backlog, cur)
+    out["durations"] = len(estimate.load(a / "durations.jsonl"))
+    out["write_problems"] = estimate.write_problems([a, ws / "repo"], fix=False) if (ws / "repo").exists() else []
     if with_repo:
         out["repo"] = repo_stats(ws / "repo")
     return out
@@ -146,9 +154,22 @@ def system(ollama: list[dict] | None = None) -> dict:
                 mem[k] = int(v.split()[0]) // 1024
     except OSError:
         pass
-    disk = shutil.disk_usage(Path(__file__).resolve().parent)
+    disk = shutil.disk_usage(Path(__file__).resolve().parent.parent)
     return {"cpus": os.cpu_count(), "load1": round(load, 2) if load is not None else None, "ram_total_mb": mem.get("MemTotal"),
             "ram_free_mb": mem.get("MemAvailable"), "disk_free_gb": round(disk.free / 1e9, 1), "ollama": ollama or []}
+
+
+def dur(s: float | None) -> str:
+    return "?" if s is None else f"{round(s)}s" if s < 90 else f"{round(s / 60)} min" if s < 5400 else f"{s / 3600:.1f} h"
+
+
+def tool_durations(out_dir: Path) -> dict:
+    """Self-improve step timings from its own durations file (median, spread, count)."""
+    rows = estimate.load(Path(out_dir) / "durations.jsonl")
+    if not rows:
+        return {"n": 0, "median_s": None, "low": None, "high": None}
+    v = [r["seconds"] for r in rows]
+    return {"n": len(v), "median_s": round(estimate._q(v, 0.5)), "low": round(estimate._q(v, 0.25)), "high": round(estimate._q(v, 0.75))}
 
 
 def findings(projects: list[dict], sysinfo: dict, running: set[str] | None = None) -> list[dict]:
@@ -158,6 +179,11 @@ def findings(projects: list[dict], sysinfo: dict, running: set[str] | None = Non
         f, m, h, n = p["flow"], p["models"], p["health"], p["name"]
         if h["stalled"]:
             out.append({"level": "bad", "text": f"{n}: no activity for {h['idle_s'] // 60} min while running. Check `ollama ps` and the live log."})
+        for msg in p.get("write_problems") or []:
+            out.append({"level": "bad", "text": f"{n}: {msg}. The agent cannot write files there; fix the permissions."})
+        run = (p.get("forecast") or {}).get("running")
+        if run and run["overdue"]:
+            out.append({"level": "warn", "text": f"{n}: the running task is taking much longer than estimated ({dur(run['elapsed_s'])} vs ~{dur(run['estimate_s'])})."})
         if f["blocked"]:
             out.append({"level": "warn", "text": f"{n}: {f['blocked']} blocked task(s) failed repeatedly. Reformulate them or lower the scope."})
         if f["first_try_rate"] is not None and f["done"] >= 4 and f["first_try_rate"] < 0.4:

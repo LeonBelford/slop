@@ -8,7 +8,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 import codefactory as sa  # noqa: E402
-import models  # noqa: E402
+from infra import models  # noqa: E402
 import webui  # noqa: E402
 
 

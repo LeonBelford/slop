@@ -5,7 +5,7 @@ import os
 import shlex
 import sys
 import time
-from cfutil import PRESETS, clip, force_stop_pid, now, sh, write_text
+from core.cfutil import PRESETS, clip, force_stop_pid, now, sh, write_text
 
 
 class OpsMixin:

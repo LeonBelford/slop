@@ -12,7 +12,7 @@ import threading
 import time
 import urllib.request
 
-import knowledge
+from infra import knowledge
 from pathlib import Path
 from typing import Callable, Iterator
 

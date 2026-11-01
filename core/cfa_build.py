@@ -1,15 +1,16 @@
 """Agent methods: model choice, coder call, build/test, debug loop, review, one task attempt."""
 from __future__ import annotations
 
-import gpusched
+from dash import estimate
+from infra import gpusched
 import json
-import models
+from infra import models
 import os
-import perf
+from infra import perf
 import re
 import shutil
 import time
-from cfutil import PRESETS, clip, sh, sh_live, sha, tail, write_json, write_text
+from core.cfutil import PRESETS, clip, sh, sh_live, sha, tail, write_json, write_text
 
 
 class BuildMixin:
@@ -182,6 +183,11 @@ class BuildMixin:
         previous: list[str] = []
         self.backlog.set(item, status="in_progress")
         self.cur_task = f"{item['id']} {item['title']}"
+        t0 = time.time()
+        est = estimate.estimate(estimate.load(self.dir / "durations.jsonl"), item["title"], item["type"], item.get("description", ""))
+        if est["seconds"]:
+            self.log(f"estimate: ~{round(est['seconds'] / 60)} min ({est['basis']}, {est['n']} comparable tasks)")
+            self.backlog.set(item, estimate_s=est["seconds"])
         for attempt in range(1, self.lim["max_attempts_per_task"] + 1):
             self.cur_attempt = attempt
             self.backlog.set(item, attempts=item["attempts"] + 1)
@@ -195,6 +201,8 @@ class BuildMixin:
                 ok, why = False, f"Exception: {e}"
             self.mem.lesson_feedback(ok)
             if ok:
+                estimate.record(self.dir / "durations.jsonl", item["title"], time.time() - t0, item["type"], item["attempts"], True,
+                                desc=item.get("description", ""))
                 self.backlog.set(item, status="done")
                 self.cur_task, self.cur_attempt = "", 0
                 self.phase("Task finished and merged, picking the next one", None, item["title"])

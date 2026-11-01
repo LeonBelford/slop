@@ -27,19 +27,21 @@ import webbrowser
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 
-import chat as chatlib
+from dash import throughput, chat as chatlib
 import codefactory as sa
-import diagnostics
-import models
-import perf
-import qr
-import runledger
-import update
+from core import cfprofile
+from dash import diagnostics
+from infra import models
+from infra import perf
+from infra import qr
+from dash import runledger
+from infra import update
 
 ROOT = Path(__file__).resolve().parent
 INDEX = ROOT / "web" / "index.html"
 MAX_BODY = 1_000_000
 MODEL_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_./:@-]{0,99}$")
+FEATURE_KEYS = {"cleanup_pass": "bool", "require_tests": "bool", "plan_critique": "bool", "security": ("on", "off"), "e2e": ("auto", "on", "off")}
 SETTING_LIMITS = {"max_hours": (1, 720), "max_iterations": (1, 5000), "max_attempts_per_task": (1, 8),
                   "max_debug_rounds": (1, 8), "max_consecutive_failures": (1, 20), "min_review_score": (1, 10)}
 NAME_RE = re.compile(r"^[a-z0-9][a-z0-9-]{0,60}$")
@@ -213,7 +215,11 @@ class Service:
         feats = sa.read_json(a / "memory" / "features.json", {})
         backlog = sorted(sa.read_json(a / "backlog.json", []), key=lambda i: -i["priority"])
         read = lambda p: p.read_text("utf-8") if p.exists() else ""
-        return {**self.summary(ws), "ideas": read(ws / "IDEAS.md"), "goal": read(a / "GOAL.md"), "testing": read(ws / "TESTING.md"), "sources": read(ws / "SOURCES.md"), "web_mode": sa.read_json(a / "config.json", {}).get("web", {}).get("mode", "sources"),
+        sm = self.summary(ws)
+        live = self.live_rate(read_live(a / "llm_stream.json", sm["running"]))
+        if not live["active"] and sm["running"]:
+            live = self.coder_rate(name, a) or live
+        return {**sm, "perf": throughput.perf(sa.read_json(a / "metrics.json", {})), "live": live, "gpu": self.gpu_stats(), "ideas": read(ws / "IDEAS.md"), "goal": read(a / "GOAL.md"), "testing": read(ws / "TESTING.md"), "sources": read(ws / "SOURCES.md"), "web_mode": sa.read_json(a / "config.json", {}).get("web", {}).get("mode", "sources"),
                 "activity": self.activity(ws), "log": tail(a / "agent.log"), "run_out": tail(a / "run.out", 15), "do_out": tail(a / "do.out", 15), "try_out": tail(a / "try.out", 15),
                 "features": [{"id": k, "title": v.get("title", k)} if isinstance(v, dict) else {"id": k, "title": str(v)}
                              for k, v in feats.items()],
@@ -352,7 +358,7 @@ class Service:
         tool_on = alive("tool")
         if tool_on:
             rows.append({"name": "Self-improve", "tool": True, "running": True, "priority": "main", "iteration": 0, "state": "",
-                         "live": self.live_rate(read_live(ROOT / "self_improve" / "llm_stream.json", True)), "calls": 0, "tokens": 0, "chars": 0, "coder_chars": 0})
+                         "live": self.live_rate(read_live(ROOT / "self_improve" / "llm_stream.json", True)), **{k: sa.read_json(ROOT / "self_improve" / "metrics.json", {}).get(k, 0) for k in ("calls", "tokens", "chars")}, "coder_chars": 0})
         running = [r for r in rows if r["running"]]
         return {"time": time.time(), "projects": rows,
                 "agents_running": len(running), "calls_active": sum(1 for r in running if r["live"]["active"]),
@@ -374,7 +380,7 @@ class Service:
             Service._oll = oc = (time.time(), perf.diagnose())
         sysinfo = diagnostics.system(oc[1])
         res = {"time": time.time(), "projects": projects, "system": sysinfo, "findings": diagnostics.findings(projects, sysinfo),
-               "tool": runledger.stats(ROOT / "self_improve")}
+               "tool": {**runledger.stats(ROOT / "self_improve"), "durations": diagnostics.tool_durations(ROOT / "self_improve")}}
         self._diag = (time.time(), res)
         return res
 
@@ -483,7 +489,10 @@ class Service:
             stat = git(ROOT, "diff", "--stat", f"HEAD...{name}").strip().splitlines()
             branches.append({"name": name, "date": date, "subject": subject, "stat": stat[-12:], **self.branch_status(name)})
         head = head_sha()
-        return {"running": alive("tool"), "log": tail(ROOT / "self_improve" / "ui.log", 60), "branches": branches, "preview": self.preview_state(),
+        perf = throughput.perf(sa.read_json(ROOT / "self_improve" / "metrics.json", {}))
+        live = self.live_rate(read_live(ROOT / "self_improve" / "llm_stream.json", alive("tool")))
+        return {"perf": perf, "live": live, "gpu": self.gpu_stats(), "tool_durations": diagnostics.tool_durations(ROOT / "self_improve"),
+                "running": alive("tool"), "log": tail(ROOT / "self_improve" / "ui.log", 60), "branches": branches, "preview": self.preview_state(),
                 "runs": runledger.list_runs(ROOT / "self_improve"), "stats": runledger.stats(ROOT / "self_improve"), "build": {"sha": BUILD["sha"], "head": head, "restart_needed": bool(BUILD["sha"] and head != BUILD["sha"])},
                 "last_merge": sa.read_json(ROOT / "self_improve" / "last_merge.json", None)}
 
@@ -809,6 +818,13 @@ class Service:
             if self.summary(ws)["running"] or any(alive(f"{k}:{name}") for k in ("run", "do", "try")):
                 raise UiError("Stop the agent first (Stop or Force stop)", 409)
             return self.rename(ws, body.get("name")) if action == "rename" else self.delete(ws, body)
+        elif action == "profile":
+            self.guard_profile(lambda: cfprofile.save_profile(a, body))
+            self.save_features(ws, body.get("features"))
+        elif action == "context-add":
+            return {"ok": True, **self.guard_profile(lambda: cfprofile.add_context(a, body.get("name"), str(body.get("text", ""))))}
+        elif action == "context-delete":
+            self.guard_profile(lambda: cfprofile.delete_context(a, body.get("name")))
         elif action == "goal":
             sa.write_text(a / "GOAL.md", str(body.get("text", "")))
         elif action == "ideas":
@@ -818,6 +834,36 @@ class Service:
         else:
             raise UiError("Unknown action", 404)
         return {"ok": True}
+
+    @staticmethod
+    def guard_profile(fn):
+        try:
+            return fn()
+        except cfprofile.ProfileError as e:
+            raise UiError(str(e)) from None
+
+    def profile(self, name: str) -> dict:
+        ws = self.ws(name)
+        eff = sa.Agent(ws).cfg
+        return {**cfprofile.overview(ws / "agent"), "features": {k: eff["features"].get(k) for k in FEATURE_KEYS}, "web_mode": eff["web"]["mode"],
+                "sources": (ws / "SOURCES.md").read_text("utf-8") if (ws / "SOURCES.md").exists() else ""}
+
+    @staticmethod
+    def save_features(ws: Path, feats) -> None:
+        if not isinstance(feats, dict):
+            return
+        conf = sa.read_json(ws / "agent" / "config.json", {})
+        for k, v in feats.items():
+            kind = FEATURE_KEYS.get(k)
+            if kind is None:
+                raise UiError(f"Unknown capability: {k}")
+            if kind == "bool":
+                conf.setdefault("features", {})[k] = bool(v)
+            elif v not in kind:
+                raise UiError(f"{k} must be one of {', '.join(kind)}")
+            else:
+                conf.setdefault("features", {})[k] = v
+        sa.write_json(ws / "agent" / "config.json", conf)
 
     def create(self, body: dict) -> dict:
         idea = str(body.get("idea", "")).strip()
@@ -1278,6 +1324,12 @@ def make_handler(svc: Service, port: int, token: str | None = None):
                 m = re.fullmatch(r"/api/project/([^/]+)", path)
                 if m:
                     return svc.detail(m.group(1))
+                m = re.fullmatch(r"/api/project/([^/]+)/profile", path)
+                if m:
+                    return svc.profile(m.group(1))
+                m = re.fullmatch(r"/api/project/([^/]+)/context", path)
+                if m:
+                    return {"name": q.get("name", ""), "text": svc.guard_profile(lambda: cfprofile.read_context(svc.ws(m.group(1)) / "agent", q.get("name", "")))}
                 m = re.fullmatch(r"/api/project/([^/]+)/settings", path)
                 if m:
                     return svc.settings(m.group(1))

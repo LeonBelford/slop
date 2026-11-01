@@ -57,7 +57,14 @@ main{flex:1;overflow:auto;padding:24px 32px 50px;min-width:0}
 .stat b{display:block;font-size:19px;font-weight:600}.stat span{color:var(--mute);font-size:12px}
 .tabs{display:flex;gap:2px;border-bottom:1px solid var(--line);margin:16px 0;flex-wrap:wrap}
 .tab{padding:8px 14px;cursor:pointer;color:var(--mute);border-bottom:2px solid transparent}
-.tab.on{color:var(--text);border-color:var(--text)}
+.tab.on{color:var(--text);border-color:var(--acc,var(--text))}
+.subtabs{display:flex;gap:6px;margin:-6px 0 16px;flex-wrap:wrap}.subtab{padding:3px 11px;border:1px solid var(--line);border-radius:999px;cursor:pointer;color:var(--mute);font-size:13px}.subtab.on{color:var(--text);border-color:var(--acc,#888);background:var(--panel2)}
+.stat{border-top:2px solid var(--acc,var(--line))}.card.sel{border-left-color:var(--acc,var(--text))}
+body.dense .panel{padding:10px 12px}body.dense table td,body.dense table th{padding-top:3px;padding-bottom:3px}body.dense .stats{margin:8px 0}body.dense .tabs{margin:8px 0}
+.cap{display:flex;justify-content:space-between;align-items:center;gap:14px;padding:9px 0;border-top:1px solid var(--line)}.cap:first-of-type{border-top:0}.cap small{display:block;color:var(--mute)}
+.ctxrow{display:flex;justify-content:space-between;align-items:center;gap:10px;padding:6px 0;border-top:1px solid var(--line)}
+.drop{border:1px dashed #555;border-radius:6px;padding:18px;text-align:center;color:var(--mute)}.drop.over{border-color:var(--acc,#aaa);color:var(--text)}
+.sw-row{display:flex;gap:6px;flex-wrap:wrap}.swatch{width:26px;height:26px;border-radius:50%;border:2px solid transparent;cursor:pointer;padding:0}.swatch.on{border-color:#fff}
 .panel{background:var(--panel);border:1px solid var(--line);border-radius:4px;padding:16px}
 .panel h3{margin:0 0 6px;font-size:14px}
 table{width:100%;border-collapse:collapse}
@@ -295,7 +302,16 @@ const esc=s=>String(s??"").replace(/[&<>"]/g,c=>({"&":"&amp;","<":"&lt;",">":"&g
 let sel=localStorage.getItem("sel")||null, view="project", tab="overview", list={projects:[],init_jobs:[]}, detail=null, extra=null, dirty=false, langs=[];
 let toolTab_="tool",toolBranch="",planId="",taskPrefill="",codeBase="head",codeOpen=new Set(),codeView=null,codeInit=false;
 let diffView=null, lastBody="", lastHead="", lastTabs="", openKeys=new Set();
-const EDITABLE=["ideas","sources","task","tool","settings","goal"];
+const EDITABLE=["ideas","sources","task","tool","settings","goal","profile","knowledge"];
+const GROUPS=[["overview","Overview",["overview"]],["task","Do a task",["task"]],["agent","Agent",["profile","knowledge","goal","ideas","sources","settings"]],["activity","Activity",["log","reasoning","llm"]],["code","Code & test",["changes","testing"]],["customize","Customize",["customize"]]];
+const LEAF={profile:"Instructions & capabilities",knowledge:"Knowledge files",goal:"Goal",ideas:"Ideas",sources:"Web sources",settings:"Models & limits",log:"Live log",reasoning:"Reasoning",llm:"AI activity",changes:"File changes",testing:"Test version"};
+const ACCENTS=["","#5fb36b","#6fa3d8","#d6a23c","#c678dd","#e06c75","#56b6c2"];
+const STAT_KEYS=[["merged","Features merged"],["open","Open tasks"],["done","Done"],["blocked","Blocked"],["iterations","Iterations"],["hours","Runtime"],["tokens","Tokens used"],["tps","Tokens / s"],["wps","Words / s"],["tpm","Tokens / min"],["gpu","GPU"],["avgcall","Avg. call time"]];
+let lastLeaf={};
+function pref(){try{return {accent:"",dense:false,hide:[],stats:["merged","open","done","blocked","hours","tokens","tps","tpm","gpu"],start:"overview",hideDone:false,showFeatures:true,...JSON.parse(localStorage.getItem("pref:"+sel)||"{}")}}catch(e){return {accent:"",dense:false,hide:[],stats:["merged","open","done","blocked","hours","tokens","tps","tpm","gpu"],start:"overview",hideDone:false,showFeatures:true}}}
+function setPref(k,v){const p=pref();p[k]=v;localStorage.setItem("pref:"+sel,JSON.stringify(p));applyPref();lastHead=lastTabs=lastBody="";renderProject()}
+function togglePref(k,item){const a=pref()[k].slice(),i=a.indexOf(item);i<0?a.push(item):a.splice(i,1);setPref(k,a)}
+function applyPref(){const p=pref();document.documentElement.style.setProperty("--acc",p.accent||"");if(!p.accent)document.documentElement.style.removeProperty("--acc");document.body.classList.toggle("dense",!!p.dense)}
 const STEPS=[["plan","Plan"],["implement","Implement"],["build","Build & test"],["e2e","Browser test"],["security","Security"],["review","Review"],["cleanup","Cleanup"],["docs","Docs & memory"],["merge","Merge"]];
 
 async function api(path,body){
@@ -322,7 +338,7 @@ function renderList(){
   $("#plist").innerHTML=jobs+(list.projects.map(p=>{const[c,t]=statusOf(p);
     return `<div class="card ${view==="project"&&p.name===sel?"sel":""}" onclick="select('${esc(p.name)}')"><div class="n"><span class="dot ${c}"></span>${esc(p.name)}${p.priority==="side"?` <span class="pill info" title="Side agent: only uses the GPU while the main agent is idle">side</span>`:""}</div><div class="s">${t} · ${p.merged} features · ${p.backlog.pending||0} open</div></div>`}).join("")||(jobs?"":'<div class="hint" style="padding:10px">No projects yet.</div>'));
 }
-function select(n){closeSb();view="project";sel=n;localStorage.setItem("sel",n);tab="overview";dirty=false;detail=null;extra=null;diffView=null;codeView=null;codeOpen=new Set();codeInit=false;lastBody=lastHead=lastTabs="";renderList();refresh()}
+function select(n){closeSb();view="project";sel=n;localStorage.setItem("sel",n);applyPref();tab=pref().start||"overview";dirty=false;detail=null;extra=null;diffView=null;codeView=null;codeOpen=new Set();codeInit=false;lastBody=lastHead=lastTabs="";renderList();refresh()}
 function showTool(){closeSb();view="tool";tab="tool";toolTab_="tool";codeView=null;codeInit=false;codeOpen=new Set();dirty=false;extra=null;diffView=null;lastBody=lastHead=lastTabs="";renderList();refresh()}
 
 /* ---- live status panel (re-rendered every second from the last data) ---- */
@@ -516,9 +532,28 @@ function timeline(ev){
 }
 
 /* ---- project view ---- */
+const WORDS_PER_TOKEN=0.75;
+function perfFigures(d){
+  const p=d.perf||{},l=d.live||{},g=d.gpu,on=l.active&&l.streaming;
+  const sp=on?l.tps:p.tps,est=on&&l.estimated?"~":"";
+  const gpu=g?[g.util+"%","GPU · "+(g.mem_used/1024).toFixed(1)+"/"+(g.mem_total/1024).toFixed(0)+" GB"+(p.gpu_share!=null?" · "+pct(p.gpu_share)+" generating":"")]:[p.gpu_share!=null?pct(p.gpu_share):"–","generating share of work time"];
+  return {tokens:[nfmt(p.tokens||0),"tokens used"+(p.day_tokens?" · "+nfmt(p.day_tokens)+" today":"")],
+    tps:[sp?est+sp:"–",on?"tokens/s now":"tokens/s avg"],wps:[sp?est+(sp*WORDS_PER_TOKEN).toFixed(1):"–",on?"words/s now":"words/s avg"],
+    tpm:[p.tokens_per_min!=null?nfmt(p.tokens_per_min):"–","tokens/min avg"],gpu,avgcall:[p.avg_call_s!=null?dur(p.avg_call_s):"–","avg per model call"]};
+}
+function statCards(d){
+  const v={merged:[d.merged,"features merged"],open:[d.backlog.pending||0,"open tasks"],done:[d.backlog.done||0,"done"],blocked:[d.backlog.blocked||0,"blocked"],iterations:[d.iteration,"iterations"],hours:[d.hours+" h","runtime"],...perfFigures(d)};
+  return pref().stats.filter(k=>v[k]).map(k=>`<div class="stat"><b>${v[k][0]}</b><span>${v[k][1]}</span></div>`).join("");
+}
+function toolStats(x){
+  const v=perfFigures(x),T=x.tool_durations||{};
+  const avg=T.n?[dur(T.median_s),`avg per step (${dur(T.low)}–${dur(T.high)}, ${T.n} steps)`]:["–","avg per step (no data yet)"];
+  return [["wps",v.wps],["tps",v.tps],["avg",avg],["tpm",v.tpm],["gpu",v.gpu],["tokens",v.tokens]].map(([k,c])=>`<div class="stat"><b>${c[0]}</b><span>${c[1]}</span></div>`).join("");
+}
 function renderProject(){
   if(!sel){$("#head").innerHTML=`<div class="empty"><h2>No project selected</h2><p>Pick a project on the left or create one with <b>+ New idea</b>.</p></div>`;$("#tabs").innerHTML=$("#body").innerHTML="";return}
   if(!detail)return;
+  applyPref();
   const d=detail,[c,t]=statusOf(d);
   const pillF=d.failures?`<span class="pill bad">${d.failures} consecutive failures</span>`:"";
   const head=`<div class="top"><div><h1>${esc(d.name)} <span class="pill ${c==="run"?"ok":c==="stop"?"warn":""}">${t}</span> ${pillF}</h1><div class="idea">${esc(d.idea)}</div></div>
@@ -527,17 +562,11 @@ function renderProject(){
     ${list&&list.chat_enabled===false?"":`<button onclick="showChat(null,['${esc(d.name)}'])" title="Open a chat that knows this project">Chat about this</button>`}
     <button onclick="doTry()" ${d.try_running?"disabled":""}>${d.try_running?"Building test version…":"Test now"}</button>
   </div></div>
-  <div class="stats">
-    <div class="stat"><b>${d.merged}</b><span>features merged</span></div>
-    <div class="stat"><b>${d.backlog.pending||0}</b><span>open tasks</span></div>
-    <div class="stat"><b>${d.backlog.done||0}</b><span>done</span></div>
-    <div class="stat"><b>${d.backlog.blocked||0}</b><span>blocked</span></div>
-    <div class="stat"><b>${d.iteration}</b><span>iterations</span></div>
-    <div class="stat"><b>${d.hours} h</b><span>runtime</span></div>
-  </div>`;
+  <div class="stats">${statCards(d)}</div>`;
   if(head!==lastHead){$("#head").innerHTML=head;lastHead=head}
-  const tabs=[["overview","Overview"],["task","Do a task"],["reasoning","Reasoning"],["llm","AI activity"],["changes","File changes"],["ideas","Ideas & feedback"],["sources","Web sources"],["testing","Test version"],["log","Live log"],["goal","Goal"],["settings","Settings"]];
-  const tb=`<div class="tabs">${tabs.map(([k,l])=>`<div class="tab ${tab===k?"on":""}" onclick="setTab('${k}')">${l}</div>`).join("")}</div>`;
+  const hide=pref().hide,cur=GROUPS.find(g=>g[2].includes(tab))||GROUPS[0];lastLeaf[cur[0]]=tab;
+  const tb=`<div class="tabs">${GROUPS.filter(g=>g===cur||!hide.includes(g[0])||g[0]==="customize").map(g=>`<div class="tab ${g===cur?"on":""}" onclick="setTab('${lastLeaf[g[0]]||g[2][0]}')">${g[1]}</div>`).join("")}</div>`+
+    (cur[2].length>1?`<div class="subtabs">${cur[2].map(k=>`<div class="subtab ${tab===k?"on":""}" onclick="setTab('${k}')">${LEAF[k]}</div>`).join("")}</div>`:"");
   if(tb!==lastTabs){$("#tabs").innerHTML=tb;lastTabs=tb}
   const body=projectBody(d);
   if(body!==null)setBody(body);
@@ -555,16 +584,19 @@ function setBody(html){
 }
 function projectBody(d){
   if(tab==="overview"){
-    const rows=d.backlog_items.map(i=>`<tr><td>${esc(i.id)}</td><td>${esc(i.title)}${i.source==="ideas"?' <span class="pill ok">from you</span>':i.source==="user"?' <span class="pill info">your task</span>':""}</td><td>${esc(i.type)}</td><td>${Math.round(i.priority*10)/10}</td><td><span class="pill ${i.status==="done"?"ok":i.status==="blocked"?"bad":""}">${esc(i.status)}</span></td><td style="white-space:nowrap">${taskBtns(i)}</td></tr>`).join("");
-    return `<div class="grid2"><div class="panel"><h3>Backlog</h3><table><tr><th>ID</th><th>Task</th><th>Type</th><th>Prio</th><th>Status</th><th></th></tr>${rows||'<tr><td colspan=6 class="hint">empty</td></tr>'}</table></div>
-    <div class="panel"><h3>Finished features</h3>${d.features.length?d.features.map(f=>`<div style="padding:5px 0;border-top:1px solid var(--line)">${esc(f.title)}</div>`).join(""):'<div class="hint">None yet.</div>'}</div></div>`;
+    const P=pref();
+    const rows=d.backlog_items.filter(i=>!(P.hideDone&&i.status==="done")).map(i=>`<tr><td>${esc(i.id)}</td><td>${esc(i.title)}${i.source==="ideas"?' <span class="pill ok">from you</span>':i.source==="user"?' <span class="pill info">your task</span>':""}</td><td>${esc(i.type)}</td><td>${Math.round(i.priority*10)/10}</td><td><span class="pill ${i.status==="done"?"ok":i.status==="blocked"?"bad":""}">${esc(i.status)}</span></td><td style="white-space:nowrap">${taskBtns(i)}</td></tr>`).join("");
+    return `<div class="${P.showFeatures?"grid2":""}"><div class="panel"><h3>Backlog</h3><table><tr><th>ID</th><th>Task</th><th>Type</th><th>Prio</th><th>Status</th><th></th></tr>${rows||'<tr><td colspan=6 class="hint">empty</td></tr>'}</table></div>
+    ${P.showFeatures?`<div class="panel"><h3>Finished features</h3>${d.features.length?d.features.map(f=>`<div style="padding:5px 0;border-top:1px solid var(--line)">${esc(f.title)}</div>`).join(""):'<div class="hint">None yet.</div>'}</div>`:""}</div>`;
   }
   if(tab==="task"){
     const mine=d.backlog_items.filter(i=>i.source==="user");
     return `<div class="panel"><h3>Give the agent a concrete job</h3>
     <p class="hint">The agent does <b>exactly this</b> in the product, with the full pipeline (plan, implement, build, tests, review, merge), and nothing else: no new ideas. If it is idle it runs just this job and stops; if it is already running it does your job next.</p>
     <textarea id="task" rows="6" oninput="dirty=true" placeholder="e.g. Extend the website with a dark mode toggle, remembered across visits"></textarea>
-    <div class="row" style="justify-content:space-between;margin-top:10px"><label class="hint" style="display:flex;gap:6px;align-items:center;cursor:pointer" title="Needs another project to be the main agent (Settings → GPU priority). The job then only uses the GPU while main is idle and steps aside when main needs it."><input type="checkbox" id="task-side"> Side task: run only while the main agent is idle</label><button class="primary" onclick="runTask()">Run this task</button></div></div>
+    <div class="row" style="justify-content:flex-end;margin-top:10px"><button class="primary" onclick="runTask()">Run this task</button></div></div>
+    <div class="panel" style="margin-top:16px"><h3>Quick feedback</h3><p class="hint">A bug or wish in one sentence. The agent re-plans on its next pass.</p>
+    <div class="row"><input id="say" placeholder="e.g. The save button does nothing" onkeydown="if(event.key==='Enter')say()"><button class="primary" onclick="say()">Send</button></div></div>
     <div class="panel" style="margin-top:16px"><h3>Your tasks</h3>${mine.length?`<table>${mine.map(i=>`<tr><td>${esc(i.id)}</td><td>${esc(i.title)}</td><td><span class="pill ${i.status==="done"?"ok":i.status==="blocked"?"bad":""}">${esc(i.status)}</span></td></tr>`).join("")}</table>`:'<div class="hint">None yet.</div>'}</div>`;
   }
   if(tab==="reasoning")return reasoningBody();
@@ -583,9 +615,7 @@ function projectBody(d){
     return un+dv+`<div style="margin-top:${dv||un?16:0}px">${files}</div><div style="margin-top:16px">${commits}</div>`;
   }
   if(tab==="ideas"){
-    return `<div class="panel"><h3>Quick feedback</h3><p class="hint">A bug or wish in one sentence. The agent re-plans on its next pass.</p>
-    <div class="row"><input id="say" placeholder="e.g. The save button does nothing" onkeydown="if(event.key==='Enter')say()"><button class="primary" onclick="say()">Send</button></div></div>
-    <div class="panel" style="margin-top:16px"><h3>IDEAS.md: your directives</h3><p class="hint">Wishes, implementation hints, rework requests, "do not do". Read continuously, even while the agent works.</p>
+    return `<div class="panel"><h3>IDEAS.md: your directives</h3><p class="hint">Wishes, implementation hints, rework requests, "do not do". Read continuously, even while the agent works.</p>
     <textarea id="ideas" rows="18" oninput="dirty=true">${esc(d.ideas)}</textarea>
     <div class="row" style="justify-content:flex-end;margin-top:10px"><button class="primary" onclick="saveFile('ideas','IDEAS.md')">Save</button></div></div>`;
   }
@@ -601,9 +631,69 @@ function projectBody(d){
   }
   if(tab==="log")return `<div class="loglegend"><span class="lg-step">step</span><span class="lg-ok">success</span><span class="lg-sec">security</span><span class="lg-warn">warning</span><span class="lg-err">error</span></div><pre id="logbox">${colorLog(d.log||"No log yet.")}${d.run_out&&/Traceback|Error/.test(d.run_out)?"\n\n--- run.out ---\n"+colorLog(d.run_out):""}${d.do_out&&/Traceback|Error/.test(d.do_out)?"\n\n--- do.out ---\n"+colorLog(d.do_out):""}</pre>`;
   if(tab==="settings")return settingsBody(d);
-  return `<div class="panel"><h3>GOAL.md: vision and quality bar</h3><p class="hint">The agent measures its work against this. Edit it to change direction; for single wishes use "Ideas & feedback".</p>
+  if(tab==="profile")return profileBody(d);
+  if(tab==="knowledge")return knowledgeBody(d);
+  if(tab==="customize")return customizeBody(d);
+  return `<div class="panel"><h3>GOAL.md: vision and quality bar</h3><p class="hint">The agent measures its work against this. Edit it to change direction; for single wishes use "Quick feedback" under "Do a task".</p>
     <textarea id="goal" rows="20" oninput="dirty=true">${esc(d.goal||"")}</textarea>
     <div class="row" style="justify-content:flex-end;margin-top:10px"><button class="primary" onclick="saveFile('goal','GOAL.md')">Save</button></div></div>`;
+}
+const CAPS=[["plan_critique","Plan review","A second look at multi-file plans before coding starts"],["require_tests","Tests required","Features and bug fixes without tests are rejected"],["cleanup_pass","Cleanup pass","A short tidy-up of every change before review"]];
+function profileBody(d){
+  const x=extra&&extra.kind==="profile"?extra:null;
+  if(!x)return `<div class="hint">Loading…</div>`;
+  const p=x.profile,F=x.features,sw=(id,on)=>`<label class="sw"><input type="checkbox" id="${id}" ${on?"checked":""} onchange="dirty=true"><span class="sw-track"><span class="sw-thumb"></span></span></label>`;
+  const cap=CAPS.map(([k,l,s])=>`<div class="cap"><div>${l}<small>${s}</small></div>${sw("cap-"+k,F[k])}</div>`).join("");
+  return `<div class="panel"><h3>${esc(p.title||d.name)}</h3><p class="hint">${esc(p.description||d.idea)}</p>
+    <div class="row" style="flex-wrap:wrap;gap:6px"><span class="pill info">${x.context.length} knowledge file(s)</span><span class="pill info">web: ${esc(x.web_mode)}</span><span class="pill info">security gate: ${esc(F.security)}</span><span class="pill info">browser tests: ${esc(F.e2e)}</span></div></div>
+  <div class="panel" style="margin-top:16px"><h3>Details</h3><div class="grid2"><label class="fld">Name shown for the agent<input id="pf-title" value="${esc(p.title)}" maxlength="80" oninput="dirty=true" placeholder="${esc(d.name)}"></label>
+    <label class="fld">Answer style<select id="pf-tone" onchange="dirty=true">${["neutral","concise","thorough","playful"].map(t=>`<option ${t===p.tone?"selected":""}>${t}</option>`).join("")}</select></label></div>
+    <label class="fld" style="margin-top:10px">Description (what is this agent for?)<textarea id="pf-description" rows="2" maxlength="400" oninput="dirty=true">${esc(p.description)}</textarea></label></div>
+  <div class="panel" style="margin-top:16px"><h3>Instructions</h3><p class="hint">Rules the agent follows in every task of this project: tech choices, code style, things to avoid, how to word commit messages. Added to every build prompt.</p>
+    <textarea id="pf-instructions" rows="12" maxlength="8000" oninput="dirty=true" placeholder="- Use TypeScript and Tailwind&#10;- Never add a new dependency without a reason in the commit message&#10;- Keep functions under 40 lines">${esc(p.instructions)}</textarea></div>
+  <div class="panel" style="margin-top:16px"><h3>Capabilities</h3>${cap}
+    <div class="cap"><div>Security gate<small>Static rules, scanners and a runtime probe before every merge</small></div><select id="cap-security" style="width:auto" onchange="dirty=true">${["on","off"].map(t=>`<option ${t===F.security?"selected":""}>${t}</option>`).join("")}</select></div>
+    <div class="cap"><div>Browser tests<small>Real-browser check for web products (needs Playwright)</small></div><select id="cap-e2e" style="width:auto" onchange="dirty=true">${["auto","on","off"].map(t=>`<option ${t===F.e2e?"selected":""}>${t}</option>`).join("")}</select></div>
+    <p class="hint">Models, limits, web access and run mode are under <a onclick="setTab('settings')" style="cursor:pointer;text-decoration:underline">Models &amp; limits</a>; files and sources under <a onclick="setTab('knowledge')" style="cursor:pointer;text-decoration:underline">Knowledge files</a>. ${d.running?"Capabilities apply at the next start.":""}</p></div>
+  <div class="row" style="justify-content:flex-end;margin-top:12px"><button class="primary" onclick="saveProfile()">Save</button></div>`;
+}
+async function saveProfile(){
+  const v=id=>$("#"+id).value,features={security:v("cap-security"),e2e:v("cap-e2e")};
+  CAPS.forEach(([k])=>features[k]=$("#cap-"+k).checked);
+  try{await api(`/api/project/${sel}/profile`,{title:v("pf-title"),description:v("pf-description"),tone:v("pf-tone"),instructions:v("pf-instructions"),features});dirty=false;toast("Saved");extra=null;await fetchExtra();lastBody="";renderProject()}catch(e){toast(e.message,true)}
+}
+let ctxView=null;
+function knowledgeBody(d){
+  const x=extra&&extra.kind==="profile"?extra:null;
+  if(!x)return `<div class="hint">Loading…</div>`;
+  const rows=x.context.map(c=>`<div class="ctxrow"><span><a onclick="viewCtx('${esc(c.name).replace(/'/g,"")}')" style="cursor:pointer">${esc(c.name)}</a> <span class="meta">${nfmt(c.bytes)} bytes</span></span><button class="small danger" onclick="delCtx('${esc(c.name).replace(/'/g,"")}')">Remove</button></div>`).join("")||'<div class="hint">No files yet.</div>';
+  const view=ctxView?`<div class="panel" style="margin-top:16px"><h3>${esc(ctxView.name)} <button class="small" onclick="ctxView=null;lastBody='';renderProject()">close</button></h3><pre>${esc(ctxView.text.slice(0,20000))}</pre></div>`:"";
+  return `<div class="panel"><h3>Context files</h3><p class="hint">Give the agent background it cannot guess: specs, API docs, style guides, sample data. Text files only (md, txt, json, csv, code…), up to ${Math.round(x.limits.file/1000)} KB each and ${x.limits.files} files. For each task the agent reads the parts that match the task.</p>
+    <div class="drop" id="drop" ondragover="event.preventDefault();this.classList.add('over')" ondragleave="this.classList.remove('over')" ondrop="event.preventDefault();this.classList.remove('over');uploadCtx(event.dataTransfer.files)">Drop files here or <input type="file" id="ctxfile" multiple style="width:auto;display:inline-block" onchange="uploadCtx(this.files)"></div>
+    <details style="margin-top:10px"><summary>Or paste text as a file</summary><div class="inner"><div class="row"><input id="ctxname" placeholder="name.md" style="max-width:220px"></div><textarea id="ctxtext" rows="6" style="margin-top:8px" oninput="dirty=true"></textarea><div class="row" style="justify-content:flex-end;margin-top:8px"><button class="primary" onclick="pasteCtx()">Add</button></div></div></details>
+    <div style="margin-top:12px">${rows}</div></div>${view}
+  <div class="panel" style="margin-top:16px"><h3>Other knowledge</h3><div class="cap"><div>Web sources<small>${x.sources.trim()?x.sources.trim().split("\n").filter(l=>l.trim()&&!l.trim().startsWith("#")).length+" URL(s), web access: "+esc(x.web_mode):"None, web access: "+esc(x.web_mode)}</small></div><button class="small" onclick="setTab('sources')">Edit</button></div>
+    <div class="cap"><div>Goal and ideas<small>Product vision and your standing wishes</small></div><span><button class="small" onclick="setTab('goal')">Goal</button> <button class="small" onclick="setTab('ideas')">Ideas</button></span></div></div>`;
+}
+async function ctxReload(){extra=null;await fetchExtra();lastBody="";renderProject()}
+async function uploadCtx(files){
+  let n=0;
+  for(const f of files){try{await api(`/api/project/${sel}/context-add`,{name:f.name,text:await f.text()});n++}catch(e){toast(f.name+": "+e.message,true)}}
+  if(n)toast(n+" file(s) added");dirty=false;await ctxReload();
+}
+async function pasteCtx(){try{await api(`/api/project/${sel}/context-add`,{name:$("#ctxname").value,text:$("#ctxtext").value});toast("Added");dirty=false;await ctxReload()}catch(e){toast(e.message,true)}}
+async function delCtx(n){if(!confirm(`Remove ${n}?`))return;try{await api(`/api/project/${sel}/context-delete`,{name:n});ctxView=null;await ctxReload()}catch(e){toast(e.message,true)}}
+async function viewCtx(n){try{const r=await api(`/api/project/${encodeURIComponent(sel)}/context?name=${encodeURIComponent(n)}`);ctxView=r;lastBody="";renderProject()}catch(e){toast(e.message,true)}}
+function customizeBody(d){
+  const P=pref(),chk=(on,fn)=>`<label class="sw"><input type="checkbox" ${on?"checked":""} onchange="${fn}"><span class="sw-track"><span class="sw-thumb"></span></span></label>`;
+  return `<div class="panel"><h3>Look and feel of this project</h3><p class="hint">Saved in this browser for <b>${esc(d.name)}</b>.</p>
+    <div class="cap"><div>Accent colour<small>Highlights tabs, stats and the project list</small></div><div class="sw-row">${ACCENTS.map(c=>`<button class="swatch ${P.accent===c?"on":""}" style="background:${c||"#e4e4e4"}" onclick="setPref('accent','${c}')" title="${c||"default"}"></button>`).join("")}</div></div>
+    <div class="cap"><div>Compact layout<small>Tighter spacing to see more at once</small></div>${chk(P.dense,"setPref('dense',this.checked)")}</div>
+    <div class="cap"><div>Opens on<small>The page shown when you select this project</small></div><select style="width:auto" onchange="setPref('start',this.value)">${GROUPS.flatMap(g=>g[2]).filter(k=>k!=="customize").map(k=>`<option value="${k}" ${P.start===k?"selected":""}>${esc(LEAF[k]||(k==="overview"?"Overview":"Do a task"))}</option>`).join("")}</select></div></div>
+  <div class="panel" style="margin-top:16px"><h3>Header figures</h3>${STAT_KEYS.map(([k,l])=>`<div class="cap"><div>${l}</div>${chk(P.stats.includes(k),`togglePref('stats','${k}')`)}</div>`).join("")}</div>
+  <div class="panel" style="margin-top:16px"><h3>Overview</h3><div class="cap"><div>Finished features list</div>${chk(P.showFeatures,"setPref('showFeatures',this.checked)")}</div><div class="cap"><div>Hide done tasks in the backlog</div>${chk(P.hideDone,"setPref('hideDone',this.checked)")}</div></div>
+  <div class="panel" style="margin-top:16px"><h3>Pages</h3><p class="hint">Hide pages you do not need. They stay reachable while you are on them.</p>${GROUPS.filter(g=>g[0]!=="customize"&&g[0]!=="overview").map(g=>`<div class="cap"><div>${g[1]}</div>${chk(!P.hide.includes(g[0]),`togglePref('hide','${g[0]}')`)}</div>`).join("")}
+    <div class="row" style="justify-content:flex-end;margin-top:10px"><button onclick="localStorage.removeItem('pref:'+sel);setPref('accent','')">Reset to defaults</button></div></div>`;
 }
 function taskBtns(i){
   const b=(a,l,c)=>`<button class="small ${c||""}" onclick="taskAct('${a}','${esc(i.id)}')">${l}</button> `;
@@ -675,6 +765,7 @@ async function fetchExtra(){
       return}
     if(!sel)return;
     if(tab==="llm")extra={kind:"llm",...await api(`/api/project/${encodeURIComponent(sel)}/llm`)};
+    else if(tab==="profile"||tab==="knowledge")extra={kind:"profile",...await api(`/api/project/${encodeURIComponent(sel)}/profile`)};
     else if(tab==="settings"){if(!extra||extra.kind!=="settings")extra={kind:"settings",...await api(`/api/project/${encodeURIComponent(sel)}/settings`)}}
     else if(tab==="changes"){const n=encodeURIComponent(sel);const [c,t]=await Promise.all([api(`/api/project/${n}/changes`),api(`/api/project/${n}/tree?base=${encodeURIComponent(codeBase)}`)]);extra={kind:"changes",...c,tree:t};
       if(!codeInit&&t.files.length){codeInit=true;t.files.filter(f=>f.status).forEach(f=>f.path.split("/").slice(0,-1).forEach((_,i,a)=>codeOpen.add(a.slice(0,i+1).join("/"))))}}
@@ -693,9 +784,8 @@ async function say(){const v=$("#say").value.trim();if(!v)return;try{await api(`
 async function saveFile(kind,label){try{await api(`/api/project/${sel}/${kind}`,{text:$("#"+kind).value});dirty=false;toast(label+" saved");await refresh()}catch(e){toast(e.message,true)}}
 async function runTask(){
   const v=$("#task").value.trim();if(v.length<5){toast("Describe the task first",true);return}
-  const side=$("#task-side")&&$("#task-side").checked;
-  const r=await act("do",{task:v,side});
-  if(r){toast(r.queued?"Queued: the running agent does it next":r.side?"Started as side task: it waits for a free GPU":"Started: the agent does only this task");$("#task").value="";dirty=false;setTab("overview")}
+  const r=await act("do",{task:v});
+  if(r){toast(r.queued?"Queued: the running agent does it next":"Started: the agent does only this task");$("#task").value="";dirty=false;setTab("overview")}
 }
 
 /* ---- tool view ---- */
@@ -703,11 +793,12 @@ const TOOL_EXAMPLES=["Add a make target that prints the status of all projects",
 const TOOL_STEPS=[["plan","Plan"],["backup","Backup"],["impact","Impact"],["implement","Implement"],["security","Security"],["test","Test"],["review","Review"],["docs","Docs"]];
 function toolTab(k){$("#main").scrollTop=0;LS=null;liveHtml="";toolTab_=k;dirty=false;lastBody=lastTabs="";extra=null;codeView=null;renderTool();refresh()}
 function renderTool(){
-  $("#head").innerHTML=`<div class="top"><div><h1>Change the tool itself</h1><div class="idea">Tell it what to change in this program (Makefile, scripts, web UI, agent loop, docs). It does only what you write, on a separate git branch, and never merges by itself.</div></div></div>`;
+  $("#head").innerHTML=`<div class="top"><div><h1>Change the tool itself</h1><div class="idea">Tell it what to change in this program (Makefile, scripts, web UI, agent loop, docs). It does only what you write, on a separate git branch, and never merges by itself.</div></div></div><div class="stats" id="toolStats"></div>`;
   const tabs=[["tool","Task"],["plan","Plan"],["reason","Reasoning"],["changes","Changes"],["log","Live log"]];
   const tb=`<div class="tabs">${tabs.map(([k,l])=>`<div class="tab ${toolTab_===k?"on":""}" onclick="toolTab('${k}')">${l}</div>`).join("")}</div>`;
   if(tb!==lastTabs){$("#tabs").innerHTML=tb;lastTabs=tb}
   const x=extra&&extra.kind==="tool"?extra:{running:false,log:"",branches:[]};
+  $("#toolStats").innerHTML=toolStats(x);
   if(toolTab_==="reason"){setBody(reasoningBody());reasoningLive();return}
   if(toolTab_==="plan")return setBody(planBody(x));
   if(toolTab_==="log")return setBody(`<div class="panel"><h3>Live log</h3><div class="loglegend"><span class="lg-step">step</span><span class="lg-ok">ok</span><span class="lg-sec">security</span><span class="lg-warn">warning</span><span class="lg-err">error</span></div><pre>${x.log?colorLog(x.log):"Nothing yet."}</pre></div>`);
@@ -1076,7 +1167,15 @@ function diagPanels(d){
   const T=D.tool||{},tool=T.proposals?`<span class="pill info">Self-improve: ${T.kept}/${T.proposals} steps kept (${pct(T.success_rate)}), ${T.repaired} saved by repair</span>`:"";
   const rows=D.projects.map(p=>{const f=p.flow,m=p.models,h=p.health,r=p.repo||{},sl=m.slowest[0];
     return `<tr><td><b>${esc(p.name)}</b>${h.stalled?` <span class="pill bad">stalled</span>`:""}</td><td>${f.done}/${f.total}${f.blocked?` <span class="pill warn">${f.blocked} blocked</span>`:""}</td><td>${pct(f.first_try_rate)}</td><td>${f.avg_attempts??"–"}</td><td>${f.failed_attempts}${Object.keys(f.fail_causes).length?`<br><span class="hint" style="margin:0">${esc(Object.entries(f.fail_causes).map(([k,v])=>k+" "+v).join(", "))}</span>`:""}</td><td>${f.avg_review_score??"–"}</td><td>${f.tasks_per_hour??"–"}</td><td>${m.avg_call_s==null?"–":m.avg_call_s+"s"}${sl?`<br><span class="hint" style="margin:0">slowest: ${esc(sl.tag)} ${sl.avg_s}s</span>`:""}</td><td>${pct(m.reasoning_share)}</td><td>${r.files??"–"} / ${r.loc??"–"}<br><span class="hint" style="margin:0">${r.tests??"–"} test files · ${r.commits??"–"} commits</span></td><td>${dur(h.idle_s)}${h.log_errors?`<br><span class="hint" style="margin:0">${h.log_errors} log errors</span>`:""}</td></tr>`}).join("");
-  return `<div class="panel"><h3>Needs attention</h3>${gpuNote}${fnd}<div style="margin-top:8px">${sys} ${tool}</div></div>
+  const basis={similar:"similar tasks",type:"same type",all:"all tasks",none:"no data yet"};
+  const est=D.projects.map(p=>{const F=p.forecast||{items:[]},r=F.running;
+    const run=r?`<div class="row" style="margin:4px 0"><span class="pill ${r.overdue?"warn":"info"}">running</span> ${esc(r.title)}: ${dur(r.elapsed_s)} elapsed${r.estimate_s?`, estimate ${dur(r.estimate_s)}${r.left_s!=null?` (~${dur(r.left_s)} left)`:""}`:""}</div>`:"";
+    const list=F.items.filter(i=>i.status==="pending").slice(0,5).map(i=>`<tr><td>${esc(i.title)}</td><td>${i.seconds?"~"+dur(i.seconds)+` <span class="hint" style="margin:0">(${dur(i.low)}–${dur(i.high)})</span>`:"–"}</td><td class="hint">${basis[i.basis]}${i.n?`, ${i.n}`:""}</td></tr>`).join("");
+    return `<div style="margin:6px 0"><b>${esc(p.name)}</b>: ${F.open} open, queue ~${F.known?dur(F.total_s):"–"}${F.known<F.open?` (${F.open-F.known} without data)`:""}, learned from ${p.durations||0} finished tasks${run}${list?`<div class="tblwrap"><table><tr><th>Next tasks</th><th>Estimate</th><th>Based on</th></tr>${list}</table></div>`:""}</div>`}).join("");
+  const TD=(D.tool||{}).durations||{};
+  const toolEst=TD.n?`<div style="margin:6px 0"><b>Self-improve</b>: a step takes ~${dur(TD.median_s)} (${dur(TD.low)}–${dur(TD.high)}, ${TD.n} steps)</div>`:"";
+  return `<div class="panel"><h3>Time estimates</h3><div class="hint">Calculated from the durations of comparable finished tasks, stored per project.</div>${est||""}${toolEst}</div>
+  <div class="panel"><h3>Needs attention</h3>${gpuNote}${fnd}<div style="margin-top:8px">${sys} ${tool}</div></div>
   <div class="panel"><h3>Project diagnostics</h3><div class="tblwrap"><table><tr><th>Project</th><th title="done / all tasks">Tasks</th><th title="tasks that passed on the first attempt">First try</th><th>Attempts / task</th><th>Failed attempts</th><th title="average review score">Review</th><th>Tasks / h</th><th title="average model call time">Call time</th><th title="share of reasoning in all model output">Reasoning</th><th>Files / lines</th><th title="time since last activity">Idle</th></tr>${rows||`<tr><td colspan="11" class="hint">No projects yet</td></tr>`}</table></div></div>`;
 }
 function showDash(){
