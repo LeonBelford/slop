@@ -276,6 +276,7 @@ function renderProject(){
   <div class="btns">
     ${d.running?`<button class="danger" onclick="act('stop',{},'Will stop after the current task')" ${d.stopping?"disabled":""}>Stop</button><button class="danger" title="Kill switch: ends the agent and all its processes immediately; unfinished work is discarded" onclick="forceStop()">Force stop</button>`:`<button class="primary" onclick="act('start',{},'Agent started')">Start</button>`}
     ${list&&list.chat_enabled===false?"":`<button onclick="showChat(null,['${esc(d.name)}'])" title="Open a chat that knows this project">Chat about this</button>`}
+    ${d.running?"":`<button onclick="doReplan()" title="The agent thinks the plan through again: new architecture layers, re-ordered and cleaned-up tasks">Re-evaluate tasks</button>`}
     <button onclick="doTry()" ${d.try_running?"disabled":""}>${d.try_running?"Building test version…":"Test now"}</button>
   </div></div>
   <div class="stats">${statCards(d)}</div>`;
@@ -445,7 +446,7 @@ function settingsBody(d){
     <p class="hint">${x.installed_models.length?"Pick from your installed Ollama models.":"Ollama is not reachable, so the list is empty."}</p>
     <label class="fld">Model selection<select id="rt-mode" onchange="dirty=true;$('#rt-auto').style.display=this.value==='off'?'none':''">${[["auto","Automatic: the best installed model for each task"],["off","Fixed: always the models below"]].map(([m,l])=>`<option value="${m}" ${(m==="auto")===auto?"selected":""}>${l}</option>`).join("")}</select></label>
     <p class="hint">Automatic: simple tasks go to a small fast coder, complex tasks and retries to a stronger one, and the strongest model does the final review. It uses what is installed; the coder below is the standard one. Fixed: every task uses exactly the models you pick.</p>
-    <div class="grid2" style="margin-top:10px">${model("m-planner","Planner (plans, ideas)",st.models.planner)}${model("m-reviewer","Reviewer",st.models.reviewer)}${model("m-summarizer","Summarizer (notes, docs)",st.models.summarizer)}${model("m-coder","Coder (Aider), standard",st.coder_model,{prefix:"ollama_chat/"})}</div>
+    <div class="grid2" style="margin-top:10px">${model("m-planner","Planner (plans, ideas)",st.models.planner)}${model("m-strategist","Strategist (architecture, task planning; empty = planner)",st.models.strategist||"",{empty:true})}${model("m-reviewer","Reviewer",st.models.reviewer)}${model("m-summarizer","Summarizer (notes, docs)",st.models.summarizer)}${model("m-coder","Coder (Aider), standard",st.coder_model,{prefix:"ollama_chat/"})}</div>
     <div id="rt-auto" style="${auto?"":"display:none"}"><div class="grid2" style="margin-top:10px">${model("rt-light","Light coder (simple tasks)",st.routing.light,{empty:true})}${model("rt-heavy","Heavy coder (complex tasks, retries)",st.routing.heavy,{empty:true})}${model("rt-final","Final reviewer",st.routing.final_reviewer,{empty:true})}</div>
     <p class="hint" style="margin-top:8px">Leave a field on (auto-detect) to let the tool choose. Picked now: light <b>${esc(rs.light||"none (uses the coder)")}</b> · heavy <b>${esc(rs.heavy||"none (uses the coder)")}</b> · final reviewer <b>${esc(rs.final_reviewer||"none (uses the reviewer)")}</b>. Switching models costs a few seconds of load time.</p></div></div>
     <div class="panel" style="margin-top:16px"><h3>Install a model</h3><div class="row"><input id="mdlName" placeholder="e.g. qwen2.5-coder:7b (any name from ollama.com/library)" onkeydown="if(event.key==='Enter')pullModel($('#mdlName').value)"><button class="primary" onclick="pullModel($('#mdlName').value)">Install</button></div>${sug.length?`<div class="chips" style="margin-top:8px">${sug.map(m=>`<span class="chip" title="${esc(m.note)} · ~${m.gb} GB · ${esc(m.fit)}" onclick="$('#mdlName').value='${esc(m.name)}'">${esc(m.name)}</span>`).join("")}</div><p class="hint">Suggestions for automatic selection (hover for size and fit). Larger models than your VRAM spill into RAM and run slower.</p>`:""}</div>
@@ -468,7 +469,7 @@ function settingsBody(d){
 async function saveSettings(){
   const v=id=>$("#"+id).value,limits={};
   document.querySelectorAll("[id^=lim-]").forEach(e=>limits[e.id.slice(4)]=e.value);
-  try{const r=await api(`/api/project/${sel}/settings`,{models:{planner:v("m-planner"),reviewer:v("m-reviewer"),summarizer:v("m-summarizer")},coder_model:v("m-coder"),limits,web_mode:v("web-mode"),routing:{mode:v("rt-mode"),light:v("rt-light"),heavy:v("rt-heavy"),final_reviewer:v("rt-final")},doc_language:v("doc-lang"),run:{mode:v("run-mode"),rounds:v("run-rounds")},scheduler:{priority:v("sc-prio"),min_idle:v("sc-idle"),slots:v("sc-slots")}});
+  try{const r=await api(`/api/project/${sel}/settings`,{models:{planner:v("m-planner"),reviewer:v("m-reviewer"),summarizer:v("m-summarizer"),strategist:v("m-strategist")},coder_model:v("m-coder"),limits,web_mode:v("web-mode"),routing:{mode:v("rt-mode"),light:v("rt-light"),heavy:v("rt-heavy"),final_reviewer:v("rt-final")},doc_language:v("doc-lang"),run:{mode:v("run-mode"),rounds:v("run-rounds")},scheduler:{priority:v("sc-prio"),min_idle:v("sc-idle"),slots:v("sc-slots")}});
     dirty=false;toast(r.applies==="now"?"Settings saved":"Saved: models apply from the next task, other settings at the next start");extra=null;await fetchExtra();lastBody="";renderProject()}catch(e){toast(e.message,true)}
 }
 async function renameProject(){
@@ -507,6 +508,7 @@ async function showFileHistory(path){
   if(!extra||!extra.commits)return;
   const c=extra.commits.find(c=>c.files.some(f=>f.path===path));if(c)showDiff(c.sha,path);
 }
+async function doReplan(){if(!confirm("Re-evaluate the plan? The agent re-thinks the architecture and re-orders, adds and cancels open tasks (your own tasks stay). It takes a few minutes."))return;await act("replan",{},"Re-evaluating: follow it in the log");setTab("log")}
 async function doTry(){await act("try",{},"Building a test version once the current task is done");setTab("testing")}
 async function say(){const v=$("#say").value.trim();if(!v)return;try{await api(`/api/project/${sel}/say`,{msg:v});toast("Feedback added");$("#say").value="";dirty=false;await refresh()}catch(e){toast(e.message,true)}}
 async function saveFile(kind,label){try{await api(`/api/project/${sel}/${kind}`,{text:$("#"+kind).value});dirty=false;toast(label+" saved");await refresh()}catch(e){toast(e.message,true)}}

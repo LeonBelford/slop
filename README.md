@@ -205,6 +205,8 @@ Ends on: `stop`, `max_hours`, `max_iterations`, 5 consecutive failures, or no ne
 ## Strategic planning (core first)
 At `init` the agent no longer builds a flat feature list. It designs an **architecture blueprint** (`docs/BLUEPRINT.md`, `agent/blueprint.json`): principles, modules, stable interfaces and 3 to 5 **layers**. Layer 0 is the kernel (data model, core logic, interfaces, error handling, test harness); every next layer builds only on the public interfaces below. Tasks carry `layer` and `depends_on`, and the agent works strictly bottom-up (your tasks and bugs still go first). Each planning prompt contains the blueprint context, a finished layer is logged and tagged `layer-N`, ideas and reviews land above the plan, and the project page shows a *Build plan* with progress per layer. Projects created earlier keep the old behaviour.
 
+**Re-evaluate tasks:** the button *Re-evaluate tasks* (or `scripts/run.sh replan <name>`, agent stopped) lets the *strategist* model re-think architecture and layers, re-order open tasks, add missing foundation tasks and cancel redundant ones (your own tasks stay). The strategist model is set in the project settings; empty means the planner.
+
 ## Models (RTX 3060, 12 GB)
 Rough guidelines, not measured on your hardware; check tags and licenses at [ollama.com/library](https://ollama.com/library).
 
