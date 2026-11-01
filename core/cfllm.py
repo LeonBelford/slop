@@ -165,7 +165,8 @@ class LLM:
             mocked = LLM.mock(tag, role, system, user)
             self.record(tag, role, "mock", user, mocked)
             return self._traced(tag, role, user, mocked)
-        model = self.overrides.get(role) or self.cfg["models"].get(role) or self.cfg["models"]["reviewer"]
+        fallback = self.cfg["models"].get("planner") if role == "strategist" else self.cfg["models"]["reviewer"]
+        model = self.overrides.get(role) or self.cfg["models"].get(role) or fallback
         body = json.dumps({
             "model": model,
             "messages": [{"role": "system", "content": system}, {"role": "user", "content": user}],

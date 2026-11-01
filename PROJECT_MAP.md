@@ -69,7 +69,7 @@ Code lives in five places: the entry points in the root (`codefactory.py`, `webu
 | `scripts/` | `run.sh` (CLI dispatcher, loads `.env`/venv), `setup.sh`, `quick-setup-popos.sh`, `Modelfile.qwen-coder-14b` |
 | `Makefile` | Thin targets over `scripts/run.sh` (`make help`), plus `lint`/`check` |
 | `ruff.toml`, `requirements-dev.txt` | Lint config and the pinned ruff version; `make lint` auto-creates `.venv-lint` from `requirements-dev.txt` |
-| `MASTER.md` | Global instructions for all projects (copied into each run) |
+| MASTER.md (personal, git-ignored) | Global instructions for all projects (copied into each run) |
 | `config.example.json` | Example per-project config |
 | `tests/` | `unittest` suites, one `test_<area>.py` per area; `python3 -m unittest discover -s tests` |
 | `docs/` | `GUIDE.md` (usage), `ARCHITECTURE.md` (internals), `OVERVIEW.md` (feature notes), `SECURITY.md` |

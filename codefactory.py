@@ -402,6 +402,12 @@ def selftest() -> None:
                 {"name": "Core", "goal": "kernel", "tasks": [{"key": "k", "title": "Core greeting module", "description": "d", "acceptance": ["t"]}]},
                 {"name": "API", "goal": "http", "tasks": [{"key": "a", "title": "Greeting endpoint", "description": "greet",
                                                          "acceptance": ["test"], "depends_on": ["k"], "value": 8, "effort": 2}]}]})
+        if tag == "reevaluate":
+            return json.dumps({"assessment": "core was missing", "architecture": {"principles": ["core first"]},
+                               "layers": [{"name": "Foundation", "goal": "kernel"}, {"name": "Surface", "goal": "api"}],
+                               "assign": [{"id": "T0001", "layer": 1, "priority": 5}],
+                               "new_tasks": [{"key": "cfg", "title": "Config loader", "description": "d", "acceptance": ["t"], "layer": 0}],
+                               "cancel": []})
         if tag == "summarize":
             return json.dumps({"purpose": "demo module", "public_api": ["f()"], "invariants": ["pure"]})
         if tag == "select_files":
@@ -470,6 +476,12 @@ def selftest() -> None:
     assert [i["layer"] for i in seeded] == [0, 1] and seeded[1]["depends_on"] == [seeded[0]["id"]], "blueprint must seed layered tasks"
     assert a.backlog.next()["id"] == seeded[0]["id"], "the core layer is built first"
     assert (a.repo / "docs" / "BLUEPRINT.md").exists()
+    stats = a.reevaluate()
+    assert stats["new"] == 1 and a.blueprint()["assessment"], "re-evaluation adds the missing foundation task"
+    assert a.backlog.next()["title"] == "Config loader", "the new foundation task comes first"
+    for it in a.backlog.items:  # restore the seeded order for the checks below
+        if it["source"] == "blueprint" and it["title"] == "Config loader":
+            a.backlog.set(it, status="cancelled")
     with open(ws / "SOURCES.md", "a", encoding="utf-8") as f:
         f.write("\nhttps://example.com/docs   use this for payments\n")
     with open(ws / "IDEAS.md", "a", encoding="utf-8") as f:
@@ -552,6 +564,9 @@ def main() -> None:
     p_do.add_argument("--project")
     p_do.add_argument("--task", required=True)
     p_do.add_argument("--queue-only", action="store_true")
+    p_re = sub.add_parser("replan", help="Think the plan through again: new layers, re-ordered tasks (agent must be stopped)")
+    p_re.add_argument("--projects-dir", default="projects")
+    p_re.add_argument("--project")
     p_name = sub.add_parser("name", help="Print the resolved project name")
     p_name.add_argument("--projects-dir", default="projects")
     p_name.add_argument("--project")
@@ -593,6 +608,12 @@ def main() -> None:
         print(f"Queued {item['id']}: {item['title']}")
         if not a.queue_only and not ag.is_running():
             ag.run_user_tasks()
+        return
+    if a.cmd == "replan":
+        ag = Agent(ws)
+        if ag.is_running():
+            sys.exit("The agent is running. Stop it first (or use the button in the UI, which waits for it).")
+        print(ag.reevaluate())
         return
     if a.cmd == "name":
         print(ws.name)

@@ -28,7 +28,7 @@ class SelfImproveTest(unittest.TestCase):
                 shutil.copytree(ROOT / pkg, repo / pkg, ignore=shutil.ignore_patterns("__pycache__"))
             shutil.copytree(ROOT / "tests", repo / "tests", ignore=shutil.ignore_patterns("test_selfimprove.py", "__pycache__"))
             shutil.copytree(ROOT / "scripts", repo / "scripts")
-            shutil.copy(ROOT / "MASTER.md", repo / "MASTER.md")
+            sa.write_text(repo / "MASTER.md", sa.MASTER_TEMPLATE)
             shutil.copy(ROOT / ".gitignore", repo / ".gitignore")
             (repo / "web").mkdir()
             shutil.copy(ROOT / "web" / "index.html", repo / "web" / "index.html")

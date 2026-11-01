@@ -19,7 +19,7 @@ class OpsMixin:
         conf = read_json(self.dir / "config.json", {})
         changed = []
         for role, name in (conf.get("models") or {}).items():
-            if isinstance(name, str) and name and self.cfg["models"].get(role) != name:
+            if isinstance(name, str) and (name or role == "strategist") and self.cfg["models"].get(role) != name:
                 changed.append(f"{role}: {self.cfg['models'].get(role)} -> {name}")
                 self.cfg["models"][role] = name
         coder = conf.get("coder_model")

@@ -34,6 +34,29 @@ class BlueprintTests(unittest.TestCase):
         self.assertIsNone(blueprint.clamp_layer(None, 1))
 
 
+class ReevaluationTests(unittest.TestCase):
+    def test_clamps_layers_protects_user_tasks_and_drops_unknown_ids(self):
+        items = [{"id": "T1", "source": "user"}, {"id": "T2", "source": "ideation"}]
+        r = blueprint.normalize_reevaluation({
+            "layers": [{"name": "Core", "goal": "g"}, {"name": "UI", "goal": "g"}],
+            "assign": [{"id": "T2", "layer": 9}, {"id": "nope", "layer": 0}],
+            "new_tasks": [{"key": "a", "title": "Base", "layer": -3, "depends_on": ["T2", "zzz"]}],
+            "cancel": [{"id": "T1"}, {"id": "T2"}, {"id": "ghost"}]}, items)
+        self.assertEqual(list(r["assign"]), ["T2"])
+        self.assertEqual(r["assign"]["T2"]["layer"], 1)
+        self.assertEqual((r["new"][0]["layer"], r["new"][0]["depends_on"]), (0, ["T2"]))
+        self.assertEqual(r["cancel"], ["T2"])
+
+    def test_no_layers_means_no_changes(self):
+        self.assertEqual(blueprint.normalize_reevaluation({"layers": []}, [])["layers"], [])
+
+
+class StrategistModelTests(unittest.TestCase):
+    def test_default_role_exists_and_falls_back_to_planner(self):
+        import codefactory as sa
+        self.assertIn("strategist", sa.DEFAULT_CONFIG["models"])
+
+
 class BacklogOrderTests(unittest.TestCase):
     def setUp(self):
         self.d = tempfile.TemporaryDirectory()

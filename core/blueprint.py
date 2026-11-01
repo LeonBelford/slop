@@ -65,6 +65,49 @@ def normalize(data: dict, mvp: list[dict] | None = None) -> dict:
     return {"architecture": out_arch, "layers": layers}
 
 
+def normalize_reevaluation(data: dict, items: list[dict]) -> dict:
+    """Cleans a re-evaluation answer against the real backlog `items`: layers, per-task layer/priority, new tasks and cancellations.
+
+    Layer numbers are clamped, unknown ids dropped; cancelling tasks that came from the user (or IDEAS.md) is ignored.
+    """
+    base = normalize({"architecture": data.get("architecture"), "layers": [
+        {"name": ly.get("name"), "goal": ly.get("goal"), "tasks": [{"title": "-"}]} for ly in data.get("layers", []) if isinstance(ly, dict)]})
+    layers = [{"name": ly["name"], "goal": ly["goal"]} for ly in base["layers"]]
+    if not layers:
+        return {"architecture": base["architecture"], "layers": [], "assign": {}, "new": [], "cancel": []}
+    ids = {i["id"] for i in items}
+    top = len(layers) - 1
+
+    def lay(v) -> int:
+        try:
+            return max(0, min(int(v), top))
+        except (TypeError, ValueError):
+            return top
+
+    assign = {}
+    for a in data.get("assign", []):
+        if isinstance(a, dict) and a.get("id") in ids:
+            assign[a["id"]] = {"layer": lay(a.get("layer")), "priority": _num(a.get("priority"), 5),
+                               "depends_on": [d for d in (a.get("depends_on") or []) if isinstance(d, str) and d != a["id"]]}
+    new, keys = [], set()
+    for n, t in enumerate(x for x in data.get("new_tasks", []) if isinstance(x, dict) and x.get("title")):
+        key = _s(t.get("key"), 40) or f"new{n}"
+        keys.add(key)
+        new.append({"key": key, "title": _s(t["title"], 120), "description": _s(t.get("description"), 800),
+                    "acceptance": [_s(a) for a in (t.get("acceptance") or []) if a][:6], "layer": lay(t.get("layer")),
+                    "type": t.get("type") if t.get("type") in ("feature", "refactor", "test", "docs") else "feature",
+                    "priority": _num(t.get("value"), 5) * 2 - _num(t.get("effort"), 5),
+                    "depends_on": [d for d in (t.get("depends_on") or []) if isinstance(d, str) and (d in ids or d in keys) and d != key]})
+    protected = {i["id"] for i in items if i.get("source") in ("user", "ideas")}
+    cancel = []
+    for c in data.get("cancel", []):
+        cid = c.get("id") if isinstance(c, dict) else c
+        if cid in ids and cid not in protected and cid not in cancel:
+            cancel.append(cid)
+    return {"architecture": base["architecture"], "layers": layers, "assign": assign, "new": new[:20], "cancel": cancel,
+            "assessment": _s(data.get("assessment"), 800)}
+
+
 def load(path: Path) -> dict | None:
     bp = read_json(path, None)
     return bp if isinstance(bp, dict) and bp.get("layers") else None
@@ -100,6 +143,8 @@ def render_md(bp: dict) -> str:
     """Human-readable version for docs/BLUEPRINT.md."""
     a = bp.get("architecture", {})
     lines = ["# Architecture blueprint", "", "Built bottom-up: each layer uses only the public interfaces of the layers below.", ""]
+    if bp.get("assessment"):
+        lines += ["## Assessment of the previous plan", bp["assessment"], ""]
     for title, key in (("Principles", "principles"), ("Contracts (stable interfaces)", "contracts"), ("Decisions", "decisions")):
         if a.get(key):
             lines += [f"## {title}", *[f"- {x}" for x in a[key]], ""]

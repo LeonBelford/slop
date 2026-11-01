@@ -26,6 +26,7 @@ DEFAULT_CONFIG = {
         "planner": os.getenv("PLANNER_MODEL", "qwen2.5-coder:14b"),
         "reviewer": os.getenv("REVIEWER_MODEL", "qwen2.5-coder:14b"),
         "summarizer": os.getenv("SUMMARIZER_MODEL", "qwen2.5-coder:14b"),
+        "strategist": os.getenv("STRATEGIST_MODEL", ""),  # architecture blueprint and re-planning; empty = same as the planner
     },
     "coder_model": os.getenv("CODER_MODEL", "ollama_chat/qwen2.5-coder:14b"),  # Aider model string
     # Optional model routing (see models.py): installed extra models are detected and used automatically.

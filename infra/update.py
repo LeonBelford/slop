@@ -30,6 +30,7 @@ def git(repo: Path, *args: str, timeout: int = 60) -> tuple[int, str]:
 
 BRANCH = os.environ.get("CODEFACTORY_UPDATE_BRANCH", "main")  # updates always come from this branch of origin
 REMOTE = "origin"
+PERSONAL = ("MASTER.md",)  # the user's own files: local edits never block an update and are kept
 
 
 def status(repo: Path = ROOT, fetch: bool = True) -> dict:
@@ -51,6 +52,7 @@ def status(repo: Path = ROOT, fetch: bool = True) -> dict:
     rc, counts = git(repo, "rev-list", "--left-right", "--count", f"{base}...{up}")
     ahead, behind = (int(x) for x in counts.split()) if rc == 0 and len(counts.split()) == 2 else (0, 0)
     dirty = [l.split(None, 1)[-1] for l in git(repo, "status", "--porcelain", "--untracked-files=no")[1].splitlines()]
+    dirty = [f for f in dirty if f not in PERSONAL]
     log = git(repo, "log", "--format=%h %s", "-n", "15", f"{base}..{up}")[1].splitlines() if behind else []
     state = "diverged" if ahead and behind else "behind" if behind else "ahead" if ahead else "current"
     msg = {"current": f"Up to date with {up}.", "behind": f"{behind} new commit(s) on {up}.",
@@ -64,7 +66,29 @@ def status(repo: Path = ROOT, fetch: bool = True) -> dict:
 
 
 def apply(repo: Path = ROOT, log=print) -> dict:
-    """Fast-forwards to the upstream, refreshes dependencies and rolls back if the new code does not import."""
+    """Fast-forwards to the upstream, refreshes dependencies and rolls back if the new code does not import.
+
+    Personal files (MASTER.md) are set aside before and restored after, so edits in the UI never block an update."""
+    saved = {}
+    for name in PERSONAL:
+        try:
+            saved[name] = (repo / name).read_bytes()
+        except OSError:
+            continue
+        if git(repo, "ls-files", "--error-unmatch", name)[0] == 0:
+            git(repo, "checkout", "--", name)
+    try:
+        return _apply(repo, log)
+    finally:
+        for name, data in saved.items():
+            try:
+                if not (repo / name).exists() or (repo / name).read_bytes() != data:
+                    (repo / name).write_bytes(data)
+            except OSError:
+                pass
+
+
+def _apply(repo: Path, log) -> dict:
     st = status(repo)
     if st["state"] != "behind":
         return {"ok": st["state"] == "current", "updated": False, "message": st["message"], "status": st}

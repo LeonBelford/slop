@@ -270,7 +270,7 @@ class ResearchMixin:
                       for i in self.backlog.items if i["status"] in ("pending", "blocked")]
         try:
             d = self.llm.json(
-                "replan", "planner",
+                "replan", "strategist",
                 "You are a product planner. The user maintains wishes and directives; you reconcile them with the current state of the product. "
                 "Add only what is missing. Break larger refactorings into small, ordered steps (type refactor, earlier "
                 "steps higher priority). Open tasks that contradict the directives are cancelled.",
