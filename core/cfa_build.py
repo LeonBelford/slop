@@ -4,7 +4,7 @@ from __future__ import annotations
 from dash import estimate
 from infra import gpusched
 import json
-from infra import models
+from infra import models, notify
 import os
 from infra import perf
 import re
@@ -235,6 +235,7 @@ class BuildMixin:
                 self.last_light = item["type"] in ("docs", "test")
                 self.cur_task, self.cur_attempt = "", 0
                 self.phase("Task finished and merged, picking the next one", None, item["title"])
+                notify.send(self.cfg, "done", self.ws.name, f"finished {item['id']} {item['title']}")
                 return True
             self.git.hard_reset()
             self.git.run("checkout", "-q", "main")
@@ -255,10 +256,12 @@ class BuildMixin:
             if same >= 2:
                 self.log("Three identical failures: stopping this task instead of repeating it")
                 self.metric(kind="stalled", item=item["id"], where="task", sig=sig[:80])
+                notify.send(self.cfg, "stalled", self.ws.name, f"{item['id']} {item['title']} failed three times the same way")
                 break
         self.force_heavy = False
         self.backlog.set(item, status="blocked")
         self.phase("Task blocked after repeated failures", None, item["title"])
+        notify.send(self.cfg, "blocked", self.ws.name, f"{item['id']} {item['title']} is blocked after repeated failures")
         return False
 
     def record_failure(self, item: dict, why: str) -> None:

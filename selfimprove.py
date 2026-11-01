@@ -26,6 +26,7 @@ import time
 from pathlib import Path
 
 import codefactory as sa
+from core import progress
 from dash import estimate
 from infra import models
 from infra import perf
@@ -93,6 +94,9 @@ def gather_evidence(projects: Path) -> dict:
 STATE = Path(__file__).resolve().parent / "self_improve"  # live state shown in the UI ("Change the tool itself")
 
 
+_TOOL_PROGRESS = progress.Tracker()
+
+
 def _phase(step: str, detail: str = "") -> None:
     """Publishes the current stage (plan / implement / test / docs) for the UI; an empty step clears it."""
     f = STATE / "phase.json"
@@ -100,7 +104,8 @@ def _phase(step: str, detail: str = "") -> None:
         f.unlink(missing_ok=True)
         return
     STATE.mkdir(exist_ok=True)
-    sa.write_json(f, {"step": step, "detail": detail, "since": time.time()})
+    pct, steps = _TOOL_PROGRESS.update(progress.TOOL_PIPELINE, "run", step, step, detail)
+    sa.write_json(f, {"step": step, "detail": detail, "since": time.time(), "pct": pct, "steps": steps})
 
 
 def _wire(llm, stamp: str) -> None:

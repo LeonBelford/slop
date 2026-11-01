@@ -46,7 +46,7 @@ class RunModeTests(unittest.TestCase):
             setattr(a, n, lambda *x, **k: None)
         a.reflect_due = lambda: False
         a.git.hard_reset = lambda: None
-        a.backlog.next = lambda: None
+        a.backlog.next = lambda *a_, **k_: None
         a.refill = lambda: (calls.append(1), a.state.__setitem__("rounds_run", a.state.get("rounds_run", 0) + 1), True)[-1]
         a._run_loop()
         self.assertEqual(len(calls), 2)

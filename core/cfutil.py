@@ -63,6 +63,7 @@ DEFAULT_CONFIG = {
     "run": {"mode": "default", "rounds": 3},
     # GPU scheduling between agents: "main" keeps priority, "side" only uses the model while main is idle for min_idle seconds
     "scheduler": {"priority": "main", "min_idle": 20, "slots": 2},
+    "notify": {"webhook": "", "events": ["done", "blocked", "stalled", "stopped"]},
     "web": {"mode": "sources", "refresh_hours": 24, "max_chars": 20000, "timeout": 20, "research_every": 4,
             "queries_per_research": 3, "results_per_query": 2, "max_new_pages_per_session": 40,
             "search_url": "https://html.duckduckgo.com/html/?q={q}", "blocked_domains": []},

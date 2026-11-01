@@ -31,7 +31,7 @@ from dash import history, throughput, chat as chatlib
 import codefactory as sa
 from core import cfprofile
 from dash import diagnostics
-from infra import models
+from infra import models, notify
 from infra import perf
 from infra import qr
 from dash import runledger
@@ -222,7 +222,9 @@ class Service:
         live = self.live_rate(read_live(a / "llm_stream.json", sm["running"]))
         if not live["active"] and sm["running"]:
             live = self.coder_rate(name, a) or live
-        return {**sm, "perf": throughput.perf(sa.read_json(a / "metrics.json", {})), "live": live, "gpu": self.gpu_stats(), "ideas": read(ws / "IDEAS.md"), "goal": read(a / "GOAL.md"), "testing": read(ws / "TESTING.md"), "sources": read(ws / "SOURCES.md"), "web_mode": sa.read_json(a / "config.json", {}).get("web", {}).get("mode", "sources"),
+        conf = sa.read_json(a / "config.json", {})
+        return {**sm, "perf": throughput.perf(sa.read_json(a / "metrics.json", {})), "live": live, "gpu": self.gpu_stats(), "ideas": read(ws / "IDEAS.md"), "goal": read(a / "GOAL.md"), "testing": read(ws / "TESTING.md"), "sources": read(ws / "SOURCES.md"), "web_mode": conf.get("web", {}).get("mode", "sources"),
+                "notify": conf.get("notify", {"webhook": "", "events": list(notify.EVENTS)}),
                 "activity": self.activity(ws), "log": tail(a / "agent.log"), "run_out": tail(a / "run.out", 15), "do_out": tail(a / "do.out", 15), "try_out": tail(a / "try.out", 15),
                 "features": [{"id": k, "title": v.get("title", k)} if isinstance(v, dict) else {"id": k, "title": str(v)}
                              for k, v in feats.items()],
@@ -871,7 +873,8 @@ class Service:
         ws = self.ws(name)
         eff = sa.Agent(ws).cfg
         return {**cfprofile.overview(ws / "agent"), "features": {k: eff["features"].get(k) for k in FEATURE_KEYS}, "web_mode": eff["web"]["mode"],
-                "sources": (ws / "SOURCES.md").read_text("utf-8") if (ws / "SOURCES.md").exists() else ""}
+                "sources": (ws / "SOURCES.md").read_text("utf-8") if (ws / "SOURCES.md").exists() else "",
+                "notify": eff.get("notify", {"webhook": "", "events": list(notify.EVENTS)})}
 
     @staticmethod
     def save_features(ws: Path, feats) -> None:
@@ -992,6 +995,13 @@ class Service:
             if not re.fullmatch(r"[A-Za-z ]{2,30}", lang):
                 raise UiError("Invalid documentation language")
             conf["doc_language"] = lang
+        if "notify" in body:
+            nb = body["notify"] if isinstance(body["notify"], dict) else {}
+            url = str(nb.get("webhook", "")).strip()
+            if url and not notify.valid_url(url):
+                raise UiError("Webhook must be a plain http(s) URL")
+            events = [e for e in (nb.get("events") or []) if e in notify.EVENTS]
+            conf["notify"] = {"webhook": url, "events": events or list(notify.EVENTS)}
         sa.write_json(ws / "agent" / "config.json", conf)
 
     @staticmethod

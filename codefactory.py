@@ -57,7 +57,7 @@ import threading
 import time
 import urllib.request
 
-from core import cfprofile, cfutil
+from core import cfprofile, cfutil, progress
 from core.cfutil import (  # noqa: F401
     DEFAULT_CONFIG,
     IDEAS_TEMPLATE,
@@ -104,6 +104,7 @@ from core.cfmemory import (  # noqa: F401
 from core.cfa_build import BuildMixin
 from core.cfa_flow import FlowMixin
 from core.cfa_verify import VerifyMixin
+from infra import notify
 from core.cfa_security import SecurityMixin
 from core.cfa_research import ResearchMixin
 from core.cfa_ops import OpsMixin
@@ -166,9 +167,18 @@ class Agent(BuildMixin, FlowMixin, VerifyMixin, SecurityMixin, ResearchMixin, Op
             f.write(line + "\n")
 
     def phase(self, name: str, step: str | None = None, detail: str = "") -> None:
-        """Publishes what the agent is doing right now (activity.json) and appends it to the event timeline (events.jsonl)."""
+        """Publishes what the agent is doing right now (activity.json) and appends it to the event timeline (events.jsonl).
+
+        Also tracks an estimated completion percentage and a short per-task sub-step log so the UI can
+        show not just the current stage but how far the overall task is, and which micro-steps led there.
+        """
+        if not hasattr(self, "_progress"):
+            self._progress = progress.Tracker()
+        done = step is None and "finished and merged" in name
+        pct, steps = self._progress.update(progress.AGENT_PIPELINE, (self.cur_task, self.cur_attempt), name, step, detail, done)
         write_json(self.dir / "activity.json", {"phase": name, "step": step, "detail": detail[:300], "since": time.time(),
-                                                "task": self.cur_task, "attempt": self.cur_attempt, "pid": os.getpid()})
+                                                "task": self.cur_task, "attempt": self.cur_attempt, "pid": os.getpid(),
+                                                "pct": pct, "steps": steps})
         self.log(f"▶ [{step or 'agent'}] {name}" + (f" ({detail[:120]})" if detail else ""))
         with open(self.dir / "events.jsonl", "a", encoding="utf-8") as f:
             f.write(json.dumps({"time": now(), "phase": name, "step": step, "detail": detail[:300], "task": self.cur_task,
@@ -382,6 +392,7 @@ class Agent(BuildMixin, FlowMixin, VerifyMixin, SecurityMixin, ResearchMixin, Op
         self.cur_task, self.cur_attempt = "", 0
         self.phase("Stopped", None, str(reason))
         self.log(f"End: {reason}")
+        notify.send(self.cfg, "stopped", self.ws.name, str(reason))
 
 
 # --------------------------------------------------------------------------- Selftest
