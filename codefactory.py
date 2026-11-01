@@ -96,6 +96,10 @@ DEFAULT_CONFIG = {
     },
     "context": {"max_chars": 26000, "file_clip": 6000},
     # Internet access. mode: "off" | "sources" (only URLs listed in SOURCES.md) | "open" (also web search by the agent)
+    # How long the autonomous loop runs. "default": until 3 idea rounds in a row find nothing new (product saturated);
+    # "rounds": stop once the backlog is empty after `rounds` idea rounds; "endless": keep building until you stop it
+    # (ignores max_iterations/max_hours; still stops on repeated failures).
+    "run": {"mode": "default", "rounds": 3},
     # GPU scheduling between agents: "main" keeps priority, "side" only uses the model while main is idle for min_idle seconds
     "scheduler": {"priority": "main", "min_idle": 20},
     "web": {"mode": "sources", "refresh_hours": 24, "max_chars": 20000, "timeout": 20, "research_every": 4,
@@ -2118,9 +2122,10 @@ class Agent:
     def should_stop(self, started: float) -> str | None:
         if (self.dir / "STOP").exists():
             return "STOP file found"
-        if self.state["iteration"] >= self.lim["max_iterations"]:
+        endless = self.cfg["run"]["mode"] == "endless"
+        if not endless and self.state["iteration"] >= self.lim["max_iterations"]:
             return "max_iterations reached"
-        if self.state["elapsed"] + time.time() - started > self.lim["max_hours"] * 3600:
+        if not endless and self.state["elapsed"] + time.time() - started > self.lim["max_hours"] * 3600:
             return "max_hours reached"
         if self.state["consecutive_failures"] >= self.lim["max_consecutive_failures"]:
             return "too many consecutive failures, please check the logs"
@@ -2128,6 +2133,7 @@ class Agent:
 
     def refill(self) -> bool:
         added = 0
+        self.state["rounds_run"] = self.state.get("rounds_run", 0) + 1
         self.research()
         if self.state["merged"] - self.state["last_review_at"] >= self.lim["product_review_every"] or not self.mem.features:
             added += self.product_review()
@@ -2138,6 +2144,13 @@ class Agent:
             return True
         self.state["empty_refills"] += 1
         self.state["ideation_min_score"] = max(3, self.state["ideation_min_score"] - 1)
+        if self.cfg["run"]["mode"] == "endless":
+            self.log(f"No new ideas, threshold {self.state['ideation_min_score']}. Endless mode: waiting 2 minutes for your ideas/tasks, then trying again.")
+            for _ in range(24):
+                if (self.dir / "STOP").exists():
+                    break
+                time.sleep(5)
+            return True
         self.log(f"No new ideas ({self.state['empty_refills']}/3), lowering threshold to {self.state['ideation_min_score']}")
         return self.state["empty_refills"] < 3
 
@@ -2167,6 +2180,7 @@ class Agent:
                 it["status"] = "pending"
         self.backlog.save()
         self.state["empty_refills"] = 0  # fresh start: try ideas again after `stop`/saturation
+        self.state["rounds_run"] = 0
         started = time.time()
         self.git.hard_reset()
         self.health_check()
@@ -2186,6 +2200,10 @@ class Agent:
             self.schedule_hygiene()
             item = self.backlog.next()
             if not item:
+                run = self.cfg["run"]
+                if run["mode"] == "rounds" and self.state.get("rounds_run", 0) >= int(run["rounds"]):
+                    reason = f"Finished {run['rounds']} idea round(s) and the backlog is empty"
+                    break
                 if not self.refill():
                     reason = "Product saturated: no sensible new ideas left"
                     break
