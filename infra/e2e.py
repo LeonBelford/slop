@@ -16,7 +16,7 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
 RUNNER = Path(__file__).resolve().parent / "e2e_runner.py"
-INSTALL_HELP = ("Browser tests need Playwright: run `make e2e-setup` "
+INSTALL_HELP = ("UI tests for web apps need Playwright: run `make e2e-setup` "
                 "(installs it into .venv with Chromium; on a fresh Linux also `sudo .venv/bin/playwright install-deps chromium`).")
 
 
@@ -90,7 +90,7 @@ def _runner(py: str, args: list[str], timeout: int) -> dict:
     try:
         r = subprocess.run([py, str(RUNNER), *args], capture_output=True, text=True, timeout=timeout)
     except subprocess.TimeoutExpired:
-        return {"ok": False, "error": f"Browser test timed out after {timeout}s", "problems": [], "snapshot": ""}
+        return {"ok": False, "error": f"UI test timed out after {timeout}s", "problems": [], "snapshot": ""}
     lines = [l for l in r.stdout.splitlines() if l.startswith("{")]
     if not lines:
         return {"ok": False, "error": f"Runner crashed: {(r.stderr or r.stdout)[-600:]}", "problems": [], "snapshot": ""}

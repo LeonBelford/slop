@@ -13,7 +13,7 @@ RULES = [  # (class, pattern); the first match wins
     ("lint_fail", r"\[lint\] FAILED"),
     ("test_fail", r"\[test\] FAILED|Build/test red"),
     ("security", r"Security gate"),
-    ("browser", r"Browser test"),
+    ("browser", r"(?:Browser|UI) test"),
     ("acceptance", r"acceptance"),
     ("mutation", r"mutation"),
     ("review", r"[Rr]eview"),

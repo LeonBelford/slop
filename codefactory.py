@@ -41,7 +41,7 @@ import sys
 import tempfile
 import time
 
-from core import cfprofile, cfutil, progress
+from core import cfprofile, cfutil, progress, uidetect
 from core.cfutil import (  # noqa: F401
     DEFAULT_CONFIG,
     IDEAS_TEMPLATE,
@@ -92,9 +92,10 @@ from infra import notify
 from core.cfa_security import SecurityMixin
 from core.cfa_research import ResearchMixin
 from core.cfa_ops import OpsMixin
+from core.cfa_plan import PlanMixin
 
 
-class Agent(BuildMixin, FlowMixin, VerifyMixin, SecurityMixin, ResearchMixin, OpsMixin):
+class Agent(BuildMixin, FlowMixin, VerifyMixin, SecurityMixin, ResearchMixin, OpsMixin, PlanMixin):
     def __init__(self, ws: Path, cfg: dict | None = None):
         self.ws = ws.resolve()
         self.repo, self.dir = self.ws / "repo", self.ws / "agent"
@@ -245,10 +246,13 @@ class Agent(BuildMixin, FlowMixin, VerifyMixin, SecurityMixin, ResearchMixin, Op
         brief = self.llm.json(
             "brief", "planner", "You are a senior engineer and product designer building the best open-source project in its category: fast, cleanly written, great experience for everyone. Realistic, focused, start small. No monetization.",
             f"Idea: {idea}\nStack: {self.cfg['stack']}\nSchema: "
-            '{"name": "", "vision": "", "target_users": ["..."], "problems": ["..."], "mvp_features": '
+            '{"name": "", "vision": "", "interface": "web|cli|api|library|desktop|other", "has_ui": true/false (true only if people '
+            'use it through a graphical or browser interface; false for CLI tools, APIs, libraries, bots), "target_users": ["..."], "problems": ["..."], "mvp_features": '
             '[{"title": "", "description": "", "acceptance": ["testable"], "value": 1-10, "effort": 1-10}], '
             '"non_goals": ["..."], "performance_goals": ["measurable"], "quality_bar": ["..."]}')
-        goal = (f"# {brief.get('name', 'Product')}\n\nIdea: {idea}\n\n## Vision\n{brief.get('vision', '')}\n\n"
+        uidetect.save(self.dir / "interface.json", brief)
+        goal = (f"# {brief.get('name', 'Product')}\n\nIdea: {idea}\n\n## Interface\n{brief.get('interface') or 'unspecified'}"
+                f"{'' if brief.get('has_ui') is not False else ' (no graphical or browser UI: write no UI tests)'}\n\n## Vision\n{brief.get('vision', '')}\n\n"
                 f"## Target audience\n" + "".join(f"- {x}\n" for x in brief.get("target_users", [])) +
                 "\n## Problems\n" + "".join(f"- {x}\n" for x in brief.get("problems", [])) +
                 "\n## Performance goals\n" + "".join(f"- {x}\n" for x in brief.get("performance_goals", [])) + "\n## Non-goals\n" +
@@ -256,10 +260,11 @@ class Agent(BuildMixin, FlowMixin, VerifyMixin, SecurityMixin, ResearchMixin, Op
                 "".join(f"- {x}\n" for x in brief.get("quality_bar", [])) + f"\n## Stack\n{self.cfg['stack']}\n")
         write_text(self.dir / "GOAL.md", goal)
         write_text(self.repo / "docs" / "PRODUCT.md", goal)
-        for f in brief.get("mvp_features", []):
-            self.backlog.add(f["title"], f.get("description", ""), "feature",
-                             float(f.get("value", 5)) * 2 - float(f.get("effort", 5)),
-                             f.get("acceptance", []), "MVP", "bootstrap")
+        if not self.make_blueprint(idea, brief):
+            for f in brief.get("mvp_features", []):
+                self.backlog.add(f["title"], f.get("description", ""), "feature",
+                                 float(f.get("value", 5)) * 2 - float(f.get("effort", 5)),
+                                 f.get("acceptance", []), "MVP", "bootstrap")
         self.mem.sync()
         self.mem.refresh_kb()
         self.mem.refresh_architecture()
@@ -392,6 +397,11 @@ def selftest() -> None:
         if tag == "brief":
             return json.dumps({"name": "Demo", "vision": "v", "mvp_features": [
                 {"title": "Greeting endpoint", "description": "greet", "acceptance": ["test"], "value": 8, "effort": 2}]})
+        if tag == "blueprint":
+            return json.dumps({"architecture": {"principles": ["core first"], "contracts": ["greet(name) -> str"]}, "layers": [
+                {"name": "Core", "goal": "kernel", "tasks": [{"key": "k", "title": "Core greeting module", "description": "d", "acceptance": ["t"]}]},
+                {"name": "API", "goal": "http", "tasks": [{"key": "a", "title": "Greeting endpoint", "description": "greet",
+                                                         "acceptance": ["test"], "depends_on": ["k"], "value": 8, "effort": 2}]}]})
         if tag == "summarize":
             return json.dumps({"purpose": "demo module", "public_api": ["f()"], "invariants": ["pure"]})
         if tag == "select_files":
@@ -456,6 +466,10 @@ def selftest() -> None:
     a.web.mock_fetch = lambda url: ("Docs", f"content of {url}")
     a.web.mock_search = lambda q: [("https://example.com/found", "Found")]
     a.init("demo idea")
+    seeded = [i for i in a.backlog.items if i["source"] == "blueprint"]
+    assert [i["layer"] for i in seeded] == [0, 1] and seeded[1]["depends_on"] == [seeded[0]["id"]], "blueprint must seed layered tasks"
+    assert a.backlog.next()["id"] == seeded[0]["id"], "the core layer is built first"
+    assert (a.repo / "docs" / "BLUEPRINT.md").exists()
     with open(ws / "SOURCES.md", "a", encoding="utf-8") as f:
         f.write("\nhttps://example.com/docs   use this for payments\n")
     with open(ws / "IDEAS.md", "a", encoding="utf-8") as f:

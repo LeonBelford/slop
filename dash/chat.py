@@ -12,6 +12,7 @@ import threading
 import time
 import urllib.request
 
+from dash import toolchat
 from infra import knowledge
 from pathlib import Path
 from collections.abc import Callable, Iterator
@@ -25,6 +26,11 @@ MAX_USER_CHARS = 20000
 SYSTEM = ("You are the assistant inside CodeFactory, a local autonomous coding agent. You help the user think through ideas, "
           "architecture and plans, and answer questions about their projects. Be concrete and concise. When the user wants "
           "something built, propose a clear task description they can send to the agent. Answer in the user's language.")
+
+PROJECT_ADDON = ("You cannot change files yourself. When the user wants something changed or built in this project, discuss it briefly, "
+                 "then propose exactly one self-contained task as a fenced block starting with ```task and ending with ```: 2-6 concrete "
+                 "sentences with what to do and how to check it. The user sends it to the project's agent with one button, which plans, "
+                 "implements, tests and merges it. Never claim something is already changed.")
 
 FILE_LOCK = threading.Lock()
 
@@ -78,7 +84,7 @@ class ChatStore:
             try:
                 c = json.loads(f.read_text("utf-8"))
                 items.append({"id": c["id"], "title": c["title"], "projects": c["projects"], "model": c["model"],
-                              "messages": len(c["messages"]), "updated": c["updated"]})
+                              "messages": len(c["messages"]), "updated": c["updated"], "tool": bool(c.get("tool")), "project": c.get("project", "")})
             except (ValueError, KeyError):
                 continue
         return {"chats": items}
@@ -87,8 +93,34 @@ class ChatStore:
         chat = {"id": secrets.token_hex(6), "title": str(body.get("title") or "New chat")[:80],
                 "projects": self.clean_links(body.get("projects")),
                 "model": str(body.get("model") or default_model), "messages": [], "updated": time.time()}
+        if body.get("tool"):
+            chat["tool"] = True
+        if body.get("project") and body["project"] in chat["projects"]:
+            chat["project"] = body["project"]
         self.save(chat)
         return chat
+
+    def project_chat(self, name: str, default_model: str) -> dict:
+        """The chat that belongs to one project (created on first use)."""
+        for f in self.dir.glob("*.json") if self.dir.exists() else []:
+            try:
+                c = json.loads(f.read_text("utf-8"))
+            except ValueError:
+                continue
+            if c.get("project") == name:
+                return c
+        return self.create({"title": f"{name} chat", "projects": [name], "project": name}, default_model)
+
+    def tool_chat(self, default_model: str) -> dict:
+        """The one chat about CodeFactory itself (created on first use)."""
+        for f in self.dir.glob("*.json") if self.dir.exists() else []:
+            try:
+                c = json.loads(f.read_text("utf-8"))
+            except ValueError:
+                continue
+            if c.get("tool"):
+                return c
+        return self.create({"title": "CodeFactory assistant", "tool": True}, default_model)
 
     def update(self, cid: str, body: dict) -> dict:
         chat = self.load(cid)
@@ -98,6 +130,8 @@ class ChatStore:
             chat["model"] = str(body["model"])[:100]
         if body.get("title"):
             chat["title"] = str(body["title"])[:80]
+        if "web" in body:
+            chat["web"] = bool(body["web"])
         self.save(chat)
         return chat
 
@@ -148,14 +182,21 @@ def knowledge_context(ws: Path, query: str, api: str, key: str, embed_model: str
     return ("Knowledge base hits for the latest question:\n" + "\n".join(lines)) if lines else ""
 
 
-def build_messages(chat: dict, ws_of: Callable[[str], Path | None], api: str = "", key: str = "") -> list[dict]:
+def build_messages(chat: dict, ws_of: Callable[[str], Path | None], api: str = "", key: str = "", tool_ctx: Callable[[str], str] | None = None, web_ctx: str = "") -> list[dict]:
     last = next((m["content"] for m in reversed(chat["messages"]) if m["role"] == "user"), "")
     ctx = []
     for w in (ws_of(n) for n in chat["projects"]):
         if w:
             k = knowledge_context(w, last, api, key) if last else ""
             ctx.append(project_context(w) + ("\n\n" + k if k else ""))
-    system = SYSTEM + ("\n\nLinked projects (current state):\n\n" + "\n\n".join(ctx) if ctx else "")
+    if chat.get("tool") and tool_ctx:
+        system = toolchat.SYSTEM + "\n\n" + tool_ctx(last)
+    else:
+        system = SYSTEM + ("\n\nLinked projects (current state):\n\n" + "\n\n".join(ctx) if ctx else "")
+    if chat.get("project"):
+        system += "\n\n" + PROJECT_ADDON
+    if web_ctx:
+        system += "\n\n" + web_ctx
     kept, used = [], 0
     for m in reversed(chat["messages"]):
         used += len(m["content"])

@@ -115,9 +115,9 @@ Everything below **only while the agent is stopped**:
 ## 6b1. Knowledge base
 Nothing to do: the agent indexes what it learns per project and checks earlier decisions and lessons before each change. Optional for better matches by meaning: `ollama pull nomic-embed-text`. Faded lessons land in `projects/<name>/agent/memory/lessons_archive.jsonl`; you can edit `lessons.jsonl` by hand, the index follows.
 
-## 6b2. Chat and browser tests
+## 6b2. Chat and UI tests
 - **Chat:** sidebar button *Chat*; link projects as chips so the model knows them. Pick the model per chat (installed Ollama models). *Add to ideas* / *Run as task* under an answer sends it to the linked project.
-- **Browser tests:** `make e2e-setup` once (on a fresh Linux also `sudo .venv/bin/playwright install-deps chromium`). Web products are then clicked through in headless Chromium after the build; generated tests are kept in the product repo under `e2e/`.
+- **UI tests (only for products with a web UI, never for CLI tools, APIs or libraries):** `make e2e-setup` once (on a fresh Linux also `sudo .venv/bin/playwright install-deps chromium`). Web products are then clicked through in headless Chromium after the build; generated tests are kept in the product repo under `e2e/`.
 
 ## 6c. Self-improvement
 - **Automatic, per project:** nothing to do. Every few merges (`limits.reflect_every`, default 6) or after 3 failed tasks the agent writes

@@ -3,6 +3,7 @@ from __future__ import annotations
 
 from pathlib import Path
 from infra.webaccess import WebError
+from core import blueprint
 from dash import estimate
 import json
 from infra import knowledge
@@ -52,7 +53,7 @@ class ResearchMixin:
             if added >= self.lim["ideation_batch"] or float(c.get("value", 5)) < self.state["ideation_min_score"] - 2:
                 continue
             if self.backlog.add(c["title"], c.get("description", ""), c.get("type", "feature"), score, c.get("acceptance", []),
-                                c.get("rationale", ""), f"ideation:{lens}", feats):
+                                c.get("rationale", ""), f"ideation:{lens}", feats, layer=self.top_layer()):
                 added += 1
         self.log(f"Ideation ({lens}): {added} new tasks")
         return added
@@ -70,7 +71,7 @@ class ResearchMixin:
         added = 0
         for i in data.get("items", [])[:6]:
             if self.backlog.add(i["title"], i.get("description", ""), i.get("type", "refactor"), float(i.get("priority", 5)),
-                                i.get("acceptance", []), "product review", "review"):
+                                i.get("acceptance", []), "product review", "review", layer=self.top_layer()):
                 added += 1
         self.state["last_review_at"] = self.state["merged"]
         self.log(f"Product review: {added} new tasks, scores {data.get('scores')}")
@@ -263,6 +264,8 @@ class ResearchMixin:
                  "New web material, re-planning." if new_web and not due else "Periodic reconciliation with IDEAS.md.")
         seen_p = self.dir / "ideas_seen.md"
         seen = seen_p.read_text("utf-8") if seen_p.exists() else ""
+        bp = self.blueprint()
+        layer_names = [f"{n}: {ly['name']}" for n, ly in enumerate(bp["layers"])] if bp else []
         open_items = [{"id": i["id"], "title": i["title"], "type": i["type"], "priority": i["priority"], "status": i["status"]}
                       for i in self.backlog.items if i["status"] in ("pending", "blocked")]
         try:
@@ -273,11 +276,12 @@ class ResearchMixin:
                 "steps higher priority). Open tasks that contradict the directives are cancelled.",
                 f"User directives (current):\n{clip(text, 5000)}\n\nLast processed version:\n{clip(seen, 3000) or '(none)'}\n\n"
                 f"Product goal:\n{clip(self.goal, 1500)}{self.directive}{self.web_digest()}\nAlready built: {[f['title'] for f in self.mem.features.values()]}\n"
-                f"Open tasks: {json.dumps(open_items)}\nArchitecture:\n"
+                f"Open tasks: {json.dumps(open_items)}\nBlueprint layers (core first; a new item goes into the lowest layer it can build on, "
+                f"or {len(layer_names)} for work on top of everything): {layer_names or '(none)'}\nArchitecture:\n"
                 f"{clip((self.mem.dir / 'ARCHITECTURE.md').read_text('utf-8') if (self.mem.dir / 'ARCHITECTURE.md').exists() else '', 3000)}\n\n"
                 "Schema: "
                 '{"summary": "what has changed", "new_items": [{"title": "", "description": "", '
-                '"type": "feature|refactor|bug|docs|test", "acceptance": ["testable"], "priority": 1-10}], '
+                '"type": "feature|refactor|bug|docs|test", "acceptance": ["testable"], "priority": 1-10, "layer": 0}], '
                 '"reprioritize": [{"id": "T0001", "priority": 1-10}], "cancel": ["T0001"]}')
         except Exception as e:
             self.log(f"Re-planning failed, will retry later: {e}")
@@ -286,7 +290,8 @@ class ResearchMixin:
         for i in d.get("new_items", []):
             # User wishes take precedence over self-invented ideas (priority > 20)
             if self.backlog.add(i["title"], i.get("description", ""), i.get("type", "feature"),
-                                20 + float(i.get("priority", 5)), i.get("acceptance", []), "User directive (IDEAS.md)", "ideas"):
+                                20 + float(i.get("priority", 5)), i.get("acceptance", []), "User directive (IDEAS.md)", "ideas",
+                                layer=blueprint.clamp_layer(bp, i.get("layer"))):
                 added += 1
         by_id = {i["id"]: i for i in self.backlog.items}
         for r in d.get("reprioritize", []):

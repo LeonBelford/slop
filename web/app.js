@@ -4,7 +4,7 @@ let sel=localStorage.getItem("sel")||null, view="project", tab="overview", list=
 let taskModel="",toolMcfg=null,toolTab_="tool",toolBranch="",planId="",taskPrefill="",codeBase="head",codeOpen=new Set(),codeView=null,codeInit=false;
 let diffView=null, lastBody="", lastHead="", lastTabs="", openKeys=new Set();
 const EDITABLE=["ideas","sources","task","tool","settings","goal","profile","knowledge"];
-const GROUPS=[["overview","Overview",["overview"]],["task","Do a task",["task"]],["agent","Agent",["profile","knowledge","goal","ideas","sources","settings"]],["activity","Activity",["log","reasoning","llm"]],["code","Code & test",["changes","testing"]],["customize","Customize",["customize"]]];
+const GROUPS=[["overview","Overview",["overview"]],["chat","Chat",["chat"]],["task","Do a task",["task"]],["agent","Agent",["profile","knowledge","goal","ideas","sources","settings"]],["activity","Activity",["log","reasoning","llm"]],["code","Code & test",["changes","testing"]],["customize","Customize",["customize"]]];
 const LEAF={profile:"Instructions & capabilities",knowledge:"Knowledge files",goal:"Goal",ideas:"Ideas",sources:"Web sources",settings:"Models & limits",log:"Live log",reasoning:"Reasoning",llm:"AI activity",changes:"File changes",testing:"Test version"};
 const ACCENTS=["","#5fb36b","#6fa3d8","#d6a23c","#c678dd","#e06c75","#56b6c2"];
 const STAT_KEYS=[["merged","Features merged"],["open","Open tasks"],["done","Done"],["blocked","Blocked"],["iterations","Iterations"],["hours","Runtime"],["tokens","Tokens used"],["tps","Tokens / s"],["wps","Words / s"],["tpm","Tokens / min"],["gpu","GPU"],["avgcall","Avg. call time"]];
@@ -13,7 +13,7 @@ function pref(){try{return {accent:"",dense:false,hide:[],stats:["merged","open"
 function setPref(k,v){const p=pref();p[k]=v;localStorage.setItem("pref:"+sel,JSON.stringify(p));applyPref();lastHead=lastTabs=lastBody="";renderProject()}
 function togglePref(k,item){const a=pref()[k].slice(),i=a.indexOf(item);i<0?a.push(item):a.splice(i,1);setPref(k,a)}
 function applyPref(){const p=pref();document.documentElement.style.setProperty("--acc",p.accent||"");if(!p.accent)document.documentElement.style.removeProperty("--acc");document.body.classList.toggle("dense",!!p.dense)}
-const STEPS=[["plan","Plan"],["implement","Implement"],["build","Build & test"],["e2e","Browser test"],["security","Security"],["review","Review"],["cleanup","Cleanup"],["docs","Docs & memory"],["merge","Merge"]];
+const STEPS=[["plan","Plan"],["implement","Implement"],["build","Build & test"],["e2e","UI test"],["security","Security"],["review","Review"],["cleanup","Cleanup"],["docs","Docs & memory"],["merge","Merge"]];
 
 async function api(path,body){
   const opt=body===undefined?{}:{method:"POST",headers:{"X-UI":"1","Content-Type":"application/json"},body:JSON.stringify(body)};
@@ -305,8 +305,9 @@ function projectBody(d){
     const rows=d.backlog_items.filter(i=>!(P.hideDone&&i.status==="done")).map(i=>{
       const cur=i.id===liveId&&i.status!=="done"&&i.status!=="blocked";
       const prog=cur&&livePct!=null?pctBar(livePct):i.status==="done"?`<span class="meta">100%</span>`:`<span class="meta">-</span>`;
-      return `<tr><td>${esc(i.id)}</td><td>${esc(i.title)}${i.source==="ideas"?' <span class="pill ok">from you</span>':i.source==="user"?' <span class="pill info">your task</span>':""}</td><td>${esc(i.type)}</td><td>${Math.round(i.priority*10)/10}</td><td><span class="pill ${i.status==="done"?"ok":i.status==="blocked"?"bad":""}">${esc(i.status)}</span></td><td style="min-width:90px">${prog}</td><td style="white-space:nowrap">${taskBtns(i)}</td></tr>`}).join("");
-    return `<div class="${P.showFeatures?"grid2":""}"><div class="panel"><h3>Backlog</h3><table><tr><th>ID</th><th>Task</th><th>Type</th><th>Prio</th><th>Status</th><th>Progress</th><th></th></tr>${rows||'<tr><td colspan=7 class="hint">empty</td></tr>'}</table></div>
+      return `<tr><td>${esc(i.id)}</td><td>${i.layer!=null?`<span class="pill info" title="Build layer: lower layers are built first">L${i.layer}</span> `:""}${esc(i.title)}${i.source==="ideas"?' <span class="pill ok">from you</span>':i.source==="user"?' <span class="pill info">your task</span>':""}</td><td>${esc(i.type)}</td><td>${Math.round(i.priority*10)/10}</td><td><span class="pill ${i.status==="done"?"ok":i.status==="blocked"?"bad":""}">${esc(i.status)}</span></td><td style="min-width:90px">${prog}</td><td style="white-space:nowrap">${taskBtns(i)}</td></tr>`}).join("");
+    const plan=(d.plan||[]).length?`<div class="panel" style="margin-bottom:16px"><h3>Build plan (core first)</h3>${d.plan.map(l=>`<div class="cap"><div><b>L${l.layer} ${esc(l.name)}</b> <span class="meta">${esc(l.goal)}</span></div><div style="min-width:140px">${pctBar(l.total?Math.round(100*l.done/l.total):0)} <span class="meta">${l.done}/${l.total}</span></div></div>`).join("")}</div>`:"";
+    return plan+`<div class="${P.showFeatures?"grid2":""}"><div class="panel"><h3>Backlog</h3><table><tr><th>ID</th><th>Task</th><th>Type</th><th>Prio</th><th>Status</th><th>Progress</th><th></th></tr>${rows||'<tr><td colspan=7 class="hint">empty</td></tr>'}</table></div>
     ${P.showFeatures?`<div class="panel"><h3>Finished features</h3>${d.features.length?d.features.map(f=>`<div style="padding:5px 0;border-top:1px solid var(--line)">${esc(f.title)}</div>`).join(""):'<div class="hint">None yet.</div>'}</div>`:""}</div>`;
   }
   if(tab==="task"){
@@ -366,7 +367,7 @@ function projectBody(d){
 const AUTO=["auto","on","off"];
 const CAP_GROUPS=[["Before coding",[["plan_critique","Plan review","A second look at multi-file plans before coding starts"],["test_first","Tests first","Writes the failing tests before the code, so a small model has a concrete target. auto = features and bug fixes",AUTO]]],
  ["While coding",[["step_by_step","Step by step","Splits a big plan into up to 3 coding passes. auto = plans with 4+ files or steps",AUTO],["require_tests","Tests required","Features and bug fixes without tests are rejected"],["protect_tests","Protect existing tests","Rejects a change that deletes tests instead of fixing the code"],["targeted_tests","Targeted tests first","After every coder round only the tests that belong to the change run first (fast feedback); the full suite still runs before merging"],["flaky_retry","Flaky test retry","A failing test is run once more; passing the second time is recorded as flaky instead of starting a debug round"],["verify_cache","Result cache","An unchanged tree is not built and tested twice"]]],
- ["Before merging",[["acceptance_check","Acceptance check","Ticks off every acceptance criterion against the diff, one fix round if one is unmet"],["coverage_gate","Coverage of new lines","Asks for more tests when fewer than this share of the added lines is executed by tests (needs the coverage package)",["off","50","70","90"]],["mutation_check","Mutation check","Flips operators in the new code and expects the tests to fail; adds tests if they do not notice (slower)"],["cleanup_pass","Cleanup pass","A short tidy-up of every change before review"],["security","Security gate","Static rules, scanners and a runtime probe before every merge",["on","off"]],["e2e","Browser tests","Real-browser check for web products (needs Playwright)",AUTO]]],
+ ["Before merging",[["acceptance_check","Acceptance check","Ticks off every acceptance criterion against the diff, one fix round if one is unmet"],["coverage_gate","Coverage of new lines","Asks for more tests when fewer than this share of the added lines is executed by tests (needs the coverage package)",["off","50","70","90"]],["mutation_check","Mutation check","Flips operators in the new code and expects the tests to fail; adds tests if they do not notice (slower)"],["cleanup_pass","Cleanup pass","A short tidy-up of every change before review"],["security","Security gate","Static rules, scanners and a runtime probe before every merge",["on","off"]],["e2e","UI tests","Clicks through products that have a web UI in a real browser (needs Playwright). Skipped for CLI tools, APIs and libraries",AUTO]]],
  ["After a failure",[["retry_replan","Retry strategy","Before a retry, analyses why the last attempt failed and picks a different approach"]]]];
 const CAPS=CAP_GROUPS.flatMap(g=>g[1]);
 function profileBody(d){
@@ -375,7 +376,7 @@ function profileBody(d){
   const p=x.profile,F=x.features,sw=(id,on)=>`<label class="sw"><input type="checkbox" id="${id}" ${on?"checked":""} onchange="dirty=true"><span class="sw-track"><span class="sw-thumb"></span></span></label>`;
   const cap=CAP_GROUPS.map(([g,list])=>`<h4 style="margin:14px 0 4px">${g}</h4>`+list.map(([k,l,sub,opts])=>`<div class="cap"><div>${l}<small>${sub}</small></div>${opts?`<select id="cap-${k}" style="width:auto" onchange="dirty=true">${opts.map(t=>`<option ${t===F[k]?"selected":""}>${t}</option>`).join("")}</select>`:sw("cap-"+k,F[k])}</div>`).join("")).join("");
   return `<div class="panel"><h3>${esc(p.title||d.name)}</h3><p class="hint">${esc(p.description||d.idea)}</p>
-    <div class="row" style="flex-wrap:wrap;gap:6px"><span class="pill info">${x.context.length} knowledge file(s)</span><span class="pill info">web: ${esc(x.web_mode)}</span><span class="pill info">security gate: ${esc(F.security)}</span><span class="pill info">browser tests: ${esc(F.e2e)}</span></div></div>
+    <div class="row" style="flex-wrap:wrap;gap:6px"><span class="pill info">${x.context.length} knowledge file(s)</span><span class="pill info">web: ${esc(x.web_mode)}</span><span class="pill info">security gate: ${esc(F.security)}</span><span class="pill info">UI tests: ${esc(F.e2e)}</span></div></div>
   <div class="panel" style="margin-top:16px"><h3>Details</h3><div class="grid2"><label class="fld">Name shown for the agent<input id="pf-title" value="${esc(p.title)}" maxlength="80" oninput="dirty=true" placeholder="${esc(d.name)}"></label>
     <label class="fld">Answer style<select id="pf-tone" onchange="dirty=true">${["neutral","concise","thorough","playful"].map(t=>`<option ${t===p.tone?"selected":""}>${t}</option>`).join("")}</select></label></div>
     <label class="fld" style="margin-top:10px">Description (what is this agent for?)<textarea id="pf-description" rows="2" maxlength="400" oninput="dirty=true">${esc(p.description)}</textarea></label></div>
@@ -417,7 +418,7 @@ function customizeBody(d){
   return `<div class="panel"><h3>Look and feel of this project</h3><p class="hint">Saved in this browser for <b>${esc(d.name)}</b>.</p>
     <div class="cap"><div>Accent colour<small>Highlights tabs, stats and the project list</small></div><div class="sw-row">${ACCENTS.map(c=>`<button class="swatch ${P.accent===c?"on":""}" style="background:${c||"#e4e4e4"}" onclick="setPref('accent','${c}')" title="${c||"default"}"></button>`).join("")}</div></div>
     <div class="cap"><div>Compact layout<small>Tighter spacing to see more at once</small></div>${chk(P.dense,"setPref('dense',this.checked)")}</div>
-    <div class="cap"><div>Opens on<small>The page shown when you select this project</small></div><select style="width:auto" onchange="setPref('start',this.value)">${GROUPS.flatMap(g=>g[2]).filter(k=>k!=="customize").map(k=>`<option value="${k}" ${P.start===k?"selected":""}>${esc(LEAF[k]||(k==="overview"?"Overview":"Do a task"))}</option>`).join("")}</select></div></div>
+    <div class="cap"><div>Opens on<small>The page shown when you select this project</small></div><select style="width:auto" onchange="setPref('start',this.value)">${GROUPS.flatMap(g=>g[2]).filter(k=>k!=="customize"&&k!=="chat").map(k=>`<option value="${k}" ${P.start===k?"selected":""}>${esc(LEAF[k]||(k==="overview"?"Overview":"Do a task"))}</option>`).join("")}</select></div></div>
   <div class="panel" style="margin-top:16px"><h3>Header figures</h3>${STAT_KEYS.map(([k,l])=>`<div class="cap"><div>${l}</div>${chk(P.stats.includes(k),`togglePref('stats','${k}')`)}</div>`).join("")}</div>
   <div class="panel" style="margin-top:16px"><h3>Overview</h3><div class="cap"><div>Finished features list</div>${chk(P.showFeatures,"setPref('showFeatures',this.checked)")}</div><div class="cap"><div>Hide done tasks in the backlog</div>${chk(P.hideDone,"setPref('hideDone',this.checked)")}</div></div>
   <div class="panel" style="margin-top:16px"><h3>Pages</h3><p class="hint">Hide pages you do not need. They stay reachable while you are on them.</p>${GROUPS.filter(g=>g[0]!=="customize"&&g[0]!=="overview").map(g=>`<div class="cap"><div>${g[1]}</div>${chk(!P.hide.includes(g[0]),`togglePref('hide','${g[0]}')`)}</div>`).join("")}
@@ -477,7 +478,7 @@ async function deleteProject(){
   const n=sel;if(!confirm(`Delete "${n}" and all its files permanently?`))return;
   try{await api(`/api/project/${n}/delete`,{confirm:$("#delconfirm").value});toast("Project deleted");sel=null;localStorage.removeItem("sel");tab="overview";dirty=false;detail=null;extra=null;lastBody=lastHead=lastTabs="";await refresh()}catch(e){toast(e.message,true)}
 }
-function setTab(k){$("#main").scrollTop=0;LS=null;liveHtml="";tab=k;dirty=false;extra=null;lastBody="";$("#body").dataset.tab="";lastTabs="";renderProject();fetchExtra().then(renderProject)}
+function setTab(k){if(k==="chat")return openProjectChat(sel);$("#main").scrollTop=0;LS=null;liveHtml="";tab=k;dirty=false;extra=null;lastBody="";$("#body").dataset.tab="";lastTabs="";renderProject();fetchExtra().then(renderProject)}
 async function fetchExtra(){
   try{
     if(view==="chat"||view==="dash")return;
@@ -520,10 +521,10 @@ async function runTask(){
 /* ---- tool view ---- */
 const TOOL_EXAMPLES=["Add a make target that prints the status of all projects","Make the UI log tab show the last 500 lines","Show the GPU temperature on the dashboard","Add a button to copy a project's log to the clipboard"];
 const TOOL_STEPS=[["plan","Plan"],["backup","Backup"],["impact","Impact"],["implement","Implement"],["security","Security"],["test","Test"],["review","Review"],["docs","Docs"]];
-function toolTab(k){if(k==="models")toolMcfg=null;$("#main").scrollTop=0;LS=null;liveHtml="";toolTab_=k;dirty=false;lastBody=lastTabs="";extra=null;codeView=null;renderTool();refresh()}
+function toolTab(k){if(k==="assistant")return openToolChat();if(k==="models")toolMcfg=null;$("#main").scrollTop=0;LS=null;liveHtml="";toolTab_=k;dirty=false;lastBody=lastTabs="";extra=null;codeView=null;renderTool();refresh()}
 function renderTool(){
   $("#head").innerHTML=`<div class="top"><div><h1>Change the tool itself</h1><div class="idea">Tell it what to change in this program (Makefile, scripts, web UI, agent loop, docs). It does only what you write, on a separate git branch, and never merges by itself.</div></div></div><div class="stats" id="toolStats"></div>`;
-  const tabs=[["tool","Task"],["plan","Plan"],["reason","Reasoning"],["changes","Changes"],["models","Models"],["log","Live log"]];
+  const tabs=[["assistant","Assistant"],["tool","Task"],["plan","Plan"],["reason","Reasoning"],["changes","Changes"],["models","Models"],["log","Live log"]];
   const tb=`<div class="tabs">${tabs.map(([k,l])=>`<div class="tab ${toolTab_===k?"on":""}" onclick="toolTab('${k}')">${l}</div>`).join("")}</div>`;
   if(tb!==lastTabs){$("#tabs").innerHTML=tb;lastTabs=tb}
   const x=extra&&extra.kind==="tool"?extra:{running:false,log:"",branches:[]};
@@ -706,22 +707,26 @@ async function showChat(id,projects){
   drawChat();
 }
 const SUGGEST_LINKED=["What should we build next?","Summarize the current state of the project","Which open tasks are the riskiest, and why?"];
+const SUGGEST_TOOL=["How does the self-improve pipeline work, and where could it be better?","Look at web/app.js and suggest the safest small refactor","What failed in the last self-improve run?"];
+const SUGGEST_PROJECT=["What should we build next?","Summarize the current state and the biggest risks","Search the web for best practices for what we are building now"];
 const SUGGEST_FREE=["Help me turn a rough idea into a project plan","Compare two tech stacks for a small web app","Review my architecture idea and find weak spots"];
 function drawChat(){
   const c=chat.cur,b=$("#body");b.dataset.tab="chat";
   const opts=chat.list.map(x=>`<option value="${x.id}" ${c&&x.id===c.id?"selected":""}>${esc(x.title)}</option>`).join("");
   const models=[...new Set([...(c?[c.model]:[]),...chat.models])];
   const names=list.projects.map(p=>p.name);
-  const sug=(c&&c.projects.length?SUGGEST_LINKED:SUGGEST_FREE).map(t=>`<button class="sugg" onclick="chatAsk(this.dataset.t)" data-t="${esc(t)}">${esc(t)}</button>`).join("");
+  const sug=(c&&c.tool?SUGGEST_TOOL:c&&c.project?SUGGEST_PROJECT:c&&c.projects.length?SUGGEST_LINKED:SUGGEST_FREE).map(t=>`<button class="sugg" onclick="chatAsk(this.dataset.t)" data-t="${esc(t)}">${esc(t)}</button>`).join("");
   b.innerHTML=`<div class="chat">
   <div class="chat-top"><select id="chSel" onchange="showChat(this.value)">${opts||"<option>No chats yet</option>"}</select>
     <button onclick="newChat()">+ New chat</button>${c?`<button class="ghost danger" onclick="delChat()">Delete</button>`:""}</div>
-  ${c?`<div class="chat-meta"><label>Model<select id="chModel" onchange="chatUpdate({model:this.value})">${models.map(m=>`<option ${m===c.model?"selected":""}>${esc(m)}</option>`).join("")}</select></label>
-    <div class="chips-wrap"><span class="lbl">Projects</span><div class="chips">${names.map(n=>`<span class="chip ${c.projects.includes(n)?"on":""}" onclick="toggleLink('${esc(n)}')">${esc(n)}</span>`).join("")||'<span class="hint" style="margin:0">no projects yet</span>'}</div></div>
-    <label>Answer buttons use<select id="chTarget">${c.projects.map(n=>`<option>${esc(n)}</option>`).join("")||"<option value=''>(link a project)</option>"}</select></label></div>
+  ${c?`<div class="chat-meta">
+    ${c.tool?`<div class="hint" style="margin:0">Talks about CodeFactory itself. Proposed changes are built and tested on a separate branch; you try them in a preview and merge. <a href="#" onclick="showTool();return false">Open branches / preview / merge</a></div>`:c.project?`<div class="hint" style="margin:0">Talks about <b>${esc(c.project)}</b> (goal, backlog, code knowledge, recent activity). When you want a change the model proposes a task; <b>Do this in ${esc(c.project)}</b> sends it to the project's agent.</div>`:`<div class="chips-wrap"><span class="lbl">Projects</span><div class="chips">${names.map(n=>`<span class="chip ${c.projects.includes(n)?"on":""}" onclick="toggleLink('${esc(n)}')">${esc(n)}</span>`).join("")||'<span class="hint" style="margin:0">no projects yet</span>'}</div></div>
+    <label>Answer buttons use<select id="chTarget">${c.projects.map(n=>`<option>${esc(n)}</option>`).join("")||"<option value=''>(link a project)</option>"}</select></label>`}</div>
   <div class="msgs" id="msgs">${c.messages.map(msgHtml).join("")||`<div class="chat-empty"><div class="big">What are we working on?</div><div class="hint">Ask anything. Link a project above and the model knows its goal, backlog and recent work.</div><div class="suggs">${sug}</div></div>`}</div>
   <div class="composer"><textarea id="chIn" rows="1" placeholder="Message CodeFactory…  (Enter sends, Shift+Enter for a new line)" oninput="grow(this)" onkeydown="chatKey(event)"></textarea>
-    <button class="primary send" id="chSend" onclick="chatSend()" title="Send (Enter)">↑</button><button class="send" id="chStop" onclick="chat.ctrl&&chat.ctrl.abort()" title="Stop answering" style="display:none">■</button></div>`
+    <button class="primary send" id="chSend" onclick="chatSend()" title="Send (Enter)">↑</button><button class="send" id="chStop" onclick="chat.ctrl&&chat.ctrl.abort()" title="Stop answering" style="display:none">■</button></div>
+  <div class="chat-foot"><label>Model<select id="chModel" onchange="chatUpdate({model:this.value})">${models.map(m=>`<option ${m===c.model?"selected":""}>${esc(m)}</option>`).join("")}</select></label>
+    <label class="webtoggle" title="Searches the web for each question and gives the model the top pages. Blocked domains of the project still apply."><input type="checkbox" ${c.web?"checked":""} onchange="chatUpdate({web:this.checked})"> Web search</label></div>`
   :`<div class="chat-empty"><div class="big">Start a conversation</div><button class="primary" onclick="newChat()">+ New chat</button></div>`}</div>`;
   const m=$("#msgs");if(m)m.scrollTop=m.scrollHeight;
   const i=$("#chIn");if(i)i.focus();
@@ -729,9 +734,24 @@ function drawChat(){
 function grow(t){t.style.height="auto";t.style.height=Math.min(t.scrollHeight,200)+"px"}
 function chatKey(e){if(e.key==="Enter"&&!e.shiftKey&&!e.isComposing){e.preventDefault();chatSend()}}
 function chatAsk(t){$("#chIn").value=t;chatSend()}
+function taskBlocks(t){return[...t.matchAll(/```task[ \t]*\n([\s\S]*?)```/g)].map(m=>m[1].trim()).filter(x=>x.length>=10)}
 function msgHtml(m,i){
-  return m.role==="user"?`<div class="msg user">${esc(m.content)}</div>`
-   :`<div class="msg assistant" data-i="${i}">${mdLite(m.content)}<div class="acts"><button class="small ghost" onclick="copyMsg(${i})">Copy</button><button class="small ghost" onclick="fromChat(${i},'say')">Add to ideas</button><button class="small ghost" onclick="fromChat(${i},'do')">Run as task</button></div></div>`;
+  if(m.role==="user")return `<div class="msg user">${esc(m.content)}</div>`;
+  const tool=chat.cur&&chat.cur.tool,pj=chat.cur&&chat.cur.project,tasks=tool||pj?taskBlocks(m.content):[];
+  const acts=tool||pj?tasks.map((_,k)=>`<button class="small primary" onclick="${tool?"buildFromChat":"doFromChat"}(${i},${k})">${tool?"Build on test branch":"Do this in "+esc(pj)}${tasks.length>1?" #"+(k+1):""}</button>`).join(""):`<button class="small ghost" onclick="fromChat(${i},'say')">Add to ideas</button><button class="small ghost" onclick="fromChat(${i},'do')">Run as task</button>`;
+  return `<div class="msg assistant" data-i="${i}">${mdLite(m.content.replace(/```task/g,"```"))}${m.sources&&m.sources.length?`<div class="meta" style="margin-top:6px">Sources: ${m.sources.map(x=>`<a href="${esc(x.url)}" target="_blank" rel="noopener noreferrer">${esc(x.title.slice(0,40))}</a>`).join(" · ")}</div>`:""}<div class="acts"><button class="small ghost" onclick="copyMsg(${i})">Copy</button>${acts}</div></div>`;
+}
+async function openProjectChat(name){try{const c=await api("/api/project/"+encodeURIComponent(name)+"/chat");chat.cur=null;await showChat(c.id)}catch(e){toast(e.message,true)}}
+async function doFromChat(i,k){
+  const t=taskBlocks(chat.cur.messages[i].content)[k],n=chat.cur.project;
+  if(!t||!confirm(`Send this task to the agent of "${n}"?\n\n`+t.slice(0,400)))return;
+  try{const r=await api(`/api/project/${encodeURIComponent(n)}/do`,{task:t});toast(r.queued?"Queued: the running agent does it next":"Task started")}catch(e){toast(e.message,true)}
+}
+async function openToolChat(){try{const c=await api("/api/tool/chat");chat.cur=null;await showChat(c.id)}catch(e){toast(e.message,true)}}
+async function buildFromChat(i,k){
+  const t=taskBlocks(chat.cur.messages[i].content)[k];
+  if(!t||!confirm("Build this on a separate test branch (nothing is merged automatically)?\n\n"+t.slice(0,400)))return;
+  try{await api("/api/tool/task",{task:t,model:""});toast("Started on a test branch. Follow it in the Plan tab.");planId="";showTool();toolTab("plan")}catch(e){toast(e.message,true)}
 }
 function copyMsg(i){navigator.clipboard.writeText(chat.cur.messages[i].content).then(()=>toast("Copied"),()=>toast("Copy not allowed here",true))}
 async function newChat(){const p=chat.cur?chat.cur.projects:[];chat.cur=null;await showChat(null,p)}

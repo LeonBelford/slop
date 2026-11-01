@@ -260,3 +260,7 @@ th.sortable{cursor:pointer;user-select:none;white-space:nowrap}th.sortable:hover
   .dcards td::before{content:attr(data-l);color:#8b949e;text-align:left;flex:none}
   .dtools input{width:100%}
 }
+.chat-foot{display:flex;gap:10px 22px;align-items:center;flex-wrap:wrap;padding:6px 4px;color:var(--mute);font-size:12.5px}
+.chat-foot label{display:flex;gap:8px;align-items:center}
+.chat-foot select{width:auto;max-width:260px;color:var(--text)}
+.chat-foot input[type=checkbox]{width:auto}

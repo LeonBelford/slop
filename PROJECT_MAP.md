@@ -34,11 +34,16 @@ Code lives in five places: the entry points in the root (`codefactory.py`, `webu
 | `core/cfa_flow.py` | `FlowMixin`: optional quality steps (tests first, step by step, acceptance check, retry strategy, test protection) |
 | `core/cfa_security.py` | `SecurityMixin`: security gate/probe/audit, e2e check |
 | `core/cfa_research.py` | `ResearchMixin`: ideation, product review, web research, sources/ideas sync, reflection |
+| `core/cfa_plan.py` | `PlanMixin`: strategic planning. `make_blueprint` (init) designs layers, core first, and seeds the backlog with `layer`/`depends_on`; `blueprint_ctx`, `top_layer`, `layer_done` (tags `layer-N`), `has_ui`, `ui_note` |
+| `core/blueprint.py` | Blueprint data: `normalize`, `context_for`, `progress`, `render_md` (per project: blueprint.json in the agent folder, BLUEPRINT.md in the product docs) |
+| `core/uidetect.py` | Whether a product has a UI (brief `interface`/`has_ui` plus UI files in the repo); CLI/API/library projects get no UI tests |
 | `core/cfa_ops.py` | `OpsMixin`: user tasks, stop, test version, feedback, status, `reload_models` (re-reads models/coder/routing from `config.json` before each task) |
 | `dash/estimate.py` | Duration estimates from comparable past tasks (`durations.jsonl` per project and for self-improve), queue forecast, write-access checks |
 | `dash/diagnostics.py` | Dashboard key figures (`/api/diagnostics`): first-try rate, attempts, failure causes, model time, reasoning share, stalls, repo size, system load, findings |
 | `dash/history.py` | Per-day history series and quality figures (fail/retry rate, GPU hours, failure-class histogram) from `metrics.json`/`metrics.jsonl`, backs `/api/history` and the dashboard History section |
 | `dash/toolmodels.py` | Model choice for self-improve (`self_improve/models.json`: planner/reviewer/summarizer/coder, light/heavy/final reviewer, auto or fixed); `apply` merges it into the run config, a per-task model pins the coder (`improve --model`) |
+| `dash/chatweb.py` | Opt-in web search for chats: `search_context` returns the top pages as prompt context plus sources (per-chat `web` flag, project web settings apply) |
+| `dash/toolchat.py` | Assistant chat about CodeFactory itself: system prompt, context (PROJECT_MAP, self-improve state, runs, branches, files the user names) and `extract_tasks` for ```task blocks; the chat is stored as a `tool: true` chat in `dash/chat.py` (`ChatStore.tool_chat`) |
 | `infra/perf.py` | Ollama speed diagnostics, pinned context settings and context-budget trimming (`fit_context`) for Aider (`make doctor`) |
 | `infra/notify.py` | Optional webhook notifications (ntfy/Slack/Discord/...) on task done/blocked/stalled/run stopped |
 | `selfimprove.py` | Self-improvement of this repo on `self-improve/<ts>` branches (worktree, tests, security gate, review, docs) |
