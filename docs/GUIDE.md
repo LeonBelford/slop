@@ -166,3 +166,6 @@ Delete a project: `rm -rf projects/<name>`. Everything else is in the `slop` rep
 ## Security
 The agent runs the build and test commands of the code it generates without a sandbox. Run it only on a machine or in
 a VM/container that holds nothing important, and review the code before you publish it.
+
+### Tool installed but reported as missing
+Installers such as rustup, Go or .NET add their `bin` directory to `PATH` only through your shell profile. CodeFactory now also searches the usual locations (`~/.cargo/bin`, `~/.local/bin`, `~/go/bin`, `/usr/local/go/bin`, `~/.dotnet`, nvm, Homebrew, snap) and re-checks on every request, so no restart is needed. If a tool lives somewhere else, start the UI with it on `PATH`, e.g. `PATH=$PATH:/my/bin make ui`.
