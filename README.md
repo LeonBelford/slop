@@ -96,6 +96,12 @@ Two levels, both bounded:
 ## Browser tests (Playwright, optional)
 `make e2e-setup` installs Playwright and Chromium into `.venv`. For web products the agent then starts the app after the build is green, opens it in a real browser (localhost only), fails on console errors, JS exceptions, failed requests and broken links, writes a click-through test `e2e/e2e_<task>.py` from the acceptance criteria and the page's accessibility snapshot, and lets the coder fix failures (2 rounds). Without Playwright this step is skipped with a hint; set `features.e2e` to `"off"` to disable it.
 
+## Code, update and chat toggle (Web UI / CLI)
+- **File changes** shows the whole repo as a folder tree. Click a file to read it; new/changed lines are green (choose the comparison: uncommitted, last commit, last 5/20 ...).
+- **Reasoning** streams every model call live (reasoning, answer, prompt) and the live output of Aider and build/test.
+- **Update:** `make update` (CLI) or the sidebar "Update" button. Fast-forward only, backup tag, rollback if the new code does not import. Stop running agents first.
+- **Chat AI enabled** checkbox in the sidebar turns the chat off so it does not compete with the agent for the GPU.
+
 ## Chat (Web UI)
 **Chat** in the sidebar (or **Chat about this** in a project) opens a streaming chat with a local model. Link one or more projects: their goal, architecture, backlog, ideas and recent log are sent as context. Chats are stored in `projects/.ui/chats/`. Answers render Markdown (headings, lists, code, links); Enter sends (Shift+Enter = new line); a thinking animation shows while the model loads or reasons. Under each answer, **Add to ideas** and **Run as task** hand it to the linked project's agent.
 

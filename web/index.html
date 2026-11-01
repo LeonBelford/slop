@@ -123,6 +123,24 @@ button.ghost.danger{color:var(--bad)}
 .loglegend{display:flex;gap:14px;font-size:12px;margin-bottom:8px}
 .loglegend .lg-step,.loglegend .lg-ok,.loglegend .lg-sec,.loglegend .lg-warn,.loglegend .lg-err{padding:1px 8px;border:1px solid currentColor;border-radius:10px}
 .think{display:flex;align-items:center;gap:12px;color:var(--mute)}
+.stream pre{max-height:240px;margin-top:4px}.thinktxt{color:#b8a8d8;font-style:italic}
+.caret{display:inline-block;width:7px;height:14px;background:var(--mute);margin-left:2px;vertical-align:-2px;animation:blink 1s steps(2) infinite}
+@keyframes blink{50%{opacity:0}}
+.codewrap{display:grid;grid-template-columns:minmax(220px,320px) 1fr;gap:12px;align-items:start}
+.tree{max-height:70vh;overflow:auto;border:1px solid var(--line);border-radius:4px;padding:6px 0;font-family:ui-monospace,monospace;font-size:12.5px}
+.tr{cursor:pointer;padding-top:2px;padding-bottom:2px;padding-right:8px;white-space:nowrap;display:flex;align-items:center;gap:6px}
+.tr:hover{background:#1a1a1a}.tr.cur{background:#26334a}.tr.chg{color:#e3b341}.tr.dir{color:var(--text)}.car{width:10px;color:var(--mute)}
+.tb{margin-left:auto;font-size:11px;color:var(--mute)}.tb.new{color:#56d364}.tb.mod{color:#e3b341}
+.viewer{min-width:0}.cvh{padding:6px 10px;border:1px solid var(--line);border-bottom:0;border-radius:4px 4px 0 0;background:#141414}
+.code{max-height:70vh;overflow:auto;border:1px solid var(--line);background:#0e0e0e;font-family:ui-monospace,monospace;font-size:12.5px;line-height:1.45}
+.cl{display:flex;white-space:pre}.cl.new{background:#12261a}.cl.new .ln{color:#56d364;border-right-color:#56d364}
+.ln{flex:0 0 54px;text-align:right;padding:0 8px;color:#666;border-right:2px solid #222;user-select:none}.ct{padding:0 10px}
+@media(max-width:900px){.codewrap{grid-template-columns:1fr}}
+.reason-card{animation:pop .25s ease-out both}
+.reason-list dl{margin:4px 0 8px;display:grid;grid-template-columns:140px 1fr;gap:2px 10px}
+.reason-list dt{color:var(--mute);font-size:12px;text-transform:uppercase;letter-spacing:.03em;padding-top:2px}
+.reason-list dd{margin:0}
+.reason-list ul{margin:2px 0;padding-left:1.2em}
 .dots span{display:inline-block;width:7px;height:7px;margin-right:4px;border-radius:50%;background:var(--mute);animation:bounce 1.2s infinite ease-in-out}
 .dots span:nth-child(2){animation-delay:.15s}.dots span:nth-child(3){animation-delay:.3s}
 .chat-empty{margin:auto;text-align:center;max-width:560px;display:flex;flex-direction:column;gap:10px;align-items:center}
@@ -148,12 +166,14 @@ button.ghost.danger{color:var(--bad)}
   <header>CodeFactory</header>
   <div class="side-actions">
     <button class="primary" onclick="openNew()">+ New idea</button>
-    <button onclick="showChat()" title="Talk to a local model, optionally with a project as context">Chat</button>
+    <button id="chatBtn" onclick="showChat()" title="Talk to a local model, optionally with a project as context">Chat</button>
     <button onclick="openMaster()" title="Global instructions for all projects">Master prompt</button>
   </div>
   <div id="ms" class="hint" style="padding:8px 16px"></div>
   <div id="plist"></div>
-  <div class="side-foot"><button onclick="showTool()" title="Tell the tool itself what to change (Makefile, UI, loop ...)">Change the tool itself</button></div>
+  <div class="side-foot"><button id="updBtn" onclick="openUpdate()" title="Check for a new version on GitHub and install it">Update</button>
+  <label class="hint" style="display:flex;gap:8px;align-items:center;margin:8px 0;cursor:pointer" title="The chat uses the same Ollama server as the agent. Turn it off so it never competes with the agent for the GPU."><input type="checkbox" id="chatOn" onchange="setChatEnabled(this.checked)"> Chat AI enabled</label>
+  <button onclick="showTool()" title="Tell the tool itself what to change (Makefile, UI, loop ...)">Change the tool itself</button></div>
 </aside>
 <main id="main">
   <div id="head"></div><div id="now"></div><div id="tabs"></div><div id="body"></div>
@@ -185,6 +205,7 @@ button.ghost.danger{color:var(--bad)}
 const $=s=>document.querySelector(s);
 const esc=s=>String(s??"").replace(/[&<>"]/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c]));
 let sel=localStorage.getItem("sel")||null, view="project", tab="overview", list={projects:[],init_jobs:[]}, detail=null, extra=null, dirty=false, langs=[];
+let codeBase="head",codeOpen=new Set(),codeView=null,codeInit=false;
 let diffView=null, lastBody="", lastHead="", lastTabs="", openKeys=new Set();
 const EDITABLE=["ideas","sources","task","tool","settings","goal"];
 const STEPS=[["plan","Plan"],["implement","Implement"],["build","Build & test"],["e2e","Browser test"],["security","Security"],["review","Review"],["cleanup","Cleanup"],["docs","Docs & memory"],["merge","Merge"]];
@@ -213,7 +234,7 @@ function renderList(){
   $("#plist").innerHTML=jobs+(list.projects.map(p=>{const[c,t]=statusOf(p);
     return `<div class="card ${view==="project"&&p.name===sel?"sel":""}" onclick="select('${esc(p.name)}')"><div class="n"><span class="dot ${c}"></span>${esc(p.name)}</div><div class="s">${t} · ${p.merged} features · ${p.backlog.pending||0} open</div></div>`}).join("")||(jobs?"":'<div class="hint" style="padding:10px">No projects yet.</div>'));
 }
-function select(n){view="project";sel=n;localStorage.setItem("sel",n);tab="overview";dirty=false;detail=null;extra=null;diffView=null;lastBody=lastHead=lastTabs="";renderList();refresh()}
+function select(n){view="project";sel=n;localStorage.setItem("sel",n);tab="overview";dirty=false;detail=null;extra=null;diffView=null;codeView=null;codeOpen=new Set();codeInit=false;lastBody=lastHead=lastTabs="";renderList();refresh()}
 function showTool(){view="tool";tab="tool";dirty=false;extra=null;diffView=null;lastBody=lastHead=lastTabs="";renderList();refresh()}
 
 /* ---- live status panel (re-rendered every second from the last data) ---- */
@@ -228,6 +249,99 @@ function colorLog(t){
     return c?`<span class="${c}">${esc(l)}</span>`:esc(l);
   }).join("\n");
 }
+const REASON_TAGS={impact:["lg-step","Plan"],plan_critique:["lg-warn","Plan check"],security_review:["lg-sec","Security"],
+  review:["lg-ok","Review"],reflect:["lg-step","Reflection"],decision:["lg-warn","Decision"],product_review:["lg-sec","Product audit"],
+  ideate_critic:["lg-warn","Idea check"],replan:["lg-step","Replan"]};
+function rv(v){
+  if(v===null||v===undefined||v==="")return `<span class="meta">-</span>`;
+  if(Array.isArray(v))return v.length?`<ul>${v.map(x=>`<li>${rv(x)}</li>`).join("")}</ul>`:`<span class="meta">-</span>`;
+  if(typeof v==="object")return `<dl>${Object.entries(v).map(([k,val])=>`<dt>${esc(k)}</dt><dd>${rv(val)}</dd>`).join("")}</dl>`;
+  return mdInline(String(v));
+}
+const tagInfo=t=>REASON_TAGS[t]||(t==="coder"||/^(code|fix|edit)/.test(t)?["lg-step","Code"]:["lg-step",t]);
+const pillCls=c=>c==="lg-err"?"bad":c==="lg-warn"?"warn":c==="lg-sec"?"info":"ok";
+function liveBox(label,text,cls){return text?`<div class="stream"><div class="meta">${label}</div><pre class="${cls||""}">${esc(text)}<span class="caret"></span></pre></div>`:""}
+function reasoningLive(){
+  const el=$("#reasonlive");if(!el)return;
+  const a=detail&&detail.activity;
+  if(!a||!a.running){el.innerHTML="";return}
+  const x=extra&&extra.kind==="reasoning"?extra:{};
+  const st=x.stream,cl=x.coder_live;
+  if(a.llm){
+    const [cls,label]=tagInfo(a.llm.tag),s=Math.round(Date.now()/1000-a.llm.since);
+    const got=st&&st.tag===a.llm.tag;
+    el.innerHTML=`<div class="msg assistant reason-card" style="max-width:100%"><div class="think"><span class="dots"><span></span><span></span><span></span></span>
+      <span>Thinking as <b class="${cls}">${esc(label)}</b> (<code>${esc(a.llm.model)}</code>) · ${s}s${!got&&s>=8?" (model may still be loading)":""}</span></div>
+      ${got?liveBox("Reasoning so far",st.thinking,"thinktxt")+liveBox("Answer so far",st.answer):""}</div>`;
+  } else if(a.coder){
+    const s=Math.round(Date.now()/1000-a.coder.since);
+    el.innerHTML=`<div class="msg assistant reason-card" style="max-width:100%"><div class="think"><span class="dots"><span></span><span></span><span></span></span>
+      <span>Aider is writing code for <b class="lg-step">${esc(a.coder.tag)}</b> · ${s}s</span></div>${liveBox("Aider output",cl)}</div>`;
+  } else if(a.cmd){
+    const s=Math.round(Date.now()/1000-a.cmd.since);
+    el.innerHTML=`<div class="msg assistant reason-card" style="max-width:100%"><div class="think"><span class="dots"><span></span><span></span><span></span></span>
+      <span>Running <b class="lg-warn">${esc(a.cmd.name)}</b>: <code>${esc(a.cmd.cmd)}</code> · ${s}s (no model involved, this is your project's own build/tests)</span></div>${liveBox("Output",x.cmd_live)}</div>`;
+  } else el.innerHTML="";
+}
+function thoughtCard(e,i){
+  const [cls,label]=tagInfo(e.tag);
+  let obj=null;try{obj=JSON.parse(e.answer)}catch(_){}
+  const sec=(k,title,body,open)=>body?`<details data-k="th-${e.n}-${k}" ${open?"open":""}><summary>${title}</summary><div class="inner">${body}</div></details>`:"";
+  return `<div class="msg assistant reason-card" style="max-width:100%;animation-delay:${Math.min(i,6)*0.04}s">
+    <div class="row" style="justify-content:space-between;margin-bottom:6px"><span><span class="pill ${pillCls(cls)}">${esc(label)}</span> <span class="meta">#${e.n} · ${esc(e.role)} · <code>${esc(e.model)}</code>${e.seconds?` · ${e.seconds}s`:""}${e.task?` · task ${esc(e.task)}`:""}</span></span><span class="meta">${esc(e.time)}</span></div>
+    ${sec("t","Model reasoning (thinking)",e.thinking?`<pre class="thinktxt">${esc(e.thinking)}</pre>`:"")}
+    ${sec("a","Answer",obj?rv(obj):`<pre>${esc(e.answer)}</pre>`,true)}
+    ${sec("p","What it was asked (prompt)",`<pre>${esc(e.prompt)}</pre>`)}</div>`;
+}
+function reasoningBody(){
+  if(!extra||extra.kind!=="reasoning")return `<div class="hint">Loading…</div>`;
+  const cards=extra.entries.map(thoughtCard).join("");
+  return `<p class="hint">Every model call in full, live: the reasoning, the answer and the prompt, plus what Aider is writing (newest first). Models that think (deepseek-r1, qwen3, ...) show their reasoning too.</p>
+  <div id="reasonlive"></div>
+  <div class="reason-list">${cards||'<div class="hint">Nothing recorded yet. Every thought appears here as soon as the agent works.</div>'}</div>`;
+}
+
+function buildTree(files){
+  const root={d:{},f:[],add:0,del:0,n:0};
+  files.forEach(f=>{let node=root;const parts=f.path.split("/");
+    parts.slice(0,-1).forEach(p=>{node=node.d[p]||(node.d[p]={d:{},f:[],add:0,del:0,n:0})});
+    node.f.push({...f,name:parts[parts.length-1]})});
+  const sum=n=>{n.add=n.f.reduce((a,f)=>a+Math.max(f.add,0),0);n.del=n.f.reduce((a,f)=>a+f.del,0);n.n=n.f.filter(f=>f.status).length;
+    Object.values(n.d).forEach(c=>{sum(c);n.add+=c.add;n.del+=c.del;n.n+=c.n})};
+  sum(root);return root;
+}
+const jsq=s=>esc(String(s).replace(/\\/g,"\\\\").replace(/'/g,"\\'"));
+function treeHtml(node,prefix,depth){
+  const dirs=Object.keys(node.d).sort().map(k=>{
+    const c=node.d[k],path=prefix+k,open=codeOpen.has(path);
+    return `<div class="tr dir" style="padding-left:${depth*14}px" onclick="toggleDir('${jsq(path)}')"><span class="car">${open?"▾":"▸"}</span>📁 ${esc(k)}${c.n?`<span class="tb">${c.n} changed</span>`:""}</div>${open?treeHtml(c,path+"/",depth+1):""}`}).join("");
+  const files=node.f.sort((a,b)=>a.name.localeCompare(b.name)).map(f=>{
+    const cur=codeView&&codeView.path===f.path;
+    const badge=f.status==="A"?`<span class="tb new">new</span>`:f.status==="M"?`<span class="tb mod">+${f.add} −${f.del}</span>`:"";
+    return `<div class="tr file ${cur?"cur":""} ${f.status?"chg":""}" style="padding-left:${depth*14+16}px" onclick="openFile('${jsq(f.path)}')">${esc(f.name)}${badge}</div>`}).join("");
+  return dirs+files;
+}
+function toggleDir(p){codeOpen.has(p)?codeOpen.delete(p):codeOpen.add(p);lastBody="";renderProject()}
+async function openFile(path){
+  try{const r=await api(`/api/project/${encodeURIComponent(sel)}/file?path=${encodeURIComponent(path)}&base=${encodeURIComponent(codeBase)}`);codeView=r;lastBody="";renderProject()}catch(e){toast(e.message,true)}
+}
+function setBase(v){codeBase=v;extra=null;lastBody="";renderProject();fetchExtra().then(()=>{if(codeView)openFile(codeView.path);else renderProject()})}
+function fileViewer(){
+  if(!codeView)return `<div class="hint" style="padding:12px">Pick a file in the tree to see its code. Green lines are new or changed.</div>`;
+  const v=codeView;
+  if(v.binary)return `<div class="hint" style="padding:12px">${esc(v.path)}: binary file (${v.size} bytes)</div>`;
+  const ch=new Set(v.changed),lines=v.text.split("\n");
+  const body=lines.map((l,i)=>`<div class="cl ${ch.has(i+1)?"new":""}"><span class="ln">${i+1}</span><span class="ct">${esc(l)||" "}</span></div>`).join("");
+  return `<div class="cvh"><b>${esc(v.path)}</b> <span class="meta">${lines.length} lines · ${v.new_file?"new file":ch.size+" new/changed"}${v.truncated?" · truncated":""}</span></div><div class="code">${body}</div>`;
+}
+function codePanel(x){
+  const root=buildTree(x.tree.files);
+  const bases=[["head","Uncommitted changes"],["last:1","Last commit"],["last:5","Last 5 commits"],["last:20","Last 20 commits"],["last:200","Everything recent"]];
+  return `<div class="panel"><h3>Code <select onchange="setBase(this.value)" style="margin-left:10px">${bases.map(([v,l])=>`<option value="${v}" ${v===codeBase?"selected":""}>New since: ${l}</option>`).join("")}</select>
+    <button class="small" onclick="codeOpen=new Set(${JSON.stringify([...new Set(x.tree.files.flatMap(f=>f.path.split("/").slice(0,-1).map((_,i,a)=>a.slice(0,i+1).join("/"))))])});lastBody='';renderProject()">expand all</button>
+    <button class="small" onclick="codeOpen=new Set();lastBody='';renderProject()">collapse all</button></h3>
+    <div class="codewrap"><div class="tree">${x.tree.files.length?treeHtml(root,"",0):'<div class="hint">No files yet.</div>'}</div><div class="viewer">${fileViewer()}</div></div></div>`;
+}
 function renderNow(){
   const box=$("#now");
   if(view!=="project"||!detail){box.innerHTML="";return}
@@ -236,8 +350,9 @@ function renderNow(){
   box.className="now live";
   const idx=n?STEPS.findIndex(s=>s[0]===n.step):-1;
   const stepper=idx>=0||(n&&n.task)?`<div class="steps">${STEPS.map(([k,l],i)=>`<div class="step ${i<idx?"done":i===idx?"cur":""}">${l}</div>`).join("")}</div>`:"";
-  const call=a.coder?`<div class="call">Aider (code model <code>${esc(a.coder.model)}</code>) is editing ${a.coder.files.length?esc(a.coder.files.join(", ")):"files"} for <b>${esc(a.coder.tag)}</b>, ${fmtDur(t-a.coder.since)}</div>`
+  const call=a.cmd?`<div class="call">Running <b>${esc(a.cmd.name)}</b> (<code>${esc(a.cmd.cmd)}</code>), ${fmtDur(t-a.cmd.since)}. Output: "Reasoning" tab.</div>`:a.coder?`<div class="call">Aider (code model <code>${esc(a.coder.model)}</code>) is editing ${a.coder.files.length?esc(a.coder.files.join(", ")):"files"} for <b>${esc(a.coder.tag)}</b>, ${fmtDur(t-a.coder.since)}</div>`
     :a.llm?`<div class="call">Waiting for the <b>${esc(a.llm.role)}</b> model (<code>${esc(a.llm.model)}</code>) on <b>${esc(a.llm.tag)}</b>, ${fmtDur(t-a.llm.since)}. Open "AI activity" to see the prompt once it answers.</div>`:"";
+  reasoningLive();
   box.innerHTML=`<div class="what">${n?esc(n.phase):"Starting…"}</div>
   <div class="sub">${n&&n.task?`Task: ${esc(n.task)} · attempt ${n.attempt}/3 · `:""}${n?`in this step for ${fmtDur(t-n.since)}`:""}${n&&n.detail?`<br>${esc(n.detail)}`:""}</div>
   ${stepper}${call}${a.queued_user_tasks&&a.queued_user_tasks.length?`<div class="sub" style="margin-top:8px">Your queued tasks: ${a.queued_user_tasks.map(esc).join("; ")}</div>`:""}${timeline(a.events)}`;
@@ -256,7 +371,7 @@ function renderProject(){
   const head=`<div class="top"><div><h1>${esc(d.name)} <span class="pill ${c==="run"?"ok":c==="stop"?"warn":""}">${t}</span> ${pillF}</h1><div class="idea">${esc(d.idea)}</div></div>
   <div class="btns">
     ${d.running?`<button class="danger" onclick="act('stop',{},'Will stop after the current task')" ${d.stopping?"disabled":""}>Stop</button><button class="danger" title="Kill switch: ends the agent and all its processes immediately; unfinished work is discarded" onclick="forceStop()">Force stop</button>`:`<button class="primary" onclick="act('start',{},'Agent started')">Start</button>`}
-    <button onclick="showChat(null,['${esc(d.name)}'])" title="Open a chat that knows this project">Chat about this</button>
+    ${list&&list.chat_enabled===false?"":`<button onclick="showChat(null,['${esc(d.name)}'])" title="Open a chat that knows this project">Chat about this</button>`}
     <button onclick="doTry()" ${d.try_running?"disabled":""}>${d.try_running?"Building test version…":"Test now"}</button>
   </div></div>
   <div class="stats">
@@ -268,7 +383,7 @@ function renderProject(){
     <div class="stat"><b>${d.hours} h</b><span>runtime</span></div>
   </div>`;
   if(head!==lastHead){$("#head").innerHTML=head;lastHead=head}
-  const tabs=[["overview","Overview"],["task","Do a task"],["llm","AI activity"],["changes","File changes"],["ideas","Ideas & feedback"],["sources","Web sources"],["testing","Test version"],["log","Live log"],["goal","Goal"],["settings","Settings"]];
+  const tabs=[["overview","Overview"],["task","Do a task"],["reasoning","Reasoning"],["llm","AI activity"],["changes","File changes"],["ideas","Ideas & feedback"],["sources","Web sources"],["testing","Test version"],["log","Live log"],["goal","Goal"],["settings","Settings"]];
   const tb=`<div class="tabs">${tabs.map(([k,l])=>`<div class="tab ${tab===k?"on":""}" onclick="setTab('${k}')">${l}</div>`).join("")}</div>`;
   if(tb!==lastTabs){$("#tabs").innerHTML=tb;lastTabs=tb}
   const body=projectBody(d);
@@ -298,6 +413,7 @@ function projectBody(d){
     <div class="row" style="justify-content:flex-end;margin-top:10px"><button class="primary" onclick="runTask()">Run this task</button></div></div>
     <div class="panel" style="margin-top:16px"><h3>Your tasks</h3>${mine.length?`<table>${mine.map(i=>`<tr><td>${esc(i.id)}</td><td>${esc(i.title)}</td><td><span class="pill ${i.status==="done"?"ok":i.status==="blocked"?"bad":""}">${esc(i.status)}</span></td></tr>`).join("")}</table>`:'<div class="hint">None yet.</div>'}</div>`;
   }
+  if(tab==="reasoning")return reasoningBody();
   if(tab==="llm"){
     if(!extra||extra.kind!=="llm")return `<div class="hint">Loading…</div>`;
     return `<p class="hint">Everything the model was asked and what it answered, newest first (the end of each prompt is shown). Roles: planner = plans and ideas, reviewer = reviews, summarizer = notes and docs.</p>`+
@@ -307,10 +423,10 @@ function projectBody(d){
     if(!extra||extra.kind!=="changes")return `<div class="hint">Loading…</div>`;
     const x=extra;
     const un=x.uncommitted.length?`<div class="panel" style="margin-bottom:16px"><h3>Uncommitted right now (work in progress)</h3><pre>${esc(x.uncommitted.join("\n"))}</pre></div>`:"";
-    const files=`<div class="panel"><h3>Files by amount of change</h3>${x.files.length?`<table><tr><th>File</th><th>Commits</th><th>Added</th><th>Removed</th></tr>${x.files.slice(0,60).map(f=>`<tr><td><a style="cursor:pointer;text-decoration:underline" onclick="showFileHistory('${esc(f.path).replace(/'/g,"")}')">${esc(f.path)}</a></td><td>${f.commits}</td><td class="add">+${f.add}</td><td class="del">-${f.del}</td></tr>`).join("")}</table>`:'<div class="hint">No files yet.</div>'}</div>`;
+    const files=x.tree?codePanel(x):`<div class="hint">Loading…</div>`;
     const commits=`<div class="panel"><h3>Commits (newest first)</h3>${x.commits.map(c=>`<details data-k="c-${esc(c.sha)}"><summary><code>${esc(c.sha)}</code> ${esc(c.subject)} <span class="meta">${esc((c.date||"").slice(0,16).replace("T"," "))} · ${c.files.length} files</span></summary><div class="inner">${c.files.map(f=>`<div class="fl"><a onclick="showDiff('${esc(c.sha)}','${esc(f.path).replace(/'/g,"")}')">${esc(f.path)}</a><span class="add">+${f.add}</span><span class="del">-${f.del}</span></div>`).join("")||'<div class="hint">no file changes</div>'}<div style="margin-top:6px"><button class="small" onclick="showDiff('${esc(c.sha)}','')">Whole commit diff</button></div></div></details>`).join("")||'<div class="hint">No commits yet.</div>'}</div>`;
     const dv=diffView?`<div class="panel" style="margin-top:16px"><h3>${esc(diffView.title)} <button class="small" onclick="diffView=null;lastBody='';renderProject()">close</button></h3><pre>${fmtDiff(diffView.text)}</pre></div>`:"";
-    return un+dv+`<div class="grid2" style="margin-top:${dv||un?16:0}px">${files}${commits}</div>`;
+    return un+dv+`<div style="margin-top:${dv||un?16:0}px">${files}</div><div style="margin-top:16px">${commits}</div>`;
   }
   if(tab==="ideas"){
     return `<div class="panel"><h3>Quick feedback</h3><p class="hint">A bug or wish in one sentence. The agent re-plans on its next pass.</p>
@@ -393,7 +509,9 @@ async function fetchExtra(){
     if(!sel)return;
     if(tab==="llm")extra={kind:"llm",...await api(`/api/project/${encodeURIComponent(sel)}/llm`)};
     else if(tab==="settings"){if(!extra||extra.kind!=="settings")extra={kind:"settings",...await api(`/api/project/${encodeURIComponent(sel)}/settings`)}}
-    else if(tab==="changes")extra={kind:"changes",...await api(`/api/project/${encodeURIComponent(sel)}/changes`)};
+    else if(tab==="changes"){const n=encodeURIComponent(sel);const [c,t]=await Promise.all([api(`/api/project/${n}/changes`),api(`/api/project/${n}/tree?base=${encodeURIComponent(codeBase)}`)]);extra={kind:"changes",...c,tree:t};
+      if(!codeInit&&t.files.length){codeInit=true;t.files.filter(f=>f.status).forEach(f=>f.path.split("/").slice(0,-1).forEach((_,i,a)=>codeOpen.add(a.slice(0,i+1).join("/"))))}}
+    else if(tab==="reasoning")extra={kind:"reasoning",...await api(`/api/project/${encodeURIComponent(sel)}/thoughts`)};
   }catch(e){}
 }
 async function showDiff(sha,path){
@@ -587,9 +705,37 @@ async function removeModel(n){
 
 
 let shownErr=false;
+
+function applyChatToggle(){
+  const on=!list||list.chat_enabled!==false;
+  const b=$("#chatBtn");if(b)b.style.display=on?"":"none";
+  const c=$("#chatOn");if(c)c.checked=on;
+}
+async function setChatEnabled(v){
+  try{await api("/api/ui-settings",{chat_enabled:v});toast(v?"Chat enabled":"Chat disabled: it no longer uses the model server");
+    if(!v&&view==="chat"){view="project";tab="overview"}lastHead=lastBody="";await refresh()}catch(e){toast(e.message,true);applyChatToggle()}
+}
+let upd=null;
+async function checkUpdate(fetchNow){
+  try{upd=await api(fetchNow?"/api/update/check":"/api/update",fetchNow?{}:undefined);
+    const b=$("#updBtn");if(b)b.textContent=upd.state==="behind"?`Update available (${upd.commits.length})`:"Update";
+    if(b)b.classList.toggle("primary",upd.state==="behind")}catch(e){}
+  return upd;
+}
+async function openUpdate(){
+  toast("Checking GitHub …");const u=await checkUpdate(true);if(!u)return toast("Update check failed",true);
+  if(u.state!=="behind")return toast(u.message);
+  const msg=`${u.message}\n\n${u.commits.slice(0,12).join("\n")}${u.dirty&&u.dirty.length?"\n\nLocal changes block the update: "+u.dirty.join(", "):""}\n\nInstall now? (A backup tag is created; running agents must be stopped. The UI restarts if code changed.)`;
+  if(u.dirty&&u.dirty.length)return alert(msg);
+  if(!confirm(msg))return;
+  try{const r=await api("/api/update/apply",{});toast(r.message,!r.ok);
+    if(r.ok&&r.restart){setTimeout(()=>location.reload(),4000)}}catch(e){toast(e.message,true)}
+  checkUpdate(false);
+}
+setTimeout(()=>checkUpdate(false),1500);
 async function refresh(){
   try{
-    list=await api("/api/projects");shownErr=false;
+    list=await api("/api/projects");shownErr=false;applyChatToggle();
     if(view==="project"&&(!sel||!list.projects.some(p=>p.name===sel)))sel=list.projects[0]?.name||null;
     renderList();
     if(view==="project"&&sel)detail=await api("/api/project/"+encodeURIComponent(sel));
@@ -600,6 +746,8 @@ async function refresh(){
   }catch(e){if(!shownErr){shownErr=true;toast(e.message,true)}}
 }
 refresh(); setInterval(refresh,3000); setInterval(renderNow,1000);
+setInterval(async()=>{if(view!=="project"||tab!=="reasoning"||!sel||!detail||!detail.running)return;
+  try{const r=await api(`/api/project/${encodeURIComponent(sel)}/thoughts`);const n=extra&&extra.entries?extra.entries.length:-1;extra={kind:"reasoning",...r};if(r.entries.length!==n)renderProject();else reasoningLive()}catch(e){}},1000);
 </script>
 </body>
 </html>

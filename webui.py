@@ -29,6 +29,7 @@ from pathlib import Path
 import chat as chatlib
 import codefactory as sa
 import models
+import update
 
 ROOT = Path(__file__).resolve().parent
 INDEX = ROOT / "web" / "index.html"
@@ -37,6 +38,8 @@ MODEL_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_./:@-]{0,99}$")
 SETTING_LIMITS = {"max_hours": (1, 720), "max_iterations": (1, 5000), "max_attempts_per_task": (1, 8),
                   "max_debug_rounds": (1, 8), "max_consecutive_failures": (1, 20), "min_review_score": (1, 10)}
 NAME_RE = re.compile(r"^[a-z0-9][a-z0-9-]{0,60}$")
+EMPTY_TREE = "4b825dc642cb6eb9a060e54bf8d69288fbee4904"
+MAX_FILE = 400_000
 SHA_RE = re.compile(r"^[0-9a-f]{4,40}$")
 BRANCH_RE = re.compile(r"^self-improve/[0-9]{8}-[0-9]{6}$")
 MAX_DIFF = 200_000
@@ -45,6 +48,7 @@ PULLS: dict[str, dict] = {}  # model name -> progress of an `ollama pull` starte
 PULL_CANCEL: set[str] = set()
 PROCS: dict[str, subprocess.Popen] = {}  # started agents, init and try jobs: "<kind>:<project>"
 LOCK = threading.Lock()
+UPDATE_LOCK = threading.Lock()
 
 
 class UiError(Exception):
@@ -102,6 +106,8 @@ def read_live(path: Path, running: bool) -> dict | None:
 class Service:
     def __init__(self, projects: Path):
         self.projects = projects.resolve()
+        self.settings_path = self.projects / ".ui" / "settings.json"
+        self.update_cache: dict | None = None
         self.master = ROOT / "MASTER.md"
         self.chats = chatlib.ChatStore(self.projects, lambda n: bool(NAME_RE.match(n or "")) and (self.projects / n / "agent" / "GOAL.md").exists())
 
@@ -133,7 +139,40 @@ class Service:
             if key.startswith("init:") and not (self.projects / key[5:] / "agent" / "GOAL.md").exists():
                 jobs.append({"name": key[5:], "running": p.poll() is None, "code": p.poll(),
                              "log": tail(self.projects / ".ui" / f"init-{key[5:]}.log", 8)})
-        return {"projects": projects, "init_jobs": jobs, "master": bool(sa.read_master(self.master)), "model_server": self.model_server()}
+        return {"projects": projects, "init_jobs": jobs, "master": bool(sa.read_master(self.master)), "model_server": self.model_server(),
+                "chat_enabled": self.chat_enabled()}
+
+    def chat_enabled(self) -> bool:
+        return bool(sa.read_json(self.settings_path, {}).get("chat_enabled", True))
+
+    def set_ui_settings(self, body: dict) -> dict:
+        """UI preferences kept next to the chats. Turning the chat off frees the model server for the agent."""
+        cur = sa.read_json(self.settings_path, {})
+        if "chat_enabled" in body:
+            cur["chat_enabled"] = bool(body["chat_enabled"])
+        self.settings_path.parent.mkdir(parents=True, exist_ok=True)
+        sa.write_json(self.settings_path, cur)
+        return {"chat_enabled": self.chat_enabled()}
+
+    def require_chat(self) -> None:
+        if not self.chat_enabled():
+            raise UiError("The chat is turned off (it can compete with the agent for the model). Turn it on in the sidebar.", 403)
+
+    def update_status(self, fetch: bool = False) -> dict:
+        if fetch or self.update_cache is None:
+            self.update_cache = update.status(ROOT, fetch=True)
+            self.update_cache["checked"] = time.time()
+        return self.update_cache
+
+    def update_apply(self) -> dict:
+        busy = [p["name"] for p in self.list()["projects"] if p["running"]]
+        if busy:
+            raise UiError("Stop the running agent(s) first: " + ", ".join(busy), 409)
+        res = update.apply(ROOT)
+        self.update_cache = None
+        if res.get("updated") and res.get("restart"):
+            threading.Timer(1.0, restart_self).start()
+        return res
 
     def model_server(self) -> dict:
         """Is the model server reachable? Cached for 10 s because the UI polls."""
@@ -172,7 +211,7 @@ class Service:
                 except ValueError:
                     pass
         return {"running": running, "now": sa.read_json(a / "activity.json", None) if running else None,
-                "llm": read_live(a / "llm_now.json", running), "coder": read_live(a / "coder_now.json", running),
+                "llm": read_live(a / "llm_now.json", running), "coder": read_live(a / "coder_now.json", running), "cmd": read_live(a / "cmd_now.json", running),
                 "events": events, "queued_user_tasks": [i["title"] for i in sa.read_json(a / "backlog.json", [])
                                                           if i.get("source") == "user" and i["status"] in ("pending", "in_progress")]}
 
@@ -184,6 +223,78 @@ class Service:
             prompt, _, answer = rest.partition("\n-- answer --\n")
             entries.append({"head": head, "prompt": prompt.replace("-- prompt (end) --\n", "", 1), "answer": answer.strip()})
         return {"entries": entries[::-1]}
+
+    def thoughts(self, name: str, limit: int = 60) -> dict:
+        """Every model call in full (prompt, reasoning, answer), plus what is being streamed right now."""
+        a = self.ws(name) / "agent"
+        rows = []
+        for line in tail(a / "thoughts.jsonl", 400, 3_000_000).splitlines()[-limit:]:
+            try:
+                rows.append(json.loads(line))
+            except ValueError:
+                pass
+        running = pid_alive(a / "agent.pid") or alive(f"run:{name}") or alive(f"do:{name}")
+        live = tail(a / "coder_live.txt", 120, 60_000) if running else ""
+        return {"entries": rows[::-1], "stream": read_live(a / "llm_stream.json", running), "coder_live": live,
+                "cmd": read_live(a / "cmd_now.json", running), "cmd_live": tail(a / "cmd_live.txt", 120, 60_000) if running else ""}
+
+    def _base(self, repo: Path, base: str) -> str:
+        """Maps the UI's comparison choice to a git revision ('head' = uncommitted work, 'last:N' = last N commits)."""
+        if not git(repo, "rev-parse", "--verify", "-q", "HEAD").strip():
+            return EMPTY_TREE
+        m = re.fullmatch(r"last:(\d{1,3})", base or "")
+        if not m:
+            return "HEAD"
+        n = int(m.group(1))
+        return f"HEAD~{n}" if git(repo, "rev-parse", "--verify", "-q", f"HEAD~{n}").strip() else EMPTY_TREE
+
+    def tree(self, name: str, base: str = "head") -> dict:
+        """All files of the product repo with what changed relative to the chosen base."""
+        repo = self.ws(name) / "repo"
+        if not (repo / ".git").exists():
+            return {"files": [], "base": base}
+        rev = self._base(repo, base)
+        names = git(repo, "ls-files", "-z", "-c", "-o", "--exclude-standard", limit=4_000_000).split("\0")
+        files = {n: {"path": n, "status": "", "add": 0, "del": 0} for n in names if n and not n.startswith(".git/")}
+        for line in git(repo, "diff", "--numstat", "--no-renames", rev, limit=4_000_000).splitlines():
+            parts = line.split("\t")
+            if len(parts) == 3 and parts[2] in files:
+                f = files[parts[2]]
+                f["add"] = int(parts[0]) if parts[0].isdigit() else 0
+                f["del"] = int(parts[1]) if parts[1].isdigit() else 0
+                f["status"] = "M"
+        tracked = set(git(repo, "ls-files", "-z", limit=4_000_000).split("\0"))
+        for line in git(repo, "diff", "--name-status", "--no-renames", rev, limit=4_000_000).splitlines():
+            st, _, path = line.partition("\t")
+            if path in files and st.startswith("A"):
+                files[path]["status"] = "A"
+        for path, f in files.items():
+            if path not in tracked:
+                f["status"] = "A"
+                f["add"] = -1  # untracked: the whole file is new
+        return {"files": sorted(files.values(), key=lambda f: f["path"])[:5000], "base": base}
+
+    def file(self, name: str, path: str, base: str = "head") -> dict:
+        """Contents of one file with the line numbers that are new or changed relative to the base."""
+        repo = (self.ws(name) / "repo").resolve()
+        target = (repo / path).resolve()
+        if not path or target == repo or repo not in target.parents or ".git" in Path(path).parts or not target.is_file():
+            raise UiError("File not found")
+        size = target.stat().st_size
+        data = target.read_bytes()[:MAX_FILE]
+        if b"\0" in data[:8000]:
+            return {"path": path, "binary": True, "size": size}
+        text = data.decode("utf-8", "replace")
+        rel = target.relative_to(repo).as_posix()
+        tracked = bool(git(repo, "ls-files", "--", rel).strip())
+        changed: list[int] = []
+        if not tracked:
+            changed = list(range(1, text.count("\n") + 2))
+        else:
+            for m in re.finditer(r"^@@ -\S+ \+(\d+)(?:,(\d+))? @@", git(repo, "diff", "-U0", "--no-renames", self._base(repo, base), "--", rel), re.M):
+                start, cnt = int(m.group(1)), int(m.group(2) or 1)
+                changed.extend(range(start, start + cnt))
+        return {"path": path, "text": text, "size": size, "truncated": size > MAX_FILE, "changed": changed, "new_file": not tracked}
 
     def changes(self, name: str) -> dict:
         repo = self.ws(name) / "repo"
@@ -567,6 +678,11 @@ class Service:
         return {"ok": True}
 
 
+def restart_self() -> None:
+    """Re-executes this server with the same arguments so a pulled update takes effect (the listening socket is not inherited)."""
+    os.execv(sys.executable, [sys.executable, *sys.argv])
+
+
 def make_handler(svc: Service, port: int, token: str | None = None):
     hosts = {f"127.0.0.1:{port}", f"localhost:{port}", f"[::1]:{port}"}
 
@@ -625,6 +741,10 @@ def make_handler(svc: Service, port: int, token: str | None = None):
                 ms = re.fullmatch(r"/api/chat/([a-f0-9]{12})/send", path)
                 if method == "POST" and ms:
                     return self.chat_send(ms.group(1), body)  # streams for minutes, so it must not hold LOCK
+                if path.startswith("/api/update"):  # network and pip work: must not hold LOCK
+                    return self.send(200, self.update_route(method, path))
+                if path.startswith(("/api/chats", "/api/chat/")):
+                    svc.require_chat()
                 with LOCK:
                     self.send(200, self.route(method, path, body, q))
             except chatlib.ChatError as e:
@@ -635,6 +755,16 @@ def make_handler(svc: Service, port: int, token: str | None = None):
                 self.send(400, {"error": f"Invalid request: {e}"})
             except Exception as e:  # noqa: BLE001
                 self.send(500, {"error": f"{type(e).__name__}: {e}"})
+
+        def update_route(self, method: str, path: str):
+            with UPDATE_LOCK:
+                if method == "GET":
+                    return svc.update_status(False)
+                if path == "/api/update/check":
+                    return svc.update_status(True)
+                if path == "/api/update/apply":
+                    return svc.update_apply()
+            raise UiError("Not found", 404)
 
         def chat_send(self, cid: str, body: dict) -> None:
             svc.chats.load(cid)  # 404 before the stream starts
@@ -666,6 +796,8 @@ def make_handler(svc: Service, port: int, token: str | None = None):
                     return svc.get_master()
                 if path == "/api/languages":
                     return svc.languages()
+                if path == "/api/ui-settings":
+                    return {"chat_enabled": svc.chat_enabled()}
                 if path == "/api/tool":
                     return svc.tool()
                 if path == "/api/chats":
@@ -683,8 +815,14 @@ def make_handler(svc: Service, port: int, token: str | None = None):
                 m = re.fullmatch(r"/api/project/([^/]+)/settings", path)
                 if m:
                     return svc.settings(m.group(1))
-                m = re.fullmatch(r"/api/project/([^/]+)/(llm|changes|diff)", path)
+                m = re.fullmatch(r"/api/project/([^/]+)/(llm|changes|diff|thoughts|tree|file)", path)
                 if m:
+                    if m.group(2) == "thoughts":
+                        return svc.thoughts(m.group(1))
+                    if m.group(2) == "tree":
+                        return svc.tree(m.group(1), q.get("base", "head"))
+                    if m.group(2) == "file":
+                        return svc.file(m.group(1), q.get("path", ""), q.get("base", "head"))
                     if m.group(2) == "llm":
                         return svc.llm_log(m.group(1))
                     if m.group(2) == "changes":
@@ -697,6 +835,8 @@ def make_handler(svc: Service, port: int, token: str | None = None):
                     return svc.set_master(body)
                 if path == "/api/tool/task":
                     return svc.tool_task(body)
+                if path == "/api/ui-settings":
+                    return svc.set_ui_settings(body)
                 if path == "/api/chats":
                     return svc.chat_create(body)
                 if path in ("/api/models/pull", "/api/models/delete", "/api/models/cancel"):

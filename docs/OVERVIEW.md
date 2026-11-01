@@ -29,11 +29,16 @@ Python/FastAPI, Node, .NET, Go, Rust and more via presets; documentation languag
 Optional research with guards: http/https only, no private addresses, blocked domains, content treated as untrusted data.
 
 ## Web UI (`make ui`, `make ui-lan`)
+- **Reasoning tab:** live animated "thinking" indicator plus readable cards of recent plans, security reviews and decisions.
 - Live "Now" panel with the cycle stepper (Plan, Implement, Build, Browser test, Security, Review, ...); the Live log is colour-coded (steps, success, security, warnings, errors) and logs every step.
 - Live "Now" panel, AI activity log, file changes, backlog, goal, ideas.
 - Directed tasks ("Do a task"), project create/rename/delete/settings, kill switch.
 - **Chat:** streaming, Markdown rendering, Enter sends, thinking animation, link projects for context, "Add to ideas"/"Run as task".
 - **Settings → Models:** install and remove Ollama models with live progress (recommended list included); all model fields are dropdowns of installed models.
+- **Reasoning tab:** every model call in full (prompt, the model's own reasoning when it has one, answer), streamed live while it is written, plus live Aider and build/test output. Stored in `agent/thoughts.jsonl`.
+- **File changes tab:** collapsible folder tree of the whole codebase; pick a file to read it with line numbers, new/changed lines highlighted, comparable against uncommitted work or the last N commits.
+- **Update:** `make update` or the sidebar button pulls the latest version (fast-forward only, backup tag, dependency refresh, import check with automatic rollback). Blocked while agents run.
+- **Chat toggle:** the chat AI can be switched off in the sidebar so it never competes with the agent for the model server.
 - LAN mode with access token; "Change the tool itself" (self-improve on a branch).
 
 ## Self-improvement
@@ -52,4 +57,6 @@ Stdlib-only core, unit tests (`make test`), end-to-end selftest with a stub mode
 - Model routing, Playwright e2e, chat, self-improve backups
 - Knowledge base with hybrid search, lessons with expiry
 - Model manager and modern chat
+- Reasoning tab with live thinking animation
 - Security gate, runtime probe, periodic audits
+- Full reasoning stream, code tree with highlighted changes, self-update, chat toggle
