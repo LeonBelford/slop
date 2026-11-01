@@ -53,5 +53,12 @@ class UpdateTests(unittest.TestCase):
             self.assertEqual((t / "b" / "f.txt").read_text(), "2")
 
 
+class SmokeImportTests(unittest.TestCase):
+    def test_old_and_new_module_names_import(self):
+        for names in ("codefactory, webui, selfimprove, infra.security, dash.chat, infra.knowledge", "codefactory, webui, security, chat, knowledge"):
+            r = subprocess.run([sys.executable, "-c", "import " + names], cwd=Path(__file__).resolve().parent.parent, capture_output=True, text=True)
+            self.assertEqual(r.returncode, 0, r.stderr)
+
+
 if __name__ == "__main__":
     unittest.main()
