@@ -7,22 +7,34 @@ The CLI stays fully usable; the UI calls the same commands (scripts/run.sh) and 
 from __future__ import annotations
 
 import argparse
+import hmac
+import http.cookies
 import json
 import os
 import re
+import secrets
+import shutil
+import socket
 import subprocess
 import sys
 import threading
 import urllib.parse
+import urllib.request
+import time
 import webbrowser
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 
+import chat as chatlib
 import codefactory as sa
+import models
 
 ROOT = Path(__file__).resolve().parent
 INDEX = ROOT / "web" / "index.html"
 MAX_BODY = 1_000_000
+MODEL_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_./:@-]{0,99}$")
+SETTING_LIMITS = {"max_hours": (1, 720), "max_iterations": (1, 5000), "max_attempts_per_task": (1, 8),
+                  "max_debug_rounds": (1, 8), "max_consecutive_failures": (1, 20), "min_review_score": (1, 10)}
 NAME_RE = re.compile(r"^[a-z0-9][a-z0-9-]{0,60}$")
 SHA_RE = re.compile(r"^[0-9a-f]{4,40}$")
 BRANCH_RE = re.compile(r"^self-improve/[0-9]{8}-[0-9]{6}$")
@@ -88,6 +100,7 @@ class Service:
     def __init__(self, projects: Path):
         self.projects = projects.resolve()
         self.master = ROOT / "MASTER.md"
+        self.chats = chatlib.ChatStore(self.projects, lambda n: bool(NAME_RE.match(n or "")) and (self.projects / n / "agent" / "GOAL.md").exists())
 
     def ws(self, name: str) -> Path:
         if not NAME_RE.match(name or "") or not (self.projects / name / "agent" / "GOAL.md").exists():
@@ -117,7 +130,18 @@ class Service:
             if key.startswith("init:") and not (self.projects / key[5:] / "agent" / "GOAL.md").exists():
                 jobs.append({"name": key[5:], "running": p.poll() is None, "code": p.poll(),
                              "log": tail(self.projects / ".ui" / f"init-{key[5:]}.log", 8)})
-        return {"projects": projects, "init_jobs": jobs, "master": bool(sa.read_master(self.master))}
+        return {"projects": projects, "init_jobs": jobs, "master": bool(sa.read_master(self.master)), "model_server": self.model_server()}
+
+    def model_server(self) -> dict:
+        """Is the model server reachable? Cached for 10 s because the UI polls."""
+        c = getattr(self, "_ms", None)
+        if c and time.time() - c[0] < 10:
+            return c[1]
+        api = sa.DEFAULT_CONFIG["llm_api"]
+        models = self.installed_models(api)
+        res = {"ok": bool(models), "models": len(models), "url": urllib.parse.urlparse(api).netloc}
+        self._ms = (time.time(), res)
+        return res
 
     def detail(self, name: str) -> dict:
         ws = self.ws(name)
@@ -247,6 +271,17 @@ class Service:
             if not msg:
                 raise UiError("Message is empty")
             sa.Agent(ws).add_feedback(msg)
+        elif action in ("task-cancel", "task-reopen", "task-top"):
+            self.backlog_edit(ws, action, body)
+        elif action == "settings":
+            self.save_settings(ws, body)
+            return {"ok": True, "applies": "next start" if self.summary(ws)["running"] else "now"}
+        elif action in ("rename", "delete"):
+            if self.summary(ws)["running"] or any(alive(f"{k}:{name}") for k in ("run", "do", "try")):
+                raise UiError("Stop the agent first (Stop or Force stop)", 409)
+            return self.rename(ws, body.get("name")) if action == "rename" else self.delete(ws, body)
+        elif action == "goal":
+            sa.write_text(a / "GOAL.md", str(body.get("text", "")))
         elif action == "ideas":
             sa.write_text(ws / "IDEAS.md", str(body.get("text", "")))
         elif action == "sources":
@@ -271,6 +306,165 @@ class Service:
         spawn(f"init:{name}", ["init", idea, name], self.projects / ".ui" / f"init-{name}.log", {"PRESET": preset})
         return {"ok": True, "name": name}
 
+    def settings(self, name: str) -> dict:
+        ws = self.ws(name)
+        conf = sa.read_json(ws / "agent" / "config.json", {})
+        eff = sa.Agent(ws).cfg
+        inst = self.installed_models(eff["llm_api"])
+        return {"settings": {"models": eff["models"], "coder_model": eff["coder_model"],
+                             "limits": {k: eff["limits"][k] for k in SETTING_LIMITS}, "web_mode": eff["web"]["mode"],
+                             "doc_language": eff["doc_language"], "preset": conf.get("preset", eff["preset"]),
+                             "routing": {k: eff["routing"].get(k, "") for k in ("mode", "light", "heavy", "final_reviewer")}},
+                "limit_bounds": SETTING_LIMITS, "installed_models": inst,
+                "resolved": models.resolve(set(inst), eff["routing"], eff["coder_model"]),
+                "catalog": models.catalog_view(set(inst))}
+
+    @staticmethod
+    def installed_models(api: str) -> list[str]:
+        u = urllib.parse.urlparse(api)
+        try:
+            with urllib.request.urlopen(f"{u.scheme}://{u.netloc}/api/tags", timeout=3) as r:
+                return sorted(m["name"] for m in json.loads(r.read()).get("models", []))
+        except Exception:  # noqa: BLE001
+            return []
+
+    def save_settings(self, ws: Path, body: dict) -> None:
+        conf = sa.read_json(ws / "agent" / "config.json", {})
+        models = body.get("models", {})
+        for role in ("planner", "reviewer", "summarizer"):
+            if role in models:
+                conf.setdefault("models", {})[role] = self.model_name(models[role])
+        if "coder_model" in body:
+            conf["coder_model"] = self.model_name(body["coder_model"])
+        for k, v in (body.get("limits") or {}).items():
+            if k not in SETTING_LIMITS:
+                raise UiError(f"Unknown limit: {k}")
+            lo, hi = SETTING_LIMITS[k]
+            try:
+                v = int(v)
+            except (TypeError, ValueError):
+                raise UiError(f"{k} must be a number")
+            if not lo <= v <= hi:
+                raise UiError(f"{k} must be between {lo} and {hi}")
+            conf.setdefault("limits", {})[k] = v
+        rt = body.get("routing")
+        if rt:
+            if rt.get("mode", "auto") not in ("auto", "off"):
+                raise UiError("Routing mode must be auto or off")
+            conf["routing"] = {**conf.get("routing", {}), "mode": rt.get("mode", "auto")}
+            for k in ("light", "heavy", "final_reviewer"):
+                if k in rt:
+                    conf["routing"][k] = self.model_name(rt[k]) if str(rt[k]).strip() else ""
+        if "web_mode" in body:
+            if body["web_mode"] not in ("off", "sources", "open"):
+                raise UiError("Web mode must be off, sources or open")
+            conf.setdefault("web", {})["mode"] = body["web_mode"]
+        if "doc_language" in body:
+            lang = str(body["doc_language"]).strip()
+            if not re.fullmatch(r"[A-Za-z ]{2,30}", lang):
+                raise UiError("Invalid documentation language")
+            conf["doc_language"] = lang
+        sa.write_json(ws / "agent" / "config.json", conf)
+
+    @staticmethod
+    def model_name(v) -> str:
+        v = str(v).strip()
+        if not MODEL_RE.match(v):
+            raise UiError(f"Invalid model name: {v!r}")
+        return v
+
+    def rename(self, ws: Path, new: str) -> dict:
+        new = str(new or "").strip()
+        if not NAME_RE.match(new):
+            raise UiError("Name: lowercase letters, digits and dashes (max 61 characters)")
+        if (self.projects / new).exists():
+            raise UiError("A project with this name already exists", 409)
+        ws.rename(self.projects / new)
+        return {"ok": True, "name": new}
+
+    def delete(self, ws: Path, body: dict) -> dict:
+        if body.get("confirm") != ws.name:
+            raise UiError("Type the project name to confirm")
+        shutil.rmtree(ws)
+        return {"ok": True}
+
+    def backlog_edit(self, ws: Path, action: str, body: dict) -> None:
+        bl = sa.Backlog(ws / "agent" / "backlog.json")
+        item = next((i for i in bl.items if i["id"] == body.get("id")), None)
+        if not item:
+            raise UiError("Task not found", 404)
+        if action == "task-cancel":
+            if item["status"] not in ("pending", "blocked"):
+                raise UiError("Only open tasks can be cancelled")
+            bl.set(item, status="cancelled", notes=item.get("notes", []) + ["cancelled by you in the UI"])
+        elif action == "task-reopen":
+            if item["status"] not in ("blocked", "cancelled"):
+                raise UiError("Only blocked or cancelled tasks can be reopened")
+            bl.set(item, status="pending", attempts=0)
+        else:  # task-top
+            if item["status"] != "pending":
+                raise UiError("Only open tasks can be moved up")
+            bl.set(item, priority=max(i["priority"] for i in bl.items) + 1)
+
+    def chat_ws(self, name: str) -> Path | None:
+        try:
+            return self.ws(name)
+        except UiError:
+            return None
+
+    def chat_default_model(self, projects: list[str]) -> str:
+        for n in projects:
+            ws = self.chat_ws(n)
+            if ws:
+                return sa.Agent(ws).cfg["models"]["planner"]
+        return sa.DEFAULT_CONFIG["models"]["planner"]
+
+    def chat_list(self) -> dict:
+        out = self.chats.list()
+        out["installed_models"] = self.installed_models(sa.DEFAULT_CONFIG["llm_api"])
+        out["default_model"] = self.chat_default_model([])
+        return out
+
+    def chat_create(self, body: dict) -> dict:
+        names = self.chats.clean_links(body.get("projects"))
+        return self.chats.create(body, self.chat_default_model(names))
+
+    def chat_stream(self, cid: str, text: str, write) -> None:
+        """Appends the user message, streams the answer through write(dict) and stores it (also when cut off)."""
+        text = text.strip()
+        if not text:
+            raise UiError("Message is empty")
+        if len(text) > chatlib.MAX_USER_CHARS:
+            raise UiError("Message too long")
+        chat = self.chats.load(cid)
+        chat["messages"].append({"role": "user", "content": text, "t": time.time()})
+        if chat["title"] == "New chat":
+            chat["title"] = text.replace("\n", " ")[:50]
+        chat["messages"] = chat["messages"][-chatlib.MAX_MESSAGES:]
+        chat["updated"] = time.time()
+        self.chats.save(chat)
+        msgs = chatlib.build_messages(chat, self.chat_ws)
+        cfg = sa.DEFAULT_CONFIG
+        answer, err = "", ""
+        try:
+            for d in chatlib.stream_completion(cfg["llm_api"], cfg["api_key"], chat["model"], msgs):
+                answer += d
+                write({"delta": d})
+        except OSError as e:  # includes a closed browser connection: keep the partial answer
+            err = f"Model server not reachable or connection closed: {e}"
+        except Exception as e:  # noqa: BLE001
+            err = f"{type(e).__name__}: {e}"
+        finally:
+            if answer:
+                chat["messages"].append({"role": "assistant", "content": answer, "t": time.time(), "model": chat["model"]})
+                chat["updated"] = time.time()
+                self.chats.save(chat)
+        if err:
+            try:
+                write({"error": err})
+            except OSError:
+                pass
+
     def languages(self) -> dict:
         return {"stacks": sa.stacks.availability()}
 
@@ -282,7 +476,7 @@ class Service:
         return {"ok": True}
 
 
-def make_handler(svc: Service, port: int):
+def make_handler(svc: Service, port: int, token: str | None = None):
     hosts = {f"127.0.0.1:{port}", f"localhost:{port}", f"[::1]:{port}"}
 
     class H(BaseHTTPRequestHandler):
@@ -300,14 +494,26 @@ def make_handler(svc: Service, port: int):
             self.end_headers()
             self.wfile.write(data)
 
+        def authed(self) -> bool:
+            cookie = http.cookies.SimpleCookie(self.headers.get("Cookie", ""))
+            got = cookie["cf_token"].value if "cf_token" in cookie else ""
+            return hmac.compare_digest(got.encode(), token.encode())
+
         def guard(self, post: bool) -> bool:
-            # Protects against DNS rebinding and foreign websites posting to localhost
-            if self.headers.get("Host", "") not in hosts:
-                self.send(403, {"error": "Host not allowed"})
-                return False
+            host = self.headers.get("Host", "")
+            if token:  # LAN mode: every request needs the access token (cookie), any Host name is fine
+                if not self.authed():
+                    self.send(401, {"error": "Not authorised: open the link with ?token=... printed by `make ui-lan`"})
+                    return False
+                allowed = {host}
+            else:  # Protects against DNS rebinding and foreign websites posting to localhost
+                if host not in hosts:
+                    self.send(403, {"error": "Host not allowed"})
+                    return False
+                allowed = hosts
             if post:
                 origin = self.headers.get("Origin")
-                if (origin and origin.split("://", 1)[-1] not in hosts) or self.headers.get("X-UI") != "1":
+                if (origin and origin.split("://", 1)[-1] not in allowed) or self.headers.get("X-UI") != "1":
                     self.send(403, {"error": "Request rejected"})
                     return False
             return True
@@ -325,14 +531,39 @@ def make_handler(svc: Service, port: int):
                     if n > MAX_BODY:
                         raise UiError("Request too large", 413)
                     body = json.loads(self.rfile.read(n) or b"{}")
+                ms = re.fullmatch(r"/api/chat/([a-f0-9]{12})/send", path)
+                if method == "POST" and ms:
+                    return self.chat_send(ms.group(1), body)  # streams for minutes, so it must not hold LOCK
                 with LOCK:
                     self.send(200, self.route(method, path, body, q))
+            except chatlib.ChatError as e:
+                self.send(e.code, {"error": str(e)})
             except UiError as e:
                 self.send(e.code, {"error": str(e)})
             except (ValueError, KeyError) as e:
                 self.send(400, {"error": f"Invalid request: {e}"})
             except Exception as e:  # noqa: BLE001
                 self.send(500, {"error": f"{type(e).__name__}: {e}"})
+
+        def chat_send(self, cid: str, body: dict) -> None:
+            svc.chats.load(cid)  # 404 before the stream starts
+            self.send_response(200)
+            self.send_header("Content-Type", "text/event-stream; charset=utf-8")
+            self.send_header("Cache-Control", "no-store")
+            self.send_header("Connection", "close")
+            self.end_headers()
+            self.close_connection = True
+
+            def write(obj) -> None:
+                self.wfile.write(b"data: " + json.dumps(obj, ensure_ascii=False).encode() + b"\n\n")
+                self.wfile.flush()
+            try:
+                svc.chat_stream(cid, str(body.get("content", "")), write)
+                write("[DONE]")
+            except (UiError, chatlib.ChatError) as e:
+                write({"error": str(e)})
+            except OSError:
+                pass
 
         def route(self, method: str, path: str, body: dict, q: dict):
             if method == "GET":
@@ -346,11 +577,19 @@ def make_handler(svc: Service, port: int):
                     return svc.languages()
                 if path == "/api/tool":
                     return svc.tool()
+                if path == "/api/chats":
+                    return svc.chat_list()
+                m = re.fullmatch(r"/api/chat/([a-f0-9]{12})", path)
+                if m:
+                    return svc.chats.load(m.group(1))
                 if path == "/api/tool/diff":
                     return svc.tool_diff(q.get("branch", ""))
                 m = re.fullmatch(r"/api/project/([^/]+)", path)
                 if m:
                     return svc.detail(m.group(1))
+                m = re.fullmatch(r"/api/project/([^/]+)/settings", path)
+                if m:
+                    return svc.settings(m.group(1))
                 m = re.fullmatch(r"/api/project/([^/]+)/(llm|changes|diff)", path)
                 if m:
                     if m.group(2) == "llm":
@@ -365,12 +604,34 @@ def make_handler(svc: Service, port: int):
                     return svc.set_master(body)
                 if path == "/api/tool/task":
                     return svc.tool_task(body)
+                if path == "/api/chats":
+                    return svc.chat_create(body)
+                m = re.fullmatch(r"/api/chat/([a-f0-9]{12})/(update|delete)", path)
+                if m:
+                    if m.group(2) == "delete":
+                        svc.chats.delete(m.group(1))
+                        return {"ok": True}
+                    return svc.chats.update(m.group(1), body)
                 m = re.fullmatch(r"/api/project/([^/]+)/([a-z-]+)", path)
                 if m:
                     return svc.act(m.group(1), m.group(2), body)
             raise UiError("Not found", 404)
 
+        def login(self) -> bool:
+            """LAN mode: /?token=... sets the cookie and redirects to the clean URL."""
+            q = urllib.parse.parse_qs(urllib.parse.urlsplit(self.path).query)
+            given = (q.get("token") or [""])[0]
+            if not token or not given or not hmac.compare_digest(given.encode(), token.encode()):
+                return False
+            self.send_response(302)
+            self.send_header("Set-Cookie", f"cf_token={token}; Path=/; HttpOnly; SameSite=Strict; Max-Age=2592000")
+            self.send_header("Location", "/")
+            self.end_headers()
+            return True
+
         def do_GET(self):
+            if token and self.path.split("?", 1)[0] == "/" and self.login():
+                return
             if self.path.split("?", 1)[0] == "/":
                 if not self.guard(False):
                     return
@@ -384,11 +645,39 @@ def make_handler(svc: Service, port: int):
     return H
 
 
-def serve(projects: Path, port: int, open_browser: bool = True) -> None:
+def lan_ip() -> str:
+    try:
+        with socket.socket(socket.AF_INET, socket.SOCK_DGRAM) as c:
+            c.connect(("10.255.255.255", 1))  # no packet is sent, it only selects the outgoing interface
+            return c.getsockname()[0]
+    except OSError:
+        return "<this-machine-ip>"
+
+
+def load_token(projects: Path) -> str:
+    f = projects / ".ui" / "token"
+    if f.exists() and f.read_text("utf-8").strip():
+        return f.read_text("utf-8").strip()
+    f.parent.mkdir(parents=True, exist_ok=True)
+    tok = secrets.token_urlsafe(24)
+    fd = os.open(f, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
+    with os.fdopen(fd, "w") as fh:
+        fh.write(tok)
+    return tok
+
+
+def serve(projects: Path, port: int, open_browser: bool = True, lan: bool = False) -> None:
     svc = Service(projects)
-    srv = ThreadingHTTPServer(("127.0.0.1", port), make_handler(svc, port))
+    token = load_token(projects.resolve()) if lan else None
+    srv = ThreadingHTTPServer(("0.0.0.0" if lan else "127.0.0.1", port), make_handler(svc, port, token))
     url = f"http://127.0.0.1:{port}"
-    print(f"Web UI running at {url}  (stop with Ctrl+C; running agents keep going)")
+    if lan:
+        print(f"Web UI reachable in your network (plain HTTP, trusted networks only).\n"
+              f"  This machine: {url}/?token={token}\n  Other devices: http://{lan_ip()}:{port}/?token={token}\n"
+              f"  (the token is stored in {projects}/.ui/token; stop with Ctrl+C; running agents keep going)")
+        open_browser = False
+    else:
+        print(f"Web UI running at {url}  (stop with Ctrl+C; running agents keep going)")
     if open_browser:
         threading.Timer(0.5, lambda: webbrowser.open(url)).start()
     try:
@@ -402,8 +691,9 @@ def main() -> None:
     ap.add_argument("--port", type=int, default=8765)
     ap.add_argument("--projects-dir", default="projects")
     ap.add_argument("--no-browser", action="store_true")
+    ap.add_argument("--lan", action="store_true", help="listen on all interfaces (other devices in your network), protected by an access token")
     a = ap.parse_args()
-    serve(Path(a.projects_dir), a.port, not a.no_browser)
+    serve(Path(a.projects_dir), a.port, not a.no_browser, a.lan)
 
 
 if __name__ == "__main__":

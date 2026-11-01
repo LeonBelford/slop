@@ -60,6 +60,7 @@ dialog{background:var(--panel);color:var(--text);border:1px solid #555;border-ra
 dialog::backdrop{background:rgba(0,0,0,.7)}
 dialog h3{margin:0 0 12px}
 label{display:block;color:var(--mute);font-size:12.5px;margin:12px 0 4px}
+.fld{display:flex;flex-direction:column;gap:4px;font-size:12px;color:var(--mute)}
 .toast{position:fixed;right:20px;bottom:20px;background:var(--panel2);border:1px solid var(--line);padding:10px 16px;border-radius:4px;opacity:0;transition:.2s;pointer-events:none;max-width:480px;white-space:pre-wrap;z-index:9}
 .toast.on{opacity:1}.toast.err{border-color:var(--bad)}
 .job{font-size:12.5px;color:var(--mute);padding:8px 10px;border:1px dashed var(--line);margin-bottom:6px}
@@ -83,6 +84,17 @@ details .inner{padding:0 12px 12px}
 .add{color:var(--ok)}.del{color:var(--bad)}.hunk{color:var(--info)}.meta{color:var(--mute)}
 .fl{font-family:ui-monospace,monospace;font-size:12.5px;display:flex;gap:10px;align-items:center;padding:2px 0}
 .fl a{color:var(--text);cursor:pointer;text-decoration:underline;text-decoration-color:#555}
+.chat{display:flex;flex-direction:column;gap:10px}
+.chatbar{display:flex;gap:8px;align-items:center;flex-wrap:wrap}
+.chatbar select{width:auto;max-width:260px}
+.chips{display:flex;gap:6px;flex-wrap:wrap;align-items:center}
+.chip{border:1px solid var(--line);border-radius:12px;padding:2px 10px;font-size:12.5px;cursor:pointer;color:var(--mute);user-select:none}
+.chip.on{border-color:#aaa;color:var(--text);background:var(--panel2)}
+.msgs{border:1px solid var(--line);border-radius:4px;background:#0c0c0c;padding:12px;height:52vh;overflow:auto;display:flex;flex-direction:column;gap:12px}
+.msg{max-width:88%;white-space:pre-wrap;word-break:break-word;line-height:1.5}
+.msg.user{align-self:flex-end;background:var(--panel2);border:1px solid var(--line);border-radius:8px;padding:8px 12px}
+.msg.assistant .acts{margin-top:6px;display:flex;gap:6px}
+.msg pre{background:#000;border:1px solid var(--line);padding:8px;border-radius:4px;overflow:auto;margin:6px 0}
 </style>
 </head>
 <body>
@@ -91,7 +103,9 @@ details .inner{padding:0 12px 12px}
   <div class="side-actions">
     <button class="primary" onclick="openNew()">+ New idea</button>
     <button onclick="openMaster()" title="Global instructions for all projects">Master prompt</button>
+    <button onclick="showChat()" title="Talk to a local model, optionally with a project as context">Chat</button>
   </div>
+  <div id="ms" class="hint" style="padding:8px 16px"></div>
   <div id="plist"></div>
   <div class="side-foot"><button onclick="showTool()" title="Tell the tool itself what to change (Makefile, UI, loop ...)">Change the tool itself</button></div>
 </aside>
@@ -126,7 +140,7 @@ const $=s=>document.querySelector(s);
 const esc=s=>String(s??"").replace(/[&<>"]/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c]));
 let sel=localStorage.getItem("sel")||null, view="project", tab="overview", list={projects:[],init_jobs:[]}, detail=null, extra=null, dirty=false, langs=[];
 let diffView=null, lastBody="", lastHead="", lastTabs="", openKeys=new Set();
-const EDITABLE=["ideas","sources","task","tool"];
+const EDITABLE=["ideas","sources","task","tool","settings","goal"];
 const STEPS=[["plan","Plan"],["implement","Implement"],["build","Build & test"],["review","Review"],["cleanup","Cleanup"],["docs","Docs & memory"],["merge","Merge"]];
 
 async function api(path,body){
@@ -148,6 +162,7 @@ const fmtDiff=t=>esc(t).split("\n").map(l=>{const c=l.startsWith("+++")||l.start
 async function forceStop(){if(!confirm('Force stop kills the agent and everything it runs right now. The unfinished task is discarded and retried on the next start. Continue?'))return;try{const r=await api(`/api/project/${sel}/force-stop`,{});toast(r.message||'Force-stopped');await refresh()}catch(e){toast(e.message,true)}}
 function statusOf(p){return p.running?(p.stopping?["stop","stopping after task"]:["run","running"]):["","stopped"]}
 function renderList(){
+  const m=list.model_server;if(m)$("#ms").innerHTML=`<span class="dot ${m.ok?"run":"stop"}" style="display:inline-block"></span> Model server ${m.ok?"online · "+m.models+" models":"offline ("+esc(m.url)+")"}`;
   const jobs=list.init_jobs.map(j=>`<div class="job">${j.running?"Creating":"Failed"}: <b>${esc(j.name)}</b><br><code>${esc((j.log||"").split("\n").slice(-3).join(" "))}</code></div>`).join("");
   $("#plist").innerHTML=jobs+(list.projects.map(p=>{const[c,t]=statusOf(p);
     return `<div class="card ${view==="project"&&p.name===sel?"sel":""}" onclick="select('${esc(p.name)}')"><div class="n"><span class="dot ${c}"></span>${esc(p.name)}</div><div class="s">${t} · ${p.merged} features · ${p.backlog.pending||0} open</div></div>`}).join("")||(jobs?"":'<div class="hint" style="padding:10px">No projects yet.</div>'));
@@ -184,6 +199,7 @@ function renderProject(){
   const head=`<div class="top"><div><h1>${esc(d.name)} <span class="pill ${c==="run"?"ok":c==="stop"?"warn":""}">${t}</span> ${pillF}</h1><div class="idea">${esc(d.idea)}</div></div>
   <div class="btns">
     ${d.running?`<button class="danger" onclick="act('stop',{},'Will stop after the current task')" ${d.stopping?"disabled":""}>Stop</button><button class="danger" title="Kill switch: ends the agent and all its processes immediately; unfinished work is discarded" onclick="forceStop()">Force stop</button>`:`<button class="primary" onclick="act('start',{},'Agent started')">Start</button>`}
+    <button onclick="showChat(null,['${esc(d.name)}'])" title="Open a chat that knows this project">Chat about this</button>
     <button onclick="doTry()" ${d.try_running?"disabled":""}>${d.try_running?"Building test version…":"Test now"}</button>
   </div></div>
   <div class="stats">
@@ -195,7 +211,7 @@ function renderProject(){
     <div class="stat"><b>${d.hours} h</b><span>runtime</span></div>
   </div>`;
   if(head!==lastHead){$("#head").innerHTML=head;lastHead=head}
-  const tabs=[["overview","Overview"],["task","Do a task"],["llm","AI activity"],["changes","File changes"],["ideas","Ideas & feedback"],["sources","Web sources"],["testing","Test version"],["log","Live log"],["goal","Goal"]];
+  const tabs=[["overview","Overview"],["task","Do a task"],["llm","AI activity"],["changes","File changes"],["ideas","Ideas & feedback"],["sources","Web sources"],["testing","Test version"],["log","Live log"],["goal","Goal"],["settings","Settings"]];
   const tb=`<div class="tabs">${tabs.map(([k,l])=>`<div class="tab ${tab===k?"on":""}" onclick="setTab('${k}')">${l}</div>`).join("")}</div>`;
   if(tb!==lastTabs){$("#tabs").innerHTML=tb;lastTabs=tb}
   const body=projectBody(d);
@@ -213,8 +229,8 @@ function setBody(html){
 }
 function projectBody(d){
   if(tab==="overview"){
-    const rows=d.backlog_items.map(i=>`<tr><td>${esc(i.id)}</td><td>${esc(i.title)}${i.source==="ideas"?' <span class="pill ok">from you</span>':i.source==="user"?' <span class="pill info">your task</span>':""}</td><td>${esc(i.type)}</td><td>${Math.round(i.priority*10)/10}</td><td><span class="pill ${i.status==="done"?"ok":i.status==="blocked"?"bad":""}">${esc(i.status)}</span></td></tr>`).join("");
-    return `<div class="grid2"><div class="panel"><h3>Backlog</h3><table><tr><th>ID</th><th>Task</th><th>Type</th><th>Prio</th><th>Status</th></tr>${rows||'<tr><td colspan=5 class="hint">empty</td></tr>'}</table></div>
+    const rows=d.backlog_items.map(i=>`<tr><td>${esc(i.id)}</td><td>${esc(i.title)}${i.source==="ideas"?' <span class="pill ok">from you</span>':i.source==="user"?' <span class="pill info">your task</span>':""}</td><td>${esc(i.type)}</td><td>${Math.round(i.priority*10)/10}</td><td><span class="pill ${i.status==="done"?"ok":i.status==="blocked"?"bad":""}">${esc(i.status)}</span></td><td style="white-space:nowrap">${taskBtns(i)}</td></tr>`).join("");
+    return `<div class="grid2"><div class="panel"><h3>Backlog</h3><table><tr><th>ID</th><th>Task</th><th>Type</th><th>Prio</th><th>Status</th><th></th></tr>${rows||'<tr><td colspan=6 class="hint">empty</td></tr>'}</table></div>
     <div class="panel"><h3>Finished features</h3>${d.features.length?d.features.map(f=>`<div style="padding:5px 0;border-top:1px solid var(--line)">${esc(f.title)}</div>`).join(""):'<div class="hint">None yet.</div>'}</div></div>`;
   }
   if(tab==="task"){
@@ -257,14 +273,66 @@ function projectBody(d){
     ${d.testing?`<pre>${esc(d.testing)}</pre>`:'<div class="hint">No test version built yet.</div>'}${d.try_running||d.try_out?`<h4>Output</h4><pre>${esc(d.try_out)}</pre>`:""}</div>`;
   }
   if(tab==="log")return `<pre id="logbox">${esc(d.log||"No log yet.")}${d.run_out&&/Traceback|Error/.test(d.run_out)?"\n\n--- run.out ---\n"+esc(d.run_out):""}${d.do_out&&/Traceback|Error/.test(d.do_out)?"\n\n--- do.out ---\n"+esc(d.do_out):""}</pre>`;
-  return `<pre>${esc(d.goal||"")}</pre>`;
+  if(tab==="settings")return settingsBody(d);
+  return `<div class="panel"><h3>GOAL.md: vision and quality bar</h3><p class="hint">The agent measures its work against this. Edit it to change direction; for single wishes use "Ideas & feedback".</p>
+    <textarea id="goal" rows="20" oninput="dirty=true">${esc(d.goal||"")}</textarea>
+    <div class="row" style="justify-content:flex-end;margin-top:10px"><button class="primary" onclick="saveFile('goal','GOAL.md')">Save</button></div></div>`;
+}
+function taskBtns(i){
+  const b=(a,l,c)=>`<button class="small ${c||""}" onclick="taskAct('${a}','${esc(i.id)}')">${l}</button> `;
+  if(i.status==="pending")return b("task-top","Top")+b("task-cancel","Cancel");
+  if(i.status==="blocked")return b("task-reopen","Reopen")+b("task-cancel","Cancel");
+  if(i.status==="cancelled")return b("task-reopen","Reopen");
+  return "";
+}
+async function taskAct(a,id){await act(a,{id})}
+function settingsBody(d){
+  const x=extra&&extra.kind==="settings"?extra:null;
+  if(!x)return `<div class="hint">Loading…</div>`;
+  const st=x.settings,lb=x.limit_bounds;
+  const dl=`<datalist id="mdl">${x.installed_models.map(m=>`<option value="${esc(m)}">`).join("")}</datalist>`;
+  const model=(id,l,v)=>`<label class="fld">${l}<input id="${id}" list="mdl" value="${esc(v)}"></label>`;
+  const lim=Object.entries(lb).map(([k,[lo,hi]])=>`<label class="fld">${esc(k.replace(/_/g," "))} <span class="meta">${lo}–${hi}</span><input id="lim-${k}" type="number" min="${lo}" max="${hi}" value="${st.limits[k]}"></label>`).join("");
+  return `<div class="panel"><h3>Models</h3>${dl}
+    <p class="hint">${x.installed_models.length?"Suggestions come from your installed Ollama models.":"Ollama is not reachable, so no suggestions. Names must match <code>ollama list</code>."} The coder uses the Aider notation, e.g. <code>ollama_chat/qwen2.5-coder:14b</code>.</p>
+    <div class="grid2">${model("m-planner","Planner (plans, ideas)",st.models.planner)}${model("m-reviewer","Reviewer",st.models.reviewer)}${model("m-summarizer","Summarizer (notes, docs)",st.models.summarizer)}${model("m-coder","Coder (Aider)",st.coder_model)}</div></div>
+    <div class="panel" style="margin-top:16px"><h3>Limits and behaviour</h3><div class="grid2">${lim}
+    <label class="fld">web access<select id="web-mode">${["off","sources","open"].map(m=>`<option ${m===st.web_mode?"selected":""}>${m}</option>`).join("")}</select></label>
+    <label class="fld">documentation language<input id="doc-lang" value="${esc(st.doc_language)}"></label></div>
+    <div class="row" style="justify-content:space-between;margin-top:10px"><span class="hint">Stack: <b>${esc(st.preset)}</b> (fixed after creation). ${d.running?"Changes apply at the next start.":""}</span><button class="primary" onclick="saveSettings()">Save settings</button></div></div>
+    <div class="panel" style="margin-top:16px"><h3>Smart model routing (optional)</h3>
+    <p class="hint">Simple tasks go to a small fast coder, complex tasks and retries to a stronger one, and a strong model does the final review of every change. Models from the list below are used <b>automatically once installed</b>; nothing is required. Leave a field empty to auto-detect.</p>
+    <div class="grid2"><label class="fld">mode<select id="rt-mode">${["auto","off"].map(m=>`<option ${m===st.routing.mode?"selected":""}>${m}</option>`).join("")}</select></label>
+    ${model("rt-light","Light coder (override)",st.routing.light)}${model("rt-heavy","Heavy coder (override)",st.routing.heavy)}${model("rt-final","Final reviewer (override)",st.routing.final_reviewer)}</div>
+    <p class="hint" style="margin-top:10px">Detected now: light <b>${esc(x.resolved.light||"none (uses default)")}</b> · heavy <b>${esc(x.resolved.heavy||"none (uses default)")}</b> · final reviewer <b>${esc(x.resolved.final_reviewer||"none (uses the reviewer model)")}</b></p>
+    <table><tr><th>Model</th><th>Role</th><th>Size</th><th>Fits a 12 GB GPU?</th><th>Download</th></tr>${x.catalog.map(m=>`<tr><td>${esc(m.name)} ${m.installed?'<span class="pill ok">installed</span>':""}</td><td>${esc(m.tier)}</td><td>~${m.gb} GB</td><td>${esc(m.fit)}<div class="hint">${esc(m.note)}</div></td><td>${m.installed?"":`<code>${esc(m.pull)}</code>`}</td></tr>`).join("")}</table>
+    <p class="hint">Sizes are approximate. Larger models than your VRAM spill into RAM and run slower. Switching models costs a few seconds of load time per switch.</p></div>
+    <div class="panel" style="margin-top:16px"><h3>Rename project</h3><div class="row"><input id="newname" value="${esc(d.name)}"><button onclick="renameProject()" ${d.running?"disabled":""}>Rename</button></div></div>
+    <div class="panel" style="margin-top:16px;border-color:var(--bad)"><h3>Delete project</h3>
+    <p class="hint">Permanently deletes <code>projects/${esc(d.name)}</code>: code, git history, memory and logs. The agent must be stopped. Type the project name to confirm.</p>
+    <div class="row"><input id="delconfirm" placeholder="${esc(d.name)}"><button class="danger" onclick="deleteProject()" ${d.running?"disabled":""}>Delete forever</button></div></div>`;
+}
+async function saveSettings(){
+  const v=id=>$("#"+id).value,limits={};
+  document.querySelectorAll("[id^=lim-]").forEach(e=>limits[e.id.slice(4)]=e.value);
+  try{const r=await api(`/api/project/${sel}/settings`,{models:{planner:v("m-planner"),reviewer:v("m-reviewer"),summarizer:v("m-summarizer")},coder_model:v("m-coder"),limits,web_mode:v("web-mode"),routing:{mode:v("rt-mode"),light:v("rt-light"),heavy:v("rt-heavy"),final_reviewer:v("rt-final")},doc_language:v("doc-lang")});
+    dirty=false;toast(r.applies==="now"?"Settings saved":"Saved, applies at the next start");extra=null;await fetchExtra();lastBody="";renderProject()}catch(e){toast(e.message,true)}
+}
+async function renameProject(){
+  try{const r=await api(`/api/project/${sel}/rename`,{name:$("#newname").value});sel=r.name;localStorage.setItem("sel",sel);dirty=false;detail=null;extra=null;lastBody=lastHead=lastTabs="";toast("Renamed");await refresh()}catch(e){toast(e.message,true)}
+}
+async function deleteProject(){
+  const n=sel;if(!confirm(`Delete "${n}" and all its files permanently?`))return;
+  try{await api(`/api/project/${n}/delete`,{confirm:$("#delconfirm").value});toast("Project deleted");sel=null;localStorage.removeItem("sel");tab="overview";dirty=false;detail=null;extra=null;lastBody=lastHead=lastTabs="";await refresh()}catch(e){toast(e.message,true)}
 }
 function setTab(k){tab=k;dirty=false;extra=null;lastBody="";$("#body").dataset.tab="";lastTabs="";renderProject();fetchExtra().then(renderProject)}
 async function fetchExtra(){
   try{
+    if(view==="chat")return;
     if(view==="tool"){extra={kind:"tool",...await api("/api/tool")};return}
     if(!sel)return;
     if(tab==="llm")extra={kind:"llm",...await api(`/api/project/${encodeURIComponent(sel)}/llm`)};
+    else if(tab==="settings"){if(!extra||extra.kind!=="settings")extra={kind:"settings",...await api(`/api/project/${encodeURIComponent(sel)}/settings`)}}
     else if(tab==="changes")extra={kind:"changes",...await api(`/api/project/${encodeURIComponent(sel)}/changes`)};
   }catch(e){}
 }
@@ -322,6 +390,87 @@ async function createProject(){
 async function openMaster(){try{$("#mText").value=(await api("/api/master")).text;dMaster.showModal()}catch(e){toast(e.message,true)}}
 async function saveMaster(){try{await api("/api/master",{text:$("#mText").value});toast("Master prompt saved (applies from the next start)");dMaster.close()}catch(e){toast(e.message,true)}}
 
+/* ---- chat (own DOM, never re-rendered by the poll so streaming is not interrupted) ---- */
+let chat={list:[],models:[],def:"",cur:null,ctrl:null};
+function mdLite(t){
+  return t.split(/```/).map((p,i)=>i%2?`<pre>${esc(p.replace(/^\w*\n/,""))}</pre>`:esc(p)).join("");
+}
+async function showChat(id,projects){
+  view="chat";tab="chat";dirty=false;extra=null;lastBody=lastHead=lastTabs="";renderList();
+  $("#now").innerHTML="";$("#now").className="";$("#tabs").innerHTML="";
+  $("#head").innerHTML=`<div class="top"><div><h1>Chat</h1><div class="idea">Talk to a local model. Link projects so it knows their goal, backlog and recent activity.</div></div></div>`;
+  try{
+    const r=await api("/api/chats");chat.list=r.chats;chat.models=r.installed_models;chat.def=r.default_model;
+    if(projects){chat.cur=await api("/api/chats",{projects})}
+    else if(id){chat.cur=await api("/api/chat/"+id)}
+    else if(chat.cur&&chat.list.some(c=>c.id===chat.cur.id)){chat.cur=await api("/api/chat/"+chat.cur.id)}
+    else chat.cur=chat.list[0]?await api("/api/chat/"+chat.list[0].id):null;
+    if(projects)chat.list=(await api("/api/chats")).chats;
+  }catch(e){toast(e.message,true)}
+  drawChat();
+}
+function drawChat(){
+  const c=chat.cur,b=$("#body");b.dataset.tab="chat";
+  const opts=chat.list.map(x=>`<option value="${x.id}" ${c&&x.id===c.id?"selected":""}>${esc(x.title)}</option>`).join("");
+  const models=[...new Set([...(c?[c.model]:[]),...chat.models])];
+  const names=list.projects.map(p=>p.name);
+  b.innerHTML=`<div class="chat">
+  <div class="chatbar"><select id="chSel" onchange="showChat(this.value)">${opts||"<option>No chats yet</option>"}</select>
+    <button onclick="newChat()">New chat</button>${c?`<button class="danger" onclick="delChat()">Delete</button>`:""}</div>
+  ${c?`<div class="chatbar"><label style="margin:0">Model</label><select id="chModel" onchange="chatUpdate({model:this.value})">${models.map(m=>`<option ${m===c.model?"selected":""}>${esc(m)}</option>`).join("")}</select>
+    <label style="margin:0">Projects</label><div class="chips">${names.map(n=>`<span class="chip ${c.projects.includes(n)?"on":""}" onclick="toggleLink('${esc(n)}')">${esc(n)}</span>`).join("")||'<span class="hint">no projects</span>'}</div></div>
+  <div class="msgs" id="msgs">${c.messages.map(msgHtml).join("")||'<div class="hint">Ask anything. With a project linked you can say "what should we build next?" or "plan the settings page".</div>'}</div>
+  <div class="chatbar"><textarea id="chIn" rows="3" placeholder="Message (Ctrl+Enter sends)" onkeydown="if(event.key==='Enter'&&(event.ctrlKey||event.metaKey)){event.preventDefault();chatSend()}"></textarea></div>
+  <div class="chatbar"><button class="primary" id="chSend" onclick="chatSend()">Send</button><button id="chStop" onclick="chat.ctrl&&chat.ctrl.abort()" disabled>Stop</button>
+    <span class="hint" style="margin:0 0 0 auto">Answer buttons use:</span><select id="chTarget">${c.projects.map(n=>`<option>${esc(n)}</option>`).join("")||"<option value=''>(link a project)</option>"}</select></div>`
+  :`<div class="hint">Create a chat to start.</div>`}</div>`;
+  const m=$("#msgs");if(m)m.scrollTop=m.scrollHeight;
+}
+function msgHtml(m,i){
+  return m.role==="user"?`<div class="msg user">${esc(m.content)}</div>`
+   :`<div class="msg assistant" data-i="${i}">${mdLite(m.content)}<div class="acts"><button class="small" onclick="fromChat(${i},'say')">Add to ideas</button><button class="small" onclick="fromChat(${i},'do')">Run as task</button></div></div>`;
+}
+async function newChat(){const p=chat.cur?chat.cur.projects:[];chat.cur=null;await showChat(null,p)}
+async function delChat(){if(!confirm("Delete this chat?"))return;try{await api(`/api/chat/${chat.cur.id}/delete`,{});chat.cur=null;await showChat()}catch(e){toast(e.message,true)}}
+async function chatUpdate(b){try{chat.cur=await api(`/api/chat/${chat.cur.id}/update`,b);if(b.projects){drawChat()}}catch(e){toast(e.message,true)}}
+function toggleLink(n){const p=chat.cur.projects.slice(),i=p.indexOf(n);i<0?p.push(n):p.splice(i,1);chatUpdate({projects:p})}
+async function fromChat(i,kind){
+  const t=$("#chTarget").value,m=chat.cur.messages[i];
+  if(!t){toast("Link a project to this chat first",true);return}
+  if(kind==="do"&&!confirm(`Send this answer to the agent of "${t}" as a task?`))return;
+  try{await api(`/api/project/${t}/${kind}`,kind==="do"?{task:m.content}:{msg:m.content});toast(kind==="do"?"Task sent":"Added to ideas")}catch(e){toast(e.message,true)}
+}
+async function chatSend(){
+  const inp=$("#chIn"),text=inp.value.trim();if(!text||chat.ctrl)return;
+  inp.value="";const box=$("#msgs");
+  if(box.querySelector(".hint"))box.innerHTML="";
+  box.insertAdjacentHTML("beforeend",`<div class="msg user">${esc(text)}</div><div class="msg assistant" id="live">…</div>`);
+  const live=$("#live");box.scrollTop=box.scrollHeight;
+  chat.ctrl=new AbortController();$("#chSend").disabled=true;$("#chStop").disabled=false;
+  const id=chat.cur.id;let acc="";
+  try{
+    const r=await fetch(`/api/chat/${id}/send`,{method:"POST",headers:{"X-UI":"1","Content-Type":"application/json"},body:JSON.stringify({content:text}),signal:chat.ctrl.signal});
+    if(!r.ok){let j={};try{j=await r.json()}catch(e){}throw new Error(j.error||r.statusText)}
+    const rd=r.body.getReader(),dec=new TextDecoder();let buf="";
+    for(;;){
+      const {done,value}=await rd.read();if(done)break;
+      buf+=dec.decode(value,{stream:true});
+      let k;while((k=buf.indexOf("\n\n"))>=0){
+        const ev=buf.slice(0,k).replace(/^data: /,"");buf=buf.slice(k+2);
+        if(ev==="[DONE]")continue;
+        const j=JSON.parse(ev);
+        if(j.delta){acc+=j.delta;live.innerHTML=mdLite(acc);if(box.scrollHeight-box.scrollTop-box.clientHeight<120)box.scrollTop=box.scrollHeight}
+        if(j.error)toast(j.error,true);
+      }
+    }
+  }catch(e){if(e.name!=="AbortError")toast(e.message,true)}
+  chat.ctrl=null;
+  if(view==="chat"&&chat.cur&&chat.cur.id===id){
+    try{chat.cur=await api("/api/chat/"+id);chat.list=(await api("/api/chats")).chats}catch(e){}
+    drawChat();
+  }
+}
+
 let shownErr=false;
 async function refresh(){
   try{
@@ -330,6 +479,7 @@ async function refresh(){
     renderList();
     if(view==="project"&&sel)detail=await api("/api/project/"+encodeURIComponent(sel));
     await fetchExtra();
+    if(view==="chat"){renderNow();return}
     if(view==="tool")renderTool();else renderProject();
     renderNow();
   }catch(e){if(!shownErr){shownErr=true;toast(e.message,true)}}

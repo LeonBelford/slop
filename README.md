@@ -22,6 +22,7 @@ make selftest                                # verify the mechanics without a mo
 **Web interface (optional, the CLI remains)**
 ```bash
 make ui                                      # opens http://127.0.0.1:8765
+make ui-lan                                  # reachable from other devices in your network (token link is printed)
 ```
 Create projects, start/stop them, "Test now", give feedback, edit `IDEAS.md`, `SOURCES.md` and the master prompt, view the backlog and live log.
 Runs locally only (127.0.0.1); agents keep running when you close the UI.
@@ -83,19 +84,27 @@ Fetching only allows http/https, refuses local and private addresses (also via r
 ## Self-improvement
 Two levels, both bounded:
 1. **Per project (automatic):** every `reflect_every` merges (or after 3 failed tasks) the agent reviews its metrics and failures, rewrites `agent/playbook.md` (working rules that are fed into every prompt), tunes a few whitelisted limits within hard bounds (`agent/tuning.json`) and notes ideas about the tool itself in `agent/tool_ideas.jsonl`.
-2. **The tool itself (on demand):** `make self-improve` turns that evidence from all projects into up to 3 code changes, implements them in a git worktree on a branch `self-improve/<timestamp>` and keeps only changes where `selftest` and the unit tests stay green. Nothing is merged automatically: review with `git diff main...self-improve/<timestamp>` and merge yourself. `make self-improve ARGS=--dry-run` only writes proposals to `self_improve/`. After each kept change the agent also updates `README.md` and `docs/` (and logs it in `docs/SELF_IMPROVEMENTS.md`) in a separate commit. Safety guards (web fetch, UI, this module, existing tests, CI) are off limits.
+2. **The tool itself (on demand):** `make self-improve` turns that evidence from all projects into up to 3 code changes, implements them in a git worktree on a branch `self-improve/<timestamp>` and keeps only changes where `selftest` and the unit tests stay green. Nothing is merged automatically: review with `git diff main...self-improve/<timestamp>` and merge yourself. `make self-improve ARGS=--dry-run` only writes proposals to `self_improve/`. After each kept change the agent also updates `README.md` and `docs/` (and logs it in `docs/SELF_IMPROVEMENTS.md`) in a separate commit. Safety guards (web fetch, UI, this module, existing tests, CI) are off limits. **Before every self-change a backup is made**: git tag `backup/pre-self-improve-<timestamp>` plus a bundle in `self_improve/backups/`; restore with `git reset --hard <tag>`.
+
+## Browser tests (Playwright, optional)
+`make e2e-setup` installs Playwright and Chromium into `.venv`. For web products the agent then starts the app after the build is green, opens it in a real browser (localhost only), fails on console errors, JS exceptions, failed requests and broken links, writes a click-through test `e2e/e2e_<task>.py` from the acceptance criteria and the page's accessibility snapshot, and lets the coder fix failures (2 rounds). Without Playwright this step is skipped with a hint; set `features.e2e` to `"off"` to disable it.
+
+## Chat (Web UI)
+**Chat** in the sidebar (or **Chat about this** in a project) opens a streaming chat with a local model. Link one or more projects: their goal, architecture, backlog, ideas and recent log are sent as context. Chats are stored in `projects/.ui/chats/`. Under each answer, **Add to ideas** and **Run as task** hand it to the linked project's agent.
 
 ## Directed tasks, transparency and file changes (Web UI)
 - **Do a task** tab: write what you want ("add a dark mode toggle"); the agent does exactly that and nothing else, ahead of its own backlog. If the agent is running it is queued, otherwise it starts, finishes and stops. CLI: `make task P=<project> TASK="..."` or `python3 codefactory.py do --project P --task "..."`.
 - **Change the tool itself** (sidebar): describe a change to the tool (Makefile, UI, ...). It runs `improve --task` on a branch `self-improve/<timestamp>`, never merges, and keeps `webaccess.py`, `selfimprove.py`, `.github/`, `.env` off limits. Review with `git diff HEAD...<branch>` and merge yourself. Autonomous `make self-improve` stays CLI-only.
 - **Live "Now" panel:** current step (plan, implement, build, review, cleanup, docs, merge), task, attempt, whether the agent waits for the model or Aider is editing, and recent events. Backed by `agent/activity.json`, `events.jsonl`, `llm_now.json`, `coder_now.json`.
 - **AI activity** tab shows every prompt and answer (`agent/llm.log`); **File changes** shows uncommitted files, files by churn and per-commit diffs.
+- **Managing projects:** the **Settings** tab edits models (with suggestions from your installed Ollama models), limits, web mode and documentation language (saved to `agent/config.json`, applied at the next start), renames a project and deletes it (agent must be stopped; you type the name to confirm). The **Goal** tab is editable. In the backlog you can move a task to the top, cancel it or reopen blocked/cancelled ones; a running agent picks these changes up on its next task. The sidebar shows whether the model server is reachable.
 
 ## Structure
 ```
 codefactory/
 ├─ codefactory.py        the complete loop (standard library only)
-├─ webui.py, web/       local web interface (make ui)
+├─ webui.py, web/       local web interface (make ui, make ui-lan)
+├─ models.py            optional model catalog and routing (make models)
 ├─ MASTER.md            global directives for all projects (picked up per session)
 ├─ Makefile, scripts/   quick-setup-popos.sh · setup.sh (venv + model only) · run.sh · Modelfile
 ├─ .env.example, config.example.json
@@ -138,6 +147,18 @@ Rough guidelines, not measured on your hardware; check tags and licenses at [oll
 
 Set `num_ctx` (the Modelfile does this), otherwise the context is truncated. The biggest quality lever: point `models.planner`/`reviewer`
 at a stronger model via `LLM_API`; the code still comes from the local coder.
+
+### Optional smart model routing
+No extra model is required. `make models` (or Settings in the UI) lists optional models with their `ollama pull` command and marks the installed ones.
+Installed models are detected and used automatically (`routing.mode` = `auto`, set `off` to disable):
+- **light** (`qwen2.5-coder:7b`/`3b`/`1.5b`): docs, tests, single-file edits and the cleanup pass.
+- **standard**: your configured `coder_model`, used for normal tasks.
+- **heavy** (`qwen3-coder:30b`, `devstral:24b`, `qwen2.5-coder:32b`, `codestral:22b`): tasks touching 4+ files, retries after a failed attempt and debug rounds 2+.
+- **final reviewer** (strongest installed of the heavy list, else `deepseek-r1:14b`/`phi4:14b`): the last independent review of every change.
+Tasks are classified from the plan (type, number of files, attempt); there is no extra model call. Each switch costs a model load (seconds to a minute on 12 GB VRAM), models above ~12 GB spill into RAM and run slower. Force specific models with `routing.light`/`heavy`/`final_reviewer` in `config.json`. Logic in `models.py`.
+
+## Network access
+`make ui-lan` listens on all interfaces and prints a link with an access token (stored in `projects/.ui/token`). Open it once per device; a cookie keeps you logged in. It is plain HTTP, so use it on trusted networks only; the UI can start agents and delete projects. `make ui` stays local-only.
 
 ## Rust engines?
 There is no "Rust model"; Rust lives in inference engines. Open source (checked on GitHub): mistral.rs (MIT), candle and burn
