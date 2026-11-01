@@ -29,6 +29,7 @@ Modules are kept small on purpose (each under 700 lines except `webui.py` and `s
 | `cfa_security.py` | `SecurityMixin`: security gate/probe/audit, e2e check |
 | `cfa_research.py` | `ResearchMixin`: ideation, product review, web research, sources/ideas sync, reflection |
 | `cfa_ops.py` | `OpsMixin`: user tasks, stop, test version, feedback, status |
+| `diagnostics.py` | Dashboard key figures (`/api/diagnostics`): first-try rate, attempts, failure causes, model time, reasoning share, stalls, repo size, system load, findings |
 | `perf.py` | Ollama speed diagnostics and pinned context settings for Aider (`make doctor`) |
 | `selfimprove.py` | Self-improvement of this repo on `self-improve/<ts>` branches (worktree, tests, security gate, review, docs) |
 | `webui.py` | HTTP server + `Service` (JSON API, process spawning, dashboard, tool preview/merge) |
