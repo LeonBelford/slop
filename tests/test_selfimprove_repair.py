@@ -195,3 +195,33 @@ class RoutingTests(unittest.TestCase):
                 sa.LLM.mock = None
                 selfimprove._tests_green = real
         self.assertEqual(used, ["devstral:24b"])
+
+
+class AdaptiveRoutingTests(unittest.TestCase):
+    def test_track_record_switches_failing_default_to_heavy(self):
+        with tempfile.TemporaryDirectory() as d:
+            out = Path(d) / "self_improve"
+            (out / "runs").mkdir(parents=True)
+            att = [{"model": "qwen2.5-coder:14b", "ok": False}] * 4 + [{"model": "devstral:24b", "ok": True}] * 2
+            (out / "runs" / "a.json").write_text(json.dumps({"proposals": [{"status": "kept", "attempts": att}]}))
+            selfimprove.STATE = out
+
+            def coder(*a): pass
+            coder.model, coder.routes = "ollama_chat/qwen2.5-coder:14b", {"heavy": "devstral:24b", "light": None}
+            self.assertEqual(selfimprove._learned_cls(coder, "standard", 0)[0], "heavy")
+            self.assertEqual(selfimprove._learned_cls(coder, "standard", 2)[0], "standard")
+            coder.routes = {"heavy": None, "light": None}
+            self.assertEqual(selfimprove._learned_cls(coder, "standard", 0)[0], "standard")
+            self.assertEqual(runledger.model_stats(out)["devstral:24b"], {"tries": 2, "ok": 2})
+
+    def test_unproven_heavy_model_is_not_used_for_file_count_alone(self):
+        with tempfile.TemporaryDirectory() as d:
+            out = Path(d) / "self_improve"
+            (out / "runs").mkdir(parents=True)
+            att = [{"model": "qwen2.5-coder:14b", "ok": True}] * 3 + [{"model": "devstral:24b", "ok": False}] * 4
+            (out / "runs" / "a.json").write_text(json.dumps({"proposals": [{"attempts": att}]}))
+            selfimprove.STATE = out
+
+            def coder(*a): pass
+            coder.model, coder.routes = "ollama_chat/qwen2.5-coder:14b", {"heavy": "devstral:24b", "light": None}
+            self.assertEqual(selfimprove._learned_cls(coder, "heavy", 0)[0], "standard")

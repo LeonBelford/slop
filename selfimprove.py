@@ -399,6 +399,27 @@ def _route(llm) -> dict:
     return r
 
 
+def _plain(name: str) -> str:
+    return str(name or "default").split("/", 1)[-1] if str(name or "").startswith("ollama") else str(name or "default")
+
+
+def _learned_cls(coder, cls: str, rnd: int) -> tuple[str, str]:
+    """Adjusts the job class by what the track record says (needs a few attempts per model before it speaks up):
+    a default coder that keeps failing gets replaced by the heavy one, a heavy model that is not better is not worth the model swap."""
+    routes = getattr(coder, "routes", None) or {}
+    heavy, default = routes.get("heavy"), _plain(getattr(coder, "model", ""))
+    if not heavy or rnd >= 2:
+        return cls, ""
+    s = runledger.model_stats(STATE)
+    d, h = s.get(default, {"tries": 0, "ok": 0}), s.get(_plain(heavy), {"tries": 0, "ok": 0})
+    rd, rh = d["ok"] / d["tries"] if d["tries"] else 1, h["ok"] / h["tries"] if h["tries"] else 0
+    if cls == "standard" and d["tries"] >= 3 and h["tries"] >= 2 and rd < 0.4 and rh - rd >= 0.25:
+        return "heavy", f"{default} succeeded {d['ok']}/{d['tries']}, {heavy} {h['ok']}/{h['tries']}"
+    if cls == "heavy" and h["tries"] >= 4 and rh <= rd and rh < 0.5:
+        return "standard", f"{heavy} is not better ({h['ok']}/{h['tries']} vs {d['ok']}/{d['tries']}), saving the model swap"
+    return cls, ""
+
+
 def _coder_for(coder, cls: str):
     """The coder function for a job class (light | standard | heavy); the default coder when no better model is installed."""
     routes, use = getattr(coder, "routes", None), getattr(coder, "use", None)
@@ -570,13 +591,19 @@ def _work_on(work: Path, p: dict, files: list[str], impact: str, llm, coder, log
         ledger.stage(pi, "implement", "running")
         cls = models.classify("feature", max(2, len(files)), rnd, complex_files=sa.DEFAULT_CONFIG["routing"]["complex_files"])
         cls = "standard" if cls == "light" else cls  # real changes never go to the light model
+        cls, why = _learned_cls(coder, cls, rnd)
+        if why:
+            log(f"  routing by track record: {cls} ({why})")
         run = _coder_for(coder, cls)
+        used = _plain(coder.routes["heavy"]) if run is not coder else _plain(getattr(coder, "model", ""))
         if run is not coder:
             log(f"  model: {coder.routes['heavy']} (hard step / late repair round)")
             ledger.d["proposals"][pi].setdefault("models", []).append(f"round {rnd + 1}: {coder.routes['heavy']}")
             ledger.save()
         run(work, [f for f in dict.fromkeys(files + [l.split("\t")[-1] for l in _changes(work) if not l.split("\t")[-1].startswith("tests/")]) if (work / f).is_file()][:8], prompt)
         ok, report, stage = _gates(work, p, files, llm, coder, log, ledger, pi, protected, directed, state)
+        ledger.d["proposals"][pi].setdefault("attempts", []).append({"round": rnd + 1, "model": used, "class": cls, "ok": ok, "stage": stage})
+        ledger.save()
         if ok or stage == "protected" and not directed:
             break
         if stage == "implement":

@@ -764,7 +764,7 @@ function toolCancel(){if(confirm("Stop the running self-change? Work in progress
 function discardBranch(n){if(confirm(`Delete ${n}? The changes on it are lost (the backup tags stay).`)){if(toolBranch===n)toolBranch="";toolPost("/api/tool/discard",{branch:n})}}
 function updateBranch(n){toast("Merging the current code into the branch…");toolPost("/api/tool/update-branch",{branch:n})}
 function reuseTask(t){taskPrefill=t;toolTab("tool")}
-function statsLine(s){return s&&s.proposals?`<div class="hint" style="margin-bottom:8px">Track record: ${s.kept}/${s.proposals} steps kept (${Math.round(s.success_rate*100)}%), ${s.repaired} saved by the repair loop, ${s.avg_fix_rounds} failed rounds on average.</div>`:""}
+function statsLine(s){return s&&s.proposals?`<div class="hint" style="margin-bottom:8px">Track record: ${s.kept}/${s.proposals} steps kept (${Math.round(s.success_rate*100)}%), ${s.repaired} saved by the repair loop, ${s.avg_fix_rounds} failed rounds on average.${Object.entries(s.models||{}).map(([m,v])=>` ${esc(m)}: ${v.ok}/${v.tries}`).join(" ·")}</div>`:""}
 function restartBanner(b){
   return b&&b.restart_needed?`<div class="panel" style="margin-bottom:12px;border-color:var(--warn)"><b class="lg-warn">Restart needed:</b> the code on disk (${esc(b.head.slice(0,8))}) is newer than the running UI (${esc(b.sha.slice(0,8))}). Stop it and start <code>make ui</code> again.</div>`:"";
 }

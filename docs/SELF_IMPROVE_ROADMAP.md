@@ -29,6 +29,7 @@ request → requirements checklist → one small step per requirement → per st
 - [x] Content-based file candidates (`_keyword_files`) next to the planner's guess
 - [x] Optional stronger model for the last repair round (`CODER_MODEL_BIG`)
 - [x] Smart model routing across installed models (light docs coder, heavy coder for hard steps/late repair rounds, strongest reviewer)
+- [x] Learning router: model choice adapts to recorded success per model
 - [x] Track record in the UI (success rate, repaired steps, failed rounds)
 - [x] Per-round log (problem and diagnosis) in the Plan tab
 
