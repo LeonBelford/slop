@@ -7,6 +7,8 @@ from core.cfutil import PRESETS, now, read_json, write_json, write_text
 
 
 class SecurityMixin:
+    """Agent mixin: the security gate (static rules, scanner, runtime probe) and an end-to-end check."""
+
     def security_on(self) -> bool:
         return self.cfg["features"].get("security", "on") not in (False, "off")
 

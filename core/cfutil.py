@@ -63,6 +63,7 @@ DEFAULT_CONFIG = {
     "run": {"mode": "default", "rounds": 3},
     # GPU scheduling between agents: "main" keeps priority, "side" only uses the model while main is idle for min_idle seconds
     "scheduler": {"priority": "main", "min_idle": 20, "slots": 2},
+    "notify": {"webhook": "", "events": ["done", "blocked", "stalled", "stopped"]},
     "web": {"mode": "sources", "refresh_hours": 24, "max_chars": 20000, "timeout": 20, "research_every": 4,
             "queries_per_research": 3, "results_per_query": 2, "max_new_pages_per_session": 40,
             "search_url": "https://html.duckduckgo.com/html/?q={q}", "blocked_domains": []},
@@ -71,7 +72,8 @@ DEFAULT_CONFIG = {
     "knowledge": {"embeddings": "auto", "embed_model": "nomic-embed-text", "half_life_days": 60, "min_weight": 0.15,
                   "hits_per_kind": {"code": 4, "decision": 4, "lesson": 5, "web": 3, "feature": 3}},
     "features": {"cleanup_pass": True, "require_tests": True, "plan_critique": True, "e2e": "auto", "security": "on",
-                 "test_first": "auto", "step_by_step": "auto", "acceptance_check": True, "retry_replan": True, "protect_tests": True},
+                 "test_first": "auto", "step_by_step": "auto", "acceptance_check": True, "retry_replan": True, "protect_tests": True,
+                 "targeted_tests": True, "flaky_retry": True, "verify_cache": True, "coverage_gate": "off", "mutation_check": False},
     "commands": {},  # filled by the preset, overridable in config.json
     "source_exts": [".py", ".js", ".ts", ".tsx", ".jsx", ".html", ".css", ".sql", ".toml", ".yml", ".yaml"],
     "src_dirs": ["app"],
@@ -101,19 +103,36 @@ LENSES = [
 # --------------------------------------------------------------------------- Helpers
 
 
+def rotate_jsonl(path: Path, max_bytes: int = 2_000_000, keep: int = 3000) -> None:
+    """Keeps an append-only .jsonl file from growing forever: above max_bytes only the newest `keep` lines stay."""
+    try:
+        if path.stat().st_size <= max_bytes:
+            return
+        lines = path.read_text("utf-8", "replace").splitlines()[-keep:]
+        tmp = path.with_suffix(".tmp")
+        tmp.write_text("\n".join(lines) + "\n", "utf-8")
+        tmp.replace(path)
+    except OSError:
+        pass
+
+
 def now() -> str:
+    """Current local time as `YYYY-MM-DD HH:MM:SS`, used for log lines and records."""
     return time.strftime("%Y-%m-%d %H:%M:%S")
 
 
 def clip(s: str, n: int) -> str:
+    """Shortens `s` to about `n` characters, keeping the start and end (for prompts and logs)."""
     return s if len(s) <= n else s[: n // 2] + "\n...[truncated]...\n" + s[-n // 2:]
 
 
 def tail(s: str, n: int) -> str:
+    """Keeps only the last `n` characters of `s`, with a truncation marker if anything was cut."""
     return s if len(s) <= n else "...[truncated]...\n" + s[-n:]
 
 
 def sha(text: str) -> str:
+    """Short (16-char) stable hash of `text`, used as a cache/dedup key."""
     return hashlib.sha1(text.encode("utf-8", "replace")).hexdigest()[:16]
 
 
@@ -178,6 +197,7 @@ def aider_tokens(out: str) -> tuple[int, int]:
 
 
 def read_json(path: Path, default):
+    """Reads JSON from `path`, or returns `default` if the file is missing or invalid."""
     try:
         return json.loads(path.read_text("utf-8"))
     except (OSError, ValueError):
@@ -185,6 +205,7 @@ def read_json(path: Path, default):
 
 
 def write_json(path: Path, data) -> None:
+    """Writes `data` as pretty JSON, atomically (write-then-rename so readers never see a partial file)."""
     path.parent.mkdir(parents=True, exist_ok=True)
     tmp = path.with_suffix(path.suffix + ".tmp")
     tmp.write_text(json.dumps(data, indent=2, ensure_ascii=False), "utf-8")
@@ -192,11 +213,13 @@ def write_json(path: Path, data) -> None:
 
 
 def write_text(path: Path, text: str) -> None:
+    """Writes `text` to `path`, creating parent directories if needed."""
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(text, "utf-8")
 
 
 def parse_json(text: str):
+    """Finds and decodes the first JSON object/array inside `text` (models often wrap JSON in prose)."""
     dec = json.JSONDecoder()
     for i, ch in enumerate(text):
         if ch in "{[":
@@ -316,6 +339,7 @@ def _zombie(pid: int) -> bool:
 
 
 def words(text: str) -> set[str]:
+    """Lower-cased set of word-like tokens (4+ letters) in `text`, used for cheap keyword overlap scoring."""
     return {w for w in re.findall(r"[a-zA-Z_]{4,}", text.lower())}
 
 

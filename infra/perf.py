@@ -20,17 +20,44 @@ from pathlib import Path
 
 NUM_CTX = int(os.getenv("CF_NUM_CTX", "16384"))  # one context size for everything: no reload when the caller changes
 KEEP_ALIVE = os.getenv("CF_KEEP_ALIVE", "30m")
+MAP_TOKENS = int(os.getenv("CF_MAP_TOKENS", "1024"))  # Aider's repo map defaults to 4096 tokens per call; the plan already names the files
+CHARS_PER_TOKEN = 3.5
 
 
 def aider_args(model: str, directory: Path) -> list[str]:
     """Aider options: fixed num_ctx/keep_alive for Ollama models (no reload per call) and no side requests that only cost time."""
-    args = ["--no-suggest-shell-commands", "--no-detect-urls"]
+    args = ["--no-suggest-shell-commands", "--no-detect-urls", "--map-tokens", str(MAP_TOKENS)]
     if "ollama" in model:
         directory.mkdir(parents=True, exist_ok=True)
         f = directory / "aider_models.json"
         f.write_text(json.dumps([{"name": model, "extra_params": {"num_ctx": NUM_CTX, "keep_alive": KEEP_ALIVE}}]), "utf-8")  # JSON is valid YAML
         args += ["--model-settings-file", str(f)]
     return args
+
+
+def tokens_of(path: Path | str) -> int:
+    try:
+        return int(Path(path).stat().st_size / CHARS_PER_TOKEN)
+    except OSError:
+        return 0
+
+
+def fit_context(edit: list[str], read: list[str], prompt: str, repo: Path, num_ctx: int = NUM_CTX, reserve: int = 5000) -> tuple[list[str], list[str], list[str]]:
+    """Keeps the Aider chat inside the pinned context window: read-only files are dropped from the end (the first one is the
+    run context and stays) until files + prompt + map + answer fit. Returns (edit, read, dropped). Edit files are never dropped
+    silently; if they alone do not fit the caller gets them unchanged and Aider warns."""
+    budget = num_ctx - reserve - MAP_TOKENS - int(len(prompt) / CHARS_PER_TOKEN)
+    used = sum(tokens_of(repo / f) for f in edit)
+    keep: list[str] = []
+    dropped: list[str] = []
+    for i, f in enumerate(read):
+        t = tokens_of(f if Path(f).is_absolute() else repo / f)
+        if i == 0 or used + t <= budget:
+            keep.append(f)
+            used += t
+        else:
+            dropped.append(f)
+    return edit, keep, dropped
 
 
 def _get(base: str, path: str, data: dict | None = None) -> dict | None:

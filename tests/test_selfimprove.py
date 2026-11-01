@@ -24,7 +24,7 @@ class SelfImproveTest(unittest.TestCase):
             repo.mkdir()
             for f in ROOT.glob("*.py"):
                 shutil.copy(f, repo / f.name)
-            for pkg in ("core", "infra", "dash"):
+            for pkg in ("core", "infra", "dash", "webapi"):
                 shutil.copytree(ROOT / pkg, repo / pkg, ignore=shutil.ignore_patterns("__pycache__"))
             shutil.copytree(ROOT / "tests", repo / "tests", ignore=shutil.ignore_patterns("test_selfimprove.py", "__pycache__"))
             shutil.copytree(ROOT / "scripts", repo / "scripts")

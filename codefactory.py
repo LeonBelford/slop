@@ -31,33 +31,17 @@ from __future__ import annotations
 
 from pathlib import Path
 from infra.webaccess import Web
-from infra.webaccess import WebError
 import argparse
-import ast
-import difflib
-from infra import e2e
 from infra import gpusched
-import gzip
-import hashlib
 import json
-from infra import knowledge
-from infra import models
 import os
-from infra import perf
 import re
-from infra import security
-import shlex
-import shutil
-import signal
 from infra import stacks
-import subprocess
 import sys
 import tempfile
-import threading
 import time
-import urllib.request
 
-from core import cfprofile
+from core import cfprofile, cfutil, progress
 from core.cfutil import (  # noqa: F401
     DEFAULT_CONFIG,
     IDEAS_TEMPLATE,
@@ -103,12 +87,14 @@ from core.cfmemory import (  # noqa: F401
 )
 from core.cfa_build import BuildMixin
 from core.cfa_flow import FlowMixin
+from core.cfa_verify import VerifyMixin
+from infra import notify
 from core.cfa_security import SecurityMixin
 from core.cfa_research import ResearchMixin
 from core.cfa_ops import OpsMixin
 
 
-class Agent(BuildMixin, FlowMixin, SecurityMixin, ResearchMixin, OpsMixin):
+class Agent(BuildMixin, FlowMixin, VerifyMixin, SecurityMixin, ResearchMixin, OpsMixin):
     def __init__(self, ws: Path, cfg: dict | None = None):
         self.ws = ws.resolve()
         self.repo, self.dir = self.ws / "repo", self.ws / "agent"
@@ -165,13 +151,23 @@ class Agent(BuildMixin, FlowMixin, SecurityMixin, ResearchMixin, OpsMixin):
             f.write(line + "\n")
 
     def phase(self, name: str, step: str | None = None, detail: str = "") -> None:
-        """Publishes what the agent is doing right now (activity.json) and appends it to the event timeline (events.jsonl)."""
+        """Publishes what the agent is doing right now (activity.json) and appends it to the event timeline (events.jsonl).
+
+        Also tracks an estimated completion percentage and a short per-task sub-step log so the UI can
+        show not just the current stage but how far the overall task is, and which micro-steps led there.
+        """
+        if not hasattr(self, "_progress"):
+            self._progress = progress.Tracker()
+        done = step is None and "finished and merged" in name
+        pct, steps, durations = self._progress.update(progress.AGENT_PIPELINE, (self.cur_task, self.cur_attempt), name, step, detail, done)
         write_json(self.dir / "activity.json", {"phase": name, "step": step, "detail": detail[:300], "since": time.time(),
-                                                "task": self.cur_task, "attempt": self.cur_attempt, "pid": os.getpid()})
+                                                "task": self.cur_task, "attempt": self.cur_attempt, "pid": os.getpid(),
+                                                "pct": pct, "steps": steps, "durations": durations})
         self.log(f"▶ [{step or 'agent'}] {name}" + (f" ({detail[:120]})" if detail else ""))
         with open(self.dir / "events.jsonl", "a", encoding="utf-8") as f:
             f.write(json.dumps({"time": now(), "phase": name, "step": step, "detail": detail[:300], "task": self.cur_task,
                                 "attempt": self.cur_attempt}, ensure_ascii=False) + "\n")
+        cfutil.rotate_jsonl(self.dir / "events.jsonl")
 
     def save_state(self) -> None:
         write_json(self.dir / "state.json", self.state)
@@ -179,6 +175,7 @@ class Agent(BuildMixin, FlowMixin, SecurityMixin, ResearchMixin, OpsMixin):
     def metric(self, **kw) -> None:
         with open(self.dir / "metrics.jsonl", "a", encoding="utf-8") as f:
             f.write(json.dumps({"time": now(), **kw}, ensure_ascii=False) + "\n")
+        cfutil.rotate_jsonl(self.dir / "metrics.jsonl")
 
     @property
     def directive(self) -> str:
@@ -358,7 +355,7 @@ class Agent(BuildMixin, FlowMixin, SecurityMixin, ResearchMixin, OpsMixin):
             if self.reflect_due():
                 self.reflect()
             self.schedule_hygiene()
-            item = self.backlog.next()
+            item = self.backlog.next(getattr(self, "last_light", None))
             if not item:
                 run = self.cfg["run"]
                 if run["mode"] == "rounds" and self.state.get("rounds_run", 0) >= int(run["rounds"]):
@@ -379,6 +376,7 @@ class Agent(BuildMixin, FlowMixin, SecurityMixin, ResearchMixin, OpsMixin):
         self.cur_task, self.cur_attempt = "", 0
         self.phase("Stopped", None, str(reason))
         self.log(f"End: {reason}")
+        notify.send(self.cfg, "stopped", self.ws.name, str(reason))
 
 
 # --------------------------------------------------------------------------- Selftest

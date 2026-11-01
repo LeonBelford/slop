@@ -11,6 +11,8 @@ from core.cfutil import LENSES, QUALITY_CHECKLIST, TUNABLE, clip, now, read_idea
 
 
 class ResearchMixin:
+    """Agent mixin: ideation, product review, web research, syncing SOURCES.md/IDEAS.md, and periodic reflection."""
+
     # ---- Ideas, review, hygiene
     def ideate(self) -> int:
         self.phase("Inventing new feature ideas (with critic)", "ideas")
@@ -34,7 +36,8 @@ class ResearchMixin:
                                  f"Goal:\n{clip(self.goal, 1500)}\nIdeas: {json.dumps(cands)}\nSchema: "
                                  '{"scores": [{"title": "", "fit": 1-10, "keep": true}]}')
             keep = {s["title"]: s for s in crit.get("scores", [])}
-        except Exception:
+        except Exception as e:  # noqa: BLE001
+            self.log(f"Idea critique skipped, keeping all ideas as-is: {e}")
             keep = {}
         scored = []
         for c in cands:

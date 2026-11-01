@@ -26,6 +26,7 @@ import time
 from pathlib import Path
 
 import codefactory as sa
+from core import progress
 from dash import estimate
 from infra import models
 from infra import perf
@@ -93,6 +94,9 @@ def gather_evidence(projects: Path) -> dict:
 STATE = Path(__file__).resolve().parent / "self_improve"  # live state shown in the UI ("Change the tool itself")
 
 
+_TOOL_PROGRESS = progress.Tracker()
+
+
 def _phase(step: str, detail: str = "") -> None:
     """Publishes the current stage (plan / implement / test / docs) for the UI; an empty step clears it."""
     f = STATE / "phase.json"
@@ -100,7 +104,8 @@ def _phase(step: str, detail: str = "") -> None:
         f.unlink(missing_ok=True)
         return
     STATE.mkdir(exist_ok=True)
-    sa.write_json(f, {"step": step, "detail": detail, "since": time.time()})
+    pct, steps, durations = _TOOL_PROGRESS.update(progress.TOOL_PIPELINE, "run", step, step, detail)
+    sa.write_json(f, {"step": step, "detail": detail, "since": time.time(), "pct": pct, "steps": steps, "durations": durations})
 
 
 def _wire(llm, stamp: str) -> None:
@@ -305,7 +310,7 @@ def main(projects: Path, dry_run: bool = False, repo: Path | None = None, llm=No
         ledger.status("failed", "No evidence yet")
         return {"branch": None, "proposals": []}
     pmap = project_map(repo, required=_is_tool(repo))  # mandatory for the real tool: without the map there is no plan
-    code_files = sorted(str(p.relative_to(repo)) for p in [*repo.glob("*.py"), *repo.glob("core/*.py"), *repo.glob("infra/*.py"), *repo.glob("dash/*.py")]
+    code_files = sorted(str(p.relative_to(repo)) for p in [*repo.glob("*.py"), *repo.glob("core/*.py"), *repo.glob("infra/*.py"), *repo.glob("dash/*.py"), *repo.glob("webapi/*.py")]
                         if not str(p.relative_to(repo)).startswith(PROTECTED)) + ["scripts/run.sh", "MASTER.md"]
     d = llm.json("improve_plan", "planner",
                  "You improve an autonomous coding agent (this repository). Propose small, safe, high-value changes to the "
@@ -367,7 +372,7 @@ def _verify_requirements(repo: Path, base: str, branch: str, ledger, llm, log) -
     """Marks every requirement done / partial / missing by comparing it with the finished diff."""
     reqs = ledger.d["requirements"]
     if ledger.d["kind"] == "auto":  # one requirement per proposal, in the same order
-        for r, pr in zip(reqs, ledger.d["proposals"]):
+        for r, pr in zip(reqs, ledger.d["proposals"], strict=False):
             ledger.mark_requirement(r["id"], "done" if pr["status"] == "kept" else "failed", pr["note"] or "kept after green tests")
         return
     diff = _git(repo, "diff", f"{base}..{branch}")[1]

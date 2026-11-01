@@ -22,6 +22,8 @@ DEFAULT = {"title": "", "description": "", "tone": "neutral", "instructions": ""
 
 
 class ProfileError(ValueError):
+    """Raised when a profile or context-file request is invalid (e.g. bad id, oversized upload)."""
+
     pass
 
 

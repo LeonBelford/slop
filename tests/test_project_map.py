@@ -22,7 +22,7 @@ class ProjectMapTests(unittest.TestCase):
         for ref in set(re.findall(r"`([\w./-]+\.(?:py|md|html|sh))`", text)):
             if ref.startswith("agent/") or ref in RUNTIME:
                 continue
-            self.assertTrue(any((ROOT / d / ref).exists() for d in ("", "docs", "web", "scripts", "tests", "core", "infra", "dash")), ref)
+            self.assertTrue(any((ROOT / d / ref).exists() for d in ("", "docs", "web", "scripts", "tests", "core", "infra", "dash", "webapi")), ref)
 
     def test_missing_map_aborts(self):
         with tempfile.TemporaryDirectory() as d:
