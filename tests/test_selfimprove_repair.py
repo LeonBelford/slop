@@ -86,6 +86,38 @@ class RepairLoopTests(unittest.TestCase):
         self.assertEqual(run["proposals"][0]["tests_modified"], ["tests/test_old.py"])
         self.assertIn("restored protected", run["proposals"][0]["note"])
 
+    def test_multi_requirement_runs_in_steps_and_keeps_passing_ones(self):
+        prompts = []
+
+        def coder(work, files, prompt):
+            prompts.append(prompt)
+            if prompt.startswith(("Add tests", "Documentation update")):
+                return
+            with open(work / "app.py", "a") as f:
+                f.write("# step\n")
+
+        sa.LLM.mock = lambda tag, *a: json.dumps({"requirements": ["first thing", "second thing"]}) if tag == "tool_requirements" else json.dumps({"files": ["app.py"]})
+        try:
+            with tempfile.TemporaryDirectory() as d:
+                repo = make_repo(Path(d))
+                n = {"i": 0}
+
+                def green(w, t):
+                    n["i"] += 1
+                    return (n["i"] <= 1 or n["i"] > 4), "red"
+
+                real = selfimprove._tests_green
+                selfimprove._tests_green = green
+                try:
+                    res = selfimprove.directed("Do first thing and second thing", repo=repo, coder=coder, log=lambda m: None)
+                finally:
+                    selfimprove._tests_green = real
+        finally:
+            sa.LLM.mock = None
+        self.assertEqual(len(res["kept"]), 1)
+        self.assertTrue(any("ONLY this step" in p and "first thing" in p for p in prompts))
+        self.assertTrue(any("step 2 of 2" in p for p in prompts))
+
     def test_protected_violation_rules(self):
         changes = ["M\ttests/test_old.py", "M\tsecurity.py", "D\ttests/test_x.py", "D\tPROJECT_MAP.md"]
         self.assertEqual(selfimprove.protected_violations(changes, selfimprove.PROTECTED_DIRECTED),
