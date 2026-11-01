@@ -464,7 +464,7 @@ class Service:
             branches.append({"name": name, "date": date, "subject": subject, "stat": stat[-12:], **self.branch_status(name)})
         head = head_sha()
         return {"running": alive("tool"), "log": tail(ROOT / "self_improve" / "ui.log", 60), "branches": branches, "preview": self.preview_state(),
-                "runs": runledger.list_runs(ROOT / "self_improve"), "build": {"sha": BUILD["sha"], "head": head, "restart_needed": bool(BUILD["sha"] and head != BUILD["sha"])},
+                "runs": runledger.list_runs(ROOT / "self_improve"), "stats": runledger.stats(ROOT / "self_improve"), "build": {"sha": BUILD["sha"], "head": head, "restart_needed": bool(BUILD["sha"] and head != BUILD["sha"])},
                 "last_merge": sa.read_json(ROOT / "self_improve" / "last_merge.json", None)}
 
     def branch_status(self, name: str) -> dict:

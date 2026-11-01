@@ -236,6 +236,7 @@ def _aider(model: str, timeout: int):
         rec.ctx = lambda: work.name
         rec.record("self-change", "coder", model, prompt, out, "", time.time() - t0)
         return out
+    run.big = _aider(sa.os.getenv("CODER_MODEL_BIG"), timeout) if sa.os.getenv("CODER_MODEL_BIG") and sa.os.getenv("CODER_MODEL_BIG") != model else None
     return run
 
 
@@ -376,6 +377,67 @@ def _verify_requirements(repo: Path, base: str, branch: str, ledger, llm, log) -
 FIX_ROUNDS = 2  # repair rounds after the first attempt: the failure is diagnosed and handed back to the coder
 
 
+def _lessons() -> str:
+    f = STATE / "lessons.md"
+    return f.read_text("utf-8", "replace")[-1500:] if f.is_file() else ""
+
+
+def _remember(title: str, stage: str, report: str, diag: str, fixed: bool) -> None:
+    """Failure notebook that later prompts read: what went wrong, and what (if anything) fixed it."""
+    try:
+        STATE.mkdir(exist_ok=True)
+        with open(STATE / "lessons.md", "a", encoding="utf-8") as f:
+            f.write(f"- [{'fixed' if fixed else 'failed'}] {title}: stage {stage}: {sa.clip(report, 200)!r} {sa.clip(diag, 250)!r}\n")
+    except OSError:
+        pass
+
+
+def _keyword_files(repo: Path, text: str, tracked: list[str], have: list[str], limit: int = 3) -> list[str]:
+    """Content-based file candidates: files that mention the words of the request most often (cheap code search, no LLM)."""
+    words = {w for w in re.findall(r"[a-zA-Z_]{5,}", text.lower()) if w not in {"should", "would", "please", "which", "there", "their", "about"}}
+    score = {}
+    for f in tracked:
+        if f in have or not f.endswith((".py", ".html", ".md", ".sh")):
+            continue
+        try:
+            body = (repo / f).read_text("utf-8", "replace").lower()
+        except OSError:
+            continue
+        n = sum(min(body.count(w), 5) for w in words)
+        if n:
+            score[f] = n
+    return sorted(score, key=score.get, reverse=True)[:limit]
+
+
+def _new_tests_red(work: Path, changes: list[str]) -> str:
+    """Test-first check: new tests should FAIL on the code without the change. Returns a warning if they already pass there."""
+    new = [l.split("\t")[-1] for l in changes if l[:1] == "A" and l.split("\t")[-1].startswith("tests/test_")]
+    if not new:
+        return ""
+    base = work.parent / (work.name + "-base")
+    try:
+        if _git(work, "worktree", "add", "-q", "--detach", str(base), "HEAD")[0] != 0:
+            return ""
+        for t in new:
+            (base / t).write_text((work / t).read_text("utf-8"), "utf-8")
+        mods = [t[:-3].replace("/", ".") for t in new]
+        rc, _ = sa.sh(["python3", "-m", "unittest", *mods], base, 120)
+        return "" if rc != 0 else "the new tests already pass without the change (they may not test it)"
+    except Exception:  # noqa: BLE001
+        return ""
+    finally:
+        _git(work, "worktree", "remove", "--force", str(base))
+
+
+def _fast_tests(work: Path, changes: list[str]) -> tuple[bool, str]:
+    """Runs only the tests that belong to the change first: quick feedback before the full suite."""
+    mods = [l.split("\t")[-1][:-3].replace("/", ".") for l in changes if l.split("\t")[-1].startswith("tests/test_") and l[:1] in "AM"]
+    if not mods:
+        return True, "ok"
+    rc, out = sa.sh(["python3", "-m", "unittest", *mods], work, 300)
+    return rc == 0, sa.tail(out, 1500)
+
+
 def _restore(work: Path, paths: list[str]) -> None:
     """Puts protected files back to the last commit (new ones are removed)."""
     for path in paths:
@@ -447,7 +509,12 @@ def _gates(work: Path, p: dict, files: list[str], llm, coder, log, ledger, pi: i
         return False, report, "security"
     _phase("test", "Selftest and unit tests on the changed copy")
     ledger.stage(pi, "test", "running")
-    ok, report = _tests_green(work, 900)
+    red = _new_tests_red(work, changes)
+    if red:
+        ledger.stage(pi, "tests_added", "ok", red)
+    ok, report = _fast_tests(work, changes)  # quick feedback first, the full suite only follows when this is green
+    if ok:
+        ok, report = _tests_green(work, 900)
     ledger.stage(pi, "test", "ok" if ok else "failed", report)
     if not ok:
         return False, report, "test"
@@ -467,12 +534,13 @@ def _work_on(work: Path, p: dict, files: list[str], impact: str, llm, coder, log
                  if directed else "Do not modify existing tests; add new tests if sensible. ")
     prompt = (f"{p['change']}\n\nRationale: {p.get('rationale', '')}\n{impact}\n"
               "Write secure code: validate input, no shell injection, no secrets, never disable or loosen a safeguard. "
-              f"Keep the change focused. {test_rule}Standard library only. Documentation is updated in a separate step afterwards.")
-    ok, report, stage = False, "", ""
+              f"Keep the change focused. {test_rule}{('Lessons from earlier failed attempts (avoid repeating them):\\n' + _lessons() + chr(10)) if _lessons() else ''}Standard library only. Documentation is updated in a separate step afterwards.")
+    ok, report, stage, last = False, "", "", None
     for rnd in range(FIX_ROUNDS + 1):
         _phase("implement", p["title"] if rnd == 0 else f"{p['title']} (repair round {rnd}: {stage})")
         ledger.stage(pi, "implement", "running")
-        coder(work, [f for f in dict.fromkeys(files + [l.split("\t")[-1] for l in _changes(work) if not l.split("\t")[-1].startswith("tests/")]) if (work / f).is_file()][:8], prompt)
+        run = getattr(coder, "big", None) if rnd >= 2 else None  # last round: a stronger model, if CODER_MODEL_BIG is set
+        (run or coder)(work, [f for f in dict.fromkeys(files + [l.split("\t")[-1] for l in _changes(work) if not l.split("\t")[-1].startswith("tests/")]) if (work / f).is_file()][:8], prompt)
         ok, report, stage = _gates(work, p, files, llm, coder, log, ledger, pi, protected, directed, state)
         if ok or stage == "protected" and not directed:
             break
@@ -485,9 +553,16 @@ def _work_on(work: Path, p: dict, files: list[str], impact: str, llm, coder, log
         log(f"  round {rnd + 1} failed at {stage}; diagnosing and repairing ({rnd + 1}/{FIX_ROUNDS})")
         _phase("implement", f"Diagnosing the failure ({stage})")
         diag = _diagnose(llm, p, stage, report, work)
+        ledger.d["proposals"][pi].setdefault("round_log", []).append({"round": rnd + 1, "stage": stage, "problem": sa.clip(report, 400), "diagnosis": diag})
+        ledger.save()
+        last = (p["title"], stage, report, diag)
         prompt = (f"Repair round {rnd + 1}. Your previous change failed at the '{stage}' stage.\nProblem:\n{sa.clip(report, 2500)}\n"
                   f"{diag}\nFix the code so every check passes. The original task is still:\n{p['change']}\n{test_rule}"
                   "Never remove or loosen a safeguard to make a check pass. Standard library only.")
+    if last and ok:
+        _remember(*last, fixed=True)
+    elif last:
+        _remember(*last, fixed=False)
     if not ok:
         patch = _git(work, "diff", "--cached", "HEAD")[1]
         if patch.strip():
@@ -610,6 +685,7 @@ def directed(instruction: str, repo: Path | None = None, llm=None, coder=None, l
         log(f"Could not pick files automatically: {e}")
         files = []
     files = [f for f in files if isinstance(f, str) and f in tracked][:6]
+    files += _keyword_files(repo, instruction, tracked, files, max(0, 6 - len(files)) or 0)
     change = instruction.strip()
     if len(requirements) > 1:
         change += "\n\nRequirements (implement all of them):\n" + "\n".join(f"{i}. {r}" for i, r in enumerate(requirements, 1))

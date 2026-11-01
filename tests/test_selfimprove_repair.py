@@ -96,3 +96,28 @@ class RepairLoopTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class SmartHelpersTests(unittest.TestCase):
+    def test_keyword_files_and_lessons_and_stats(self):
+        with tempfile.TemporaryDirectory() as d:
+            repo = make_repo(Path(d))
+            (repo / "gpu.py").write_text("def scheduler(): pass\n# scheduler scheduler\n")
+            self.assertEqual(selfimprove._keyword_files(repo, "improve the scheduler", ["app.py", "gpu.py"], []), ["gpu.py"])
+            selfimprove.STATE = repo / "self_improve"
+            selfimprove._remember("t", "test", "boom", "cause x", True)
+            self.assertIn("boom", selfimprove._lessons())
+            (repo / "self_improve" / "runs").mkdir()
+            (repo / "self_improve" / "runs" / "a.json").write_text(json.dumps({"proposals": [
+                {"status": "kept", "rounds": 1}, {"status": "reverted", "rounds": 3}]}))
+            st = runledger.stats(repo / "self_improve")
+            self.assertEqual((st["proposals"], st["kept"], st["repaired"], st["success_rate"]), (2, 1, 1, 0.5))
+
+    def test_new_test_that_passes_without_change_is_flagged(self):
+        with tempfile.TemporaryDirectory() as d:
+            repo = make_repo(Path(d))
+            (repo / "tests" / "test_new.py").write_text("import unittest\nclass T(unittest.TestCase):\n    def test(self): self.assertTrue(True)\n")
+            git(repo, "add", "-A")
+            msg = selfimprove._new_tests_red(repo, ["A\ttests/test_new.py"])
+            self.assertIn("already pass", msg)
+            self.assertEqual(selfimprove._fast_tests(repo, ["A\ttests/test_new.py"])[0], True)
