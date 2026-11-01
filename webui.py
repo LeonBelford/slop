@@ -29,6 +29,7 @@ from pathlib import Path
 
 from dash import chat as chatlib
 import codefactory as sa
+from core import cfprofile
 from dash import diagnostics
 from infra import models
 from infra import perf
@@ -40,6 +41,7 @@ ROOT = Path(__file__).resolve().parent
 INDEX = ROOT / "web" / "index.html"
 MAX_BODY = 1_000_000
 MODEL_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_./:@-]{0,99}$")
+FEATURE_KEYS = {"cleanup_pass": "bool", "require_tests": "bool", "plan_critique": "bool", "security": ("on", "off"), "e2e": ("auto", "on", "off")}
 SETTING_LIMITS = {"max_hours": (1, 720), "max_iterations": (1, 5000), "max_attempts_per_task": (1, 8),
                   "max_debug_rounds": (1, 8), "max_consecutive_failures": (1, 20), "min_review_score": (1, 10)}
 NAME_RE = re.compile(r"^[a-z0-9][a-z0-9-]{0,60}$")
@@ -809,6 +811,13 @@ class Service:
             if self.summary(ws)["running"] or any(alive(f"{k}:{name}") for k in ("run", "do", "try")):
                 raise UiError("Stop the agent first (Stop or Force stop)", 409)
             return self.rename(ws, body.get("name")) if action == "rename" else self.delete(ws, body)
+        elif action == "profile":
+            self.guard_profile(lambda: cfprofile.save_profile(a, body))
+            self.save_features(ws, body.get("features"))
+        elif action == "context-add":
+            return {"ok": True, **self.guard_profile(lambda: cfprofile.add_context(a, body.get("name"), str(body.get("text", ""))))}
+        elif action == "context-delete":
+            self.guard_profile(lambda: cfprofile.delete_context(a, body.get("name")))
         elif action == "goal":
             sa.write_text(a / "GOAL.md", str(body.get("text", "")))
         elif action == "ideas":
@@ -818,6 +827,36 @@ class Service:
         else:
             raise UiError("Unknown action", 404)
         return {"ok": True}
+
+    @staticmethod
+    def guard_profile(fn):
+        try:
+            return fn()
+        except cfprofile.ProfileError as e:
+            raise UiError(str(e)) from None
+
+    def profile(self, name: str) -> dict:
+        ws = self.ws(name)
+        eff = sa.Agent(ws).cfg
+        return {**cfprofile.overview(ws / "agent"), "features": {k: eff["features"].get(k) for k in FEATURE_KEYS}, "web_mode": eff["web"]["mode"],
+                "sources": (ws / "SOURCES.md").read_text("utf-8") if (ws / "SOURCES.md").exists() else ""}
+
+    @staticmethod
+    def save_features(ws: Path, feats) -> None:
+        if not isinstance(feats, dict):
+            return
+        conf = sa.read_json(ws / "agent" / "config.json", {})
+        for k, v in feats.items():
+            kind = FEATURE_KEYS.get(k)
+            if kind is None:
+                raise UiError(f"Unknown capability: {k}")
+            if kind == "bool":
+                conf.setdefault("features", {})[k] = bool(v)
+            elif v not in kind:
+                raise UiError(f"{k} must be one of {', '.join(kind)}")
+            else:
+                conf.setdefault("features", {})[k] = v
+        sa.write_json(ws / "agent" / "config.json", conf)
 
     def create(self, body: dict) -> dict:
         idea = str(body.get("idea", "")).strip()
@@ -1278,6 +1317,12 @@ def make_handler(svc: Service, port: int, token: str | None = None):
                 m = re.fullmatch(r"/api/project/([^/]+)", path)
                 if m:
                     return svc.detail(m.group(1))
+                m = re.fullmatch(r"/api/project/([^/]+)/profile", path)
+                if m:
+                    return svc.profile(m.group(1))
+                m = re.fullmatch(r"/api/project/([^/]+)/context", path)
+                if m:
+                    return {"name": q.get("name", ""), "text": svc.guard_profile(lambda: cfprofile.read_context(svc.ws(m.group(1)) / "agent", q.get("name", "")))}
                 m = re.fullmatch(r"/api/project/([^/]+)/settings", path)
                 if m:
                     return svc.settings(m.group(1))
