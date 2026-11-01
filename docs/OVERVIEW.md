@@ -71,3 +71,5 @@ Stdlib-only core, unit tests (`make test`), end-to-end selftest with a stub mode
 
 ## Phone link (LAN mode)
 In `make ui-lan` the sidebar shows a small "Phone link" button that opens a QR code of the token URL (`/api/lan`, rendered server-side by the dependency-free `qr.py`, byte mode, level M, up to ~210 bytes). Without `--lan` the endpoint answers `lan:false` and the button stays hidden.
+
+LAN login cookie is `SameSite=Lax` (a QR scanner opens the link cross-site and `Strict` would drop the cookie on the redirect); the QR link uses the host you reached the UI by. The task panel's "Side task" checkbox starts a one-off `do` job with `CODEFACTORY_PRIORITY=side`.
