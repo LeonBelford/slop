@@ -548,6 +548,7 @@ def main() -> None:
     p_imp.add_argument("--projects-dir", default="projects")
     p_imp.add_argument("--dry-run", action="store_true", help="Only write proposals, change no code")
     p_imp.add_argument("--task", help="Not autonomous: do exactly this instruction with the tool itself, on a review branch")
+    p_imp.add_argument("--model", default="", help="Ollama model that does all coding of this run (overrides the saved model choice)")
     a = ap.parse_args()
     if a.cmd == "selftest":
         return selftest()
@@ -555,9 +556,9 @@ def main() -> None:
     if a.cmd == "improve":
         import selfimprove
         if a.task:
-            selfimprove.directed(a.task)
+            selfimprove.directed(a.task, model=a.model)
             return
-        return selfimprove.main(root, dry_run=a.dry_run)
+        return selfimprove.main(root, dry_run=a.dry_run, model=a.model)
     if a.cmd == "list":
         for p in list_projects(root):
             print(f"{p.name}: {Agent(p).status()}")

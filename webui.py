@@ -329,6 +329,8 @@ def make_handler(svc: Service, port: int, token: str | None = None):
                     return {"lan": True, "url": url, "svg": qr.svg(url)}
                 if path == "/api/tool":
                     return svc.tool()
+                if path == "/api/tool/models":
+                    return svc.tool_models()
                 if path == "/api/build":
                     return {"sha": BUILD["sha"], "head": head_sha(), "started": BUILD["started"]}
                 if path == "/api/tool/run":
@@ -384,6 +386,8 @@ def make_handler(svc: Service, port: int, token: str | None = None):
                     return svc.set_master(body)
                 if path == "/api/tool/task":
                     return svc.tool_task(body)
+                if path == "/api/tool/models":
+                    return svc.tool_models_save(body)
                 if path == "/api/tool/preview":
                     return svc.preview_start(body)
                 if path == "/api/tool/preview/tests":
