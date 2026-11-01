@@ -31,6 +31,27 @@ class UpdateTests(unittest.TestCase):
             update.apply(t / "b")
             self.assertEqual((t / "b" / "f.txt").read_text(), "2")
 
+    def test_feature_branch_still_updates_from_main(self):
+        with tempfile.TemporaryDirectory() as t:
+            t = Path(t)
+            g(t, "init", "-q", "--bare", "-b", "main", "remote.git")
+            g(t, "clone", "-q", "remote.git", "a")
+            (t / "a" / "f.txt").write_text("1")
+            g(t / "a", "add", "-A")
+            g(t / "a", "commit", "-qm", "one")
+            g(t / "a", "push", "-q", "origin", "HEAD:main")
+            g(t, "clone", "-q", "remote.git", "b")
+            g(t / "b", "checkout", "-q", "-b", "feature")
+            g(t / "b", "push", "-q", "-u", "origin", "feature")
+            (t / "a" / "f.txt").write_text("2")
+            g(t / "a", "commit", "-qam", "two")
+            g(t / "a", "push", "-q", "origin", "HEAD:main")
+            st = update.status(t / "b", True)
+            self.assertEqual((st["state"], st["upstream"]), ("behind", "origin/main"))
+            res = update.apply(t / "b")
+            self.assertTrue(res["updated"], res)
+            self.assertEqual((t / "b" / "f.txt").read_text(), "2")
+
 
 if __name__ == "__main__":
     unittest.main()

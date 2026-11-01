@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Updates CodeFactory itself from its git remote (standard library only).
+"""Updates CodeFactory itself from origin/main (standard library only).
 
   python3 update.py            check and apply a fast-forward update
   python3 update.py --check    only report whether an update is available
@@ -10,6 +10,7 @@ smoke-imports the new code and rolls back automatically if that fails.
 """
 from __future__ import annotations
 
+import os
 import subprocess
 import sys
 import time
@@ -27,37 +28,36 @@ def git(repo: Path, *args: str, timeout: int = 60) -> tuple[int, str]:
         return 1, str(e)
 
 
-def upstream(repo: Path) -> str:
-    rc, out = git(repo, "rev-parse", "--abbrev-ref", "--symbolic-full-name", "@{u}")
-    if rc == 0 and out:
-        return out
-    rc, branch = git(repo, "rev-parse", "--abbrev-ref", "HEAD")
-    if rc == 0 and git(repo, "rev-parse", "--verify", "-q", f"origin/{branch}")[0] == 0:
-        return f"origin/{branch}"
-    return ""
+BRANCH = os.environ.get("CODEFACTORY_UPDATE_BRANCH", "main")  # updates always come from this branch of origin
+REMOTE = "origin"
 
 
 def status(repo: Path = ROOT, fetch: bool = True) -> dict:
-    """What is installed and whether the remote has newer commits."""
+    """What is installed and whether origin/main has newer commits (whatever branch is checked out)."""
     if git(repo, "rev-parse", "--git-dir")[0] != 0:
         return {"available": False, "state": "no-git", "message": "Not a git checkout (installed from a zip?). Clone the repository to get updates."}
     branch = git(repo, "rev-parse", "--abbrev-ref", "HEAD")[1]
     local = git(repo, "rev-parse", "--short", "HEAD")[1]
     if fetch:
-        rc, out = git(repo, "fetch", "--quiet", "--tags", timeout=30)
+        rc, out = git(repo, "fetch", "--quiet", "--tags", REMOTE, BRANCH, timeout=30)
         if rc != 0:
             return {"available": False, "state": "offline", "branch": branch, "local": local, "message": "Cannot reach the remote: " + out[:200]}
-    up = upstream(repo)
-    if not up:
+    up = f"{REMOTE}/{BRANCH}"
+    if git(repo, "rev-parse", "--verify", "-q", up)[0] != 0:
         return {"available": False, "state": "no-upstream", "branch": branch, "local": local,
-                "message": f"Branch '{branch}' has no upstream. Run: git branch --set-upstream-to=origin/main"}
-    rc, counts = git(repo, "rev-list", "--left-right", "--count", f"HEAD...{up}")
+                "message": f"No {up} found. Is the remote '{REMOTE}' set (git remote -v)?"}
+    # Compare the local main (not a feature branch) with origin/main; without a local main everything is "behind".
+    base = BRANCH if git(repo, "rev-parse", "--verify", "-q", BRANCH)[0] == 0 else "HEAD"
+    rc, counts = git(repo, "rev-list", "--left-right", "--count", f"{base}...{up}")
     ahead, behind = (int(x) for x in counts.split()) if rc == 0 and len(counts.split()) == 2 else (0, 0)
-    dirty = [l[3:] for l in git(repo, "status", "--porcelain", "--untracked-files=no")[1].splitlines()]
-    log = git(repo, "log", "--format=%h %s", "-n", "15", f"HEAD..{up}")[1].splitlines() if behind else []
+    dirty = [l.split(None, 1)[-1] for l in git(repo, "status", "--porcelain", "--untracked-files=no")[1].splitlines()]
+    log = git(repo, "log", "--format=%h %s", "-n", "15", f"{base}..{up}")[1].splitlines() if behind else []
     state = "diverged" if ahead and behind else "behind" if behind else "ahead" if ahead else "current"
-    msg = {"current": "Up to date.", "behind": f"{behind} new commit(s) available.", "ahead": f"{ahead} local commit(s) not on {up}; nothing to update.",
-           "diverged": f"Local and {up} have both changed; update manually (git pull --rebase)."}[state]
+    msg = {"current": f"Up to date with {up}.", "behind": f"{behind} new commit(s) on {up}.",
+           "ahead": f"Local {BRANCH} has {ahead} commit(s) not on {up}; nothing to update.",
+           "diverged": f"Local {BRANCH} and {up} have both changed; update manually (git pull --rebase)."}[state]
+    if state == "behind" and branch != BRANCH:
+        msg += f" You are on '{branch}'; updating switches to {BRANCH}."
     return {"available": state == "behind", "state": state, "branch": branch, "upstream": up, "local": local,
             "remote": git(repo, "rev-parse", "--short", up)[1], "behind": behind, "ahead": ahead, "dirty": dirty,
             "commits": log, "message": msg}
@@ -71,11 +71,19 @@ def apply(repo: Path = ROOT, log=print) -> dict:
     if st["dirty"]:
         return {"ok": False, "updated": False, "status": st,
                 "message": "Local changes would be overwritten: " + ", ".join(st["dirty"][:6]) + ". Commit or stash them first."}
+    start = git(repo, "rev-parse", "--abbrev-ref", "HEAD")[1]
+    if start != BRANCH:
+        rc, out = git(repo, "checkout", "-q", BRANCH) if git(repo, "rev-parse", "--verify", "-q", BRANCH)[0] == 0 \
+            else git(repo, "checkout", "-q", "-b", BRANCH, st["upstream"])
+        if rc != 0:
+            return {"ok": False, "updated": False, "status": st, "message": f"Could not switch to {BRANCH}: {out[:300]}"}
     old = git(repo, "rev-parse", "HEAD")[1]
     tag = "backup/pre-update-" + time.strftime("%Y%m%d-%H%M%S")
     git(repo, "tag", tag, old)
     rc, out = git(repo, "merge", "--ff-only", st["upstream"], timeout=120)
     if rc != 0:
+        if start != BRANCH:
+            git(repo, "checkout", "-q", start)
         return {"ok": False, "updated": False, "message": "Update failed: " + out[:300], "status": st}
     changed = git(repo, "diff", "--name-only", old, "HEAD")[1].splitlines()
     notes: list[str] = []
@@ -98,6 +106,8 @@ def apply(repo: Path = ROOT, log=print) -> dict:
         healthy, detail = False, str(e)
     if not healthy:
         git(repo, "reset", "--hard", old)
+        if start != BRANCH:
+            git(repo, "checkout", "-q", start)
         return {"ok": False, "updated": False, "status": st,
                 "message": f"The new version failed its import check and was rolled back to {old[:7]}: {detail}"}
     restart = any(f.endswith(RESTART_SUFFIXES) for f in changed)
