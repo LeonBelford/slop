@@ -38,7 +38,7 @@ The UI is phone-friendly (drawer sidebar, scrollable tabs and tables). The sideb
 Create projects, start/stop them, "Test now", give feedback, edit `IDEAS.md`, `SOURCES.md` and the master prompt, view the backlog and live log.
 Runs locally only (127.0.0.1); agents keep running when you close the UI.
 
-**Master prompt:** `MASTER.md` in the main folder applies to all projects and is picked up at the start of each session (`run`).
+**Master prompt:** `MASTER.md` in the main folder applies to all projects and is picked up at the start of each session (`run`). It is personal (git-ignored), so edits in the UI never block an update.
 
 **2. Start per idea**
 ```bash
