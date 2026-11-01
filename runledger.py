@@ -112,6 +112,22 @@ def mark_run(out_dir: Path, run_id: str, status: str, summary: str = "") -> None
         _write(Path(out_dir) / "runs" / f"{run_id}.json", d)
 
 
+def model_stats(out_dir: Path) -> dict:
+    """{model: {"tries": n, "ok": n}} over all recorded coder attempts: what the model router learns from."""
+    out: dict[str, dict] = {}
+    for f in (Path(out_dir) / "runs").glob("*.json"):
+        try:
+            d = json.loads(f.read_text("utf-8"))
+        except (OSError, ValueError):
+            continue
+        for p in d.get("proposals", []):
+            for a in p.get("attempts", []):
+                m = out.setdefault(a.get("model", "?"), {"tries": 0, "ok": 0})
+                m["tries"] += 1
+                m["ok"] += bool(a.get("ok"))
+    return out
+
+
 def stats(out_dir: Path) -> dict:
     """Success metrics over all recorded runs: the yardstick for whether changes to self-improve actually help."""
     kept = total = rounds = repaired = 0
@@ -127,7 +143,7 @@ def stats(out_dir: Path) -> dict:
                 rounds += p.get("rounds", 0)
                 repaired += p.get("status") == "kept" and bool(p.get("rounds"))
     return {"proposals": total, "kept": kept, "repaired": repaired, "success_rate": round(kept / total, 2) if total else None,
-            "avg_fix_rounds": round(rounds / total, 2) if total else None}
+            "avg_fix_rounds": round(rounds / total, 2) if total else None, "models": model_stats(out_dir)}
 
 
 def list_runs(out_dir: Path, limit: int = 15) -> list[dict]:
