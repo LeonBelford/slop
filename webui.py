@@ -445,7 +445,8 @@ class Service:
             name, date, subject = (line.split("\x1f") + ["", ""])[:3]
             stat = git(ROOT, "diff", "--stat", f"HEAD...{name}").strip().splitlines()
             branches.append({"name": name, "date": date, "subject": subject, "stat": stat[-12:]})
-        return {"running": alive("tool"), "log": tail(ROOT / "self_improve" / "ui.log", 60), "branches": branches, "preview": self.preview_state()}
+        return {"running": alive("tool"), "log": tail(ROOT / "self_improve" / "ui.log", 60), "branches": branches, "preview": self.preview_state(),
+                "last_merge": sa.read_json(ROOT / "self_improve" / "last_merge.json", None)}
 
     # ---- try a self-improve branch locally before merging: separate checkout, separate port, empty projects folder
     PREVIEW = ROOT / "self_improve" / "preview"
@@ -497,6 +498,46 @@ class Service:
             self.preview_tests()
         time.sleep(1.2)
         return self.preview_state()
+
+    @staticmethod
+    def _git_rc(*args: str) -> tuple[int, str]:
+        p = subprocess.run(["git", *args], cwd=str(ROOT), capture_output=True, text=True, timeout=120)
+        return p.returncode, (p.stdout + p.stderr).strip()
+
+    def tool_merge(self, body: dict) -> dict:
+        """Merges a tested self-improve branch into the checked-out branch of the tool repo (with a backup tag and an undo)."""
+        branch = str(body.get("branch", ""))
+        if not BRANCH_RE.match(branch) or not git(ROOT, "rev-parse", "--verify", "-q", branch).strip():
+            raise UiError("Unknown branch")
+        busy = [p["name"] for p in self.list()["projects"] if p["running"]] + (["the tool itself"] if alive("tool") else [])
+        if busy:
+            raise UiError("Stop the running agent(s) first: " + ", ".join(busy), 409)
+        if git(ROOT, "status", "--porcelain").strip():
+            raise UiError("The tool folder has uncommitted changes; commit or stash them first", 409)
+        stamp = time.strftime("%Y%m%d-%H%M%S")
+        tag = f"pre-merge-{stamp}"
+        self._git_rc("tag", tag)
+        rc, out = self._git_rc("merge", "--no-ff", "-m", f"Merge {branch} (tested in preview)", branch)
+        if rc != 0:
+            self._git_rc("merge", "--abort")
+            self._git_rc("tag", "-d", tag)
+            raise UiError("Merge not possible (conflict, main moved on). Nothing was changed.\n" + out[-300:], 409)
+        sa.write_json(ROOT / "self_improve" / "last_merge.json", {"tag": tag, "sha": git(ROOT, "rev-parse", "HEAD").strip(), "branch": branch})
+        return {"ok": True, "tag": tag, "message": f"Merged {branch}. Restart the UI (make ui) to use it. Undo: the Undo button or git reset --hard {tag}"}
+
+    def tool_undo_merge(self) -> dict:
+        info = sa.read_json(ROOT / "self_improve" / "last_merge.json", None)
+        if not info:
+            raise UiError("No merge to undo", 404)
+        if git(ROOT, "status", "--porcelain").strip():
+            raise UiError("The tool folder has uncommitted changes", 409)
+        if git(ROOT, "rev-parse", "HEAD").strip() != info["sha"]:
+            raise UiError("The repository has moved on since that merge; undo it with git revert -m 1 " + info["sha"][:8], 409)
+        rc, out = self._git_rc("reset", "--hard", info["tag"])
+        if rc != 0:
+            raise UiError(out[-300:])
+        (ROOT / "self_improve" / "last_merge.json").unlink(missing_ok=True)
+        return {"ok": True, "message": f"Undone: back at {info['tag']}. Restart the UI (make ui)."}
 
     def preview_tests(self) -> dict:
         if not self.PREVIEW.exists():
@@ -1110,6 +1151,10 @@ def make_handler(svc: Service, port: int, token: str | None = None):
                     return svc.preview_start(body)
                 if path == "/api/tool/preview/tests":
                     return svc.preview_tests()
+                if path == "/api/tool/merge":
+                    return svc.tool_merge(body)
+                if path == "/api/tool/undo-merge":
+                    return svc.tool_undo_merge()
                 if path == "/api/tool/preview/stop":
                     return svc.preview_stop()
                 if path == "/api/ui-settings":

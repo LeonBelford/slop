@@ -90,3 +90,5 @@ Calls send `stream_options.include_usage`, so finished calls add exact `completi
 
 ## Trying a self-improve branch before merging
 Tool → Changes tab → "Try it before you merge": `POST /api/tool/preview` checks the selected `self-improve/<ts>` branch out as a detached git worktree in `self_improve/preview/` and starts its `webui.py` on a free port with an empty projects folder and its own GPU-queue folder. Your running tool, projects and `main` are not touched. "Try + run tests" also runs the unit tests and selftest inside it and shows pass/fail. "Stop and remove" kills both and removes the worktree. Merge afterwards (PR from the branch) or delete the branch with `git branch -D`.
+
+"Merge this branch" (same box) runs `POST /api/tool/merge`: it refuses while agents run or the tool folder is dirty, tags `pre-merge-<ts>`, merges with `--no-ff` and aborts cleanly on conflicts. "Undo last merge" (`/api/tool/undo-merge`) resets to that tag, but only while HEAD is still that merge commit. Restart the UI afterwards. Pushing to GitHub stays up to you.
