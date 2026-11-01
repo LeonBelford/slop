@@ -4,6 +4,7 @@ from __future__ import annotations
 import json
 
 from core import blueprint, uidetect
+from core.cfgit import UNLAYERED
 from core.cfutil import clip, write_text
 
 SYSTEM = ("You are a software architect planning a build strategy, not a feature list. Find the smallest kernel that makes every later "
@@ -17,6 +18,14 @@ SCHEMA = ('{"architecture": {"principles": ["..."], "modules": [{"name": "", "re
           '"layers": [{"name": "", "goal": "what exists and works after this layer", "tasks": [{"key": "short-unique-id", "title": "", '
           '"description": "", "acceptance": ["testable"], "depends_on": ["keys of earlier tasks"], "type": "feature|refactor|test", '
           '"value": 1-10, "effort": 1-10}]}]}')
+
+
+REEVAL_SCHEMA = ('{"assessment": "what is wrong with the current order, 2-4 sentences", "architecture": {"principles": ["..."], '
+                 '"modules": [{"name": "", "responsibility": ""}], "contracts": ["..."], "decisions": ["..."]}, '
+                 '"layers": [{"name": "", "goal": ""}], "assign": [{"id": "T0001", "layer": 0, "depends_on": ["T0000"], "priority": 1-10}], '
+                 '"new_tasks": [{"key": "short-id", "title": "", "description": "", "acceptance": ["testable"], "type": "feature|refactor|test", '
+                 '"layer": 0, "depends_on": ["task ids or keys of earlier tasks"], "value": 1-10, "effort": 1-10}], '
+                 '"cancel": [{"id": "T0002", "why": ""}]}. Every open and finished task should appear in assign.')
 
 
 class PlanMixin:
@@ -54,7 +63,7 @@ class PlanMixin:
         self.phase("Designing the architecture blueprint (core first)", "plan")
         try:
             data = self.llm.json(
-                "blueprint", "planner", SYSTEM,
+                "blueprint", "strategist", SYSTEM,
                 f"Idea: {idea}\nStack: {self.cfg['stack']}\nVision: {brief.get('vision', '')}\nProblems: {brief.get('problems', [])}\n"
                 f"Features wanted (each must end up in some layer): {json.dumps(brief.get('mvp_features', []))}\n"
                 f"Performance goals: {brief.get('performance_goals', [])}\nNon-goals: {brief.get('non_goals', [])}\n"
@@ -95,3 +104,75 @@ class PlanMixin:
             self.mem.refresh_architecture()
         except Exception as e:  # noqa: BLE001  (bookkeeping only)
             self.log(f"Layer bookkeeping skipped: {clip(str(e), 200)}")
+
+    def reevaluate(self) -> dict:
+        """Thinks the plan through again for an existing project: new layers, every open task re-ordered into them, gaps in the
+        foundation added as tasks, redundant tasks cancelled. Needs the agent to be stopped (it rewrites the backlog)."""
+        self.phase("Re-evaluating the plan: what does the core need?", "plan")
+        self.backlog.reload()
+        items = [i for i in self.backlog.items if i["status"] != "cancelled"]
+        old = self.blueprint()
+        arch = self.mem.dir / "ARCHITECTURE.md"
+        rows = [{"id": i["id"], "title": i["title"], "type": i["type"], "status": i["status"], "layer": i.get("layer"),
+                 "source": i.get("source"), "depends_on": i.get("depends_on", [])} for i in items]
+        ideas = self.ideas_path.read_text("utf-8") if self.ideas_path.exists() else ""
+        data = self.llm.json(
+            "reevaluate", "strategist", SYSTEM + " You are re-planning a project that already has code and tasks: keep what works, "
+            "fix the order. Finished tasks are foundation: put them in the layer they belong to. Add tasks for missing foundation, "
+            "cancel tasks that are redundant or contradict the architecture. Never cancel tasks the user wrote.",
+            f"Goal:\n{clip(self.goal, 2500)}{self.directive}\nUser directives (IDEAS.md):\n{clip(ideas, 1500) or '-'}\n"
+            f"Previous layers: {[ly['name'] for ly in old['layers']] if old else 'none (the project was planned feature by feature)'}\n"
+            f"Features built: {[f['title'] for f in self.mem.features.values()]}\nArchitecture notes:\n"
+            f"{clip(arch.read_text('utf-8') if arch.exists() else '', 2500)}\nCode map:\n{clip(self.mem.render_codemap(), 5000)}\n"
+            f"Tasks: {json.dumps(rows)}\n3 to 5 layers. Schema: " + REEVAL_SCHEMA)
+        res = blueprint.normalize_reevaluation(data, items)
+        if not res["layers"]:
+            raise RuntimeError("The model returned no usable layers; nothing was changed.")
+        by_id = {i["id"]: i for i in items}
+        top, stats = len(res["layers"]) - 1, {"assigned": 0, "new": 0, "cancelled": 0, "requeued": 0}
+        for cid in res["cancel"]:
+            if by_id[cid]["status"] in ("pending", "blocked"):
+                self.backlog.set(by_id[cid], status="cancelled", notes=by_id[cid].get("notes", []) + ["cancelled by the re-evaluation"])
+                stats["cancelled"] += 1
+        key_to_id = {}
+        for t in res["new"]:
+            item = self.backlog.add(t["title"], t["description"], t["type"], t["priority"], t["acceptance"], "Re-evaluation", "blueprint",
+                                    layer=t["layer"])
+            if item:
+                key_to_id[t["key"]] = item["id"]
+                by_id[item["id"]] = item
+                stats["new"] += 1
+        for i in list(by_id.values()):
+            if i["status"] == "cancelled" or i.get("source") == "user":
+                continue
+            a = res["assign"].get(i["id"])
+            if a:
+                i["layer"], i["priority"] = a["layer"], a["priority"] * 2 if i["status"] != "done" else i["priority"]
+                stats["assigned"] += 1
+            elif i["id"] not in key_to_id.values():
+                i["layer"] = top + 1 if i["status"] != "done" else None
+                if i["layer"] is None:
+                    i.pop("layer")
+            if i["status"] == "blocked":
+                i.update(status="pending", attempts=0)
+                stats["requeued"] += 1
+        order = {i["id"]: n for n, i in enumerate(sorted(by_id.values(), key=lambda i: (i.get("layer") if i.get("layer") is not None else UNLAYERED, i["id"])))}
+        wanted = {**{k: v["depends_on"] for k, v in res["assign"].items()}, **{key_to_id[t["key"]]: t["depends_on"] for t in res["new"] if t["key"] in key_to_id}}
+        for i in by_id.values():
+            deps = [key_to_id.get(d, d) for d in wanted.get(i["id"], [])]
+            deps = [d for d in dict.fromkeys(deps) if d in order and d != i["id"] and order[d] < order[i["id"]] and by_id[d]["status"] != "cancelled"]
+            i.pop("depends_on", None)
+            if deps:
+                i["depends_on"] = deps
+        self.backlog.save()
+        bp = {"architecture": res["architecture"], "assessment": res.get("assessment", ""), "layers": [
+            {**ly, "tasks": [{"title": i["title"], "id": i["id"]} for i in by_id.values() if i.get("layer") == n and i["status"] != "cancelled"]}
+            for n, ly in enumerate(res["layers"])]}
+        blueprint.save(self.blueprint_path, bp)
+        write_text(self.repo / "docs" / "BLUEPRINT.md", blueprint.render_md(bp))
+        self.git.commit_all("docs: re-evaluated plan and architecture blueprint")
+        self.metric(kind="reevaluate", **stats)
+        self.log(f"Re-evaluation: {len(res['layers'])} layers, {stats['assigned']} tasks re-ordered, {stats['new']} new, "
+                 f"{stats['cancelled']} cancelled, {stats['requeued']} blocked tasks given a new chance. {res.get('assessment', '')}")
+        self.phase("Idle (re-evaluation finished)", None)
+        return stats

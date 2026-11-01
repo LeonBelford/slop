@@ -152,6 +152,12 @@ class Service(ProjectMixin, DashboardMixin, ToolMixin, ModelsMixin, ChatMixin):
             side = bool(body.get("side"))  # one-off side job: only uses the GPU while the main agent is idle
             spawn(f"do:{name}", ["do", name, task], a / "do.out", {"CODEFACTORY_PRIORITY": "side"} if side else None)
             return {"ok": True, "queued": False, "side": side}
+        elif action == "replan":
+            if self.summary(ws)["running"]:
+                raise UiError("Stop the agent first: the re-evaluation rewrites the task list.", 409)
+            if alive(f"replan:{name}"):
+                raise UiError("A re-evaluation is already running", 409)
+            spawn(f"replan:{name}", ["replan", name], a / "replan.out")
         elif action == "say":
             msg = str(body.get("msg", "")).strip()
             if not msg:

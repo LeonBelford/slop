@@ -160,9 +160,10 @@ class ProjectMixin:
     def save_settings(self, ws: Path, body: dict) -> None:
         conf = sa.read_json(ws / "agent" / "config.json", {})
         models = body.get("models", {})
-        for role in ("planner", "reviewer", "summarizer"):
+        for role in ("planner", "reviewer", "summarizer", "strategist"):
             if role in models:
-                conf.setdefault("models", {})[role] = self.model_name(models[role])
+                empty = role == "strategist" and not str(models[role]).strip()  # empty strategist = same as the planner
+                conf.setdefault("models", {})[role] = "" if empty else self.model_name(models[role])
         if "coder_model" in body:
             conf["coder_model"] = self.model_name(body["coder_model"])
         for k, v in (body.get("limits") or {}).items():

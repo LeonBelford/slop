@@ -5,6 +5,7 @@
 #   scripts/run.sh say <project name> "<feedback>"
 #   scripts/run.sh start|tmux|watch|logs [project name]
 #   scripts/run.sh do <project name> "<task>"
+#   scripts/run.sh replan [project name]   (re-think the plan; agent must be stopped)
 #   scripts/run.sh list
 #   scripts/run.sh ui [--port 8765]
 set -euo pipefail
@@ -23,6 +24,8 @@ case "$cmd" in
     python3 codefactory.py say ${1:+--project "$1"} --msg "${2:?message}" ;;
   run|status|stop|force-stop)
     python3 codefactory.py "$cmd" ${1:+--project "$1"} ;;
+  replan)
+    python3 codefactory.py replan ${1:+--project "$1"} ;;
   do)
     python3 codefactory.py do ${1:+--project "$1"} --task "${2:?task}" ;;
   list) python3 codefactory.py list ;;
