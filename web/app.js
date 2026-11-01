@@ -341,7 +341,7 @@ function projectBody(d){
   }
   if(tab==="sources"){
     return `<div class="panel"><h3>SOURCES.md: websites the agent should read</h3>
-</p>
+    <p class="hint">One URL per line, optionally with a note on what to use it for. </p>
     <label class="fld">Web access<select id="web-mode-q" onchange="setWebMode(this.value)">${[["off","Off: no web access"],["sources","Sources only: just the pages listed below"],["open","Open web search: the agent may also search the web"]].map(([m,t])=>`<option value="${m}" ${m===d.web_mode?"selected":""}>${t}</option>`).join("")}</select></label>
     <textarea id="sources" rows="14" oninput="dirty=true" placeholder="https://example.com/docs   use this for the payment flow">${esc(d.sources)}</textarea>
     <div class="row" style="justify-content:flex-end;margin-top:10px"><button class="primary" onclick="saveFile('sources','SOURCES.md')">Save</button></div>
