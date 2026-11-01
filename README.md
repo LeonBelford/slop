@@ -119,6 +119,8 @@ Two levels, both bounded:
 
 ## Self-changes (Web UI)
 **Which AI does what:** in "Change the tool itself" the **Models** tab lets you choose the model per job (planner, coder, light/heavy coder, reviewer, final reviewer), either automatic (best installed model per job) or fixed. The Task tab also has a **Model for this task** dropdown that pins the coder for that one run (`make improve ARGS="--task ... --model qwen2.5-coder:7b"` on the CLI). The choice is stored in `self_improve/models.json`.
+
+**Assistant (chat about the tool itself):** in "Change the tool itself" → **Assistant** you talk to your local model about CodeFactory. It knows the code map, the self-improve state, recent runs/branches and any file you name (e.g. `core/cfa_ops.py`). When you agree on a change it proposes a task; **Build on test branch** runs the normal self-improve pipeline (plan, implement, security, tests, review) on a separate git branch. Try the result in the preview, then merge. Nothing is applied from the chat directly.
 Before merging a result branch you can try it locally: **Changes → "Try this version"** starts it on its own port (empty projects folder, nothing of yours is touched), **"Try + run tests"** also runs all tests. "Change the tool itself" has the same tabs as a project: **Reasoning** (live), **Changes** (tree, new lines highlighted), **Live log**, plus a stage stepper. Each change goes through impact analysis, the security gate, tests and a code review before it is kept on a review branch. In the Reasoning tab, click any field to enlarge it.
 
 ## Chat (Web UI)

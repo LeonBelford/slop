@@ -520,10 +520,10 @@ async function runTask(){
 /* ---- tool view ---- */
 const TOOL_EXAMPLES=["Add a make target that prints the status of all projects","Make the UI log tab show the last 500 lines","Show the GPU temperature on the dashboard","Add a button to copy a project's log to the clipboard"];
 const TOOL_STEPS=[["plan","Plan"],["backup","Backup"],["impact","Impact"],["implement","Implement"],["security","Security"],["test","Test"],["review","Review"],["docs","Docs"]];
-function toolTab(k){if(k==="models")toolMcfg=null;$("#main").scrollTop=0;LS=null;liveHtml="";toolTab_=k;dirty=false;lastBody=lastTabs="";extra=null;codeView=null;renderTool();refresh()}
+function toolTab(k){if(k==="assistant")return openToolChat();if(k==="models")toolMcfg=null;$("#main").scrollTop=0;LS=null;liveHtml="";toolTab_=k;dirty=false;lastBody=lastTabs="";extra=null;codeView=null;renderTool();refresh()}
 function renderTool(){
   $("#head").innerHTML=`<div class="top"><div><h1>Change the tool itself</h1><div class="idea">Tell it what to change in this program (Makefile, scripts, web UI, agent loop, docs). It does only what you write, on a separate git branch, and never merges by itself.</div></div></div><div class="stats" id="toolStats"></div>`;
-  const tabs=[["tool","Task"],["plan","Plan"],["reason","Reasoning"],["changes","Changes"],["models","Models"],["log","Live log"]];
+  const tabs=[["assistant","Assistant"],["tool","Task"],["plan","Plan"],["reason","Reasoning"],["changes","Changes"],["models","Models"],["log","Live log"]];
   const tb=`<div class="tabs">${tabs.map(([k,l])=>`<div class="tab ${toolTab_===k?"on":""}" onclick="toolTab('${k}')">${l}</div>`).join("")}</div>`;
   if(tb!==lastTabs){$("#tabs").innerHTML=tb;lastTabs=tb}
   const x=extra&&extra.kind==="tool"?extra:{running:false,log:"",branches:[]};
@@ -706,19 +706,20 @@ async function showChat(id,projects){
   drawChat();
 }
 const SUGGEST_LINKED=["What should we build next?","Summarize the current state of the project","Which open tasks are the riskiest, and why?"];
+const SUGGEST_TOOL=["How does the self-improve pipeline work, and where could it be better?","Look at web/app.js and suggest the safest small refactor","What failed in the last self-improve run?"];
 const SUGGEST_FREE=["Help me turn a rough idea into a project plan","Compare two tech stacks for a small web app","Review my architecture idea and find weak spots"];
 function drawChat(){
   const c=chat.cur,b=$("#body");b.dataset.tab="chat";
   const opts=chat.list.map(x=>`<option value="${x.id}" ${c&&x.id===c.id?"selected":""}>${esc(x.title)}</option>`).join("");
   const models=[...new Set([...(c?[c.model]:[]),...chat.models])];
   const names=list.projects.map(p=>p.name);
-  const sug=(c&&c.projects.length?SUGGEST_LINKED:SUGGEST_FREE).map(t=>`<button class="sugg" onclick="chatAsk(this.dataset.t)" data-t="${esc(t)}">${esc(t)}</button>`).join("");
+  const sug=(c&&c.tool?SUGGEST_TOOL:c&&c.projects.length?SUGGEST_LINKED:SUGGEST_FREE).map(t=>`<button class="sugg" onclick="chatAsk(this.dataset.t)" data-t="${esc(t)}">${esc(t)}</button>`).join("");
   b.innerHTML=`<div class="chat">
   <div class="chat-top"><select id="chSel" onchange="showChat(this.value)">${opts||"<option>No chats yet</option>"}</select>
     <button onclick="newChat()">+ New chat</button>${c?`<button class="ghost danger" onclick="delChat()">Delete</button>`:""}</div>
   ${c?`<div class="chat-meta"><label>Model<select id="chModel" onchange="chatUpdate({model:this.value})">${models.map(m=>`<option ${m===c.model?"selected":""}>${esc(m)}</option>`).join("")}</select></label>
-    <div class="chips-wrap"><span class="lbl">Projects</span><div class="chips">${names.map(n=>`<span class="chip ${c.projects.includes(n)?"on":""}" onclick="toggleLink('${esc(n)}')">${esc(n)}</span>`).join("")||'<span class="hint" style="margin:0">no projects yet</span>'}</div></div>
-    <label>Answer buttons use<select id="chTarget">${c.projects.map(n=>`<option>${esc(n)}</option>`).join("")||"<option value=''>(link a project)</option>"}</select></label></div>
+    ${c.tool?`<div class="hint" style="margin:0">Talks about CodeFactory itself. Proposed changes are built and tested on a separate branch; you try them in a preview and merge. <a href="#" onclick="showTool();return false">Open branches / preview / merge</a></div>`:`<div class="chips-wrap"><span class="lbl">Projects</span><div class="chips">${names.map(n=>`<span class="chip ${c.projects.includes(n)?"on":""}" onclick="toggleLink('${esc(n)}')">${esc(n)}</span>`).join("")||'<span class="hint" style="margin:0">no projects yet</span>'}</div></div>
+    <label>Answer buttons use<select id="chTarget">${c.projects.map(n=>`<option>${esc(n)}</option>`).join("")||"<option value=''>(link a project)</option>"}</select></label>`}</div>
   <div class="msgs" id="msgs">${c.messages.map(msgHtml).join("")||`<div class="chat-empty"><div class="big">What are we working on?</div><div class="hint">Ask anything. Link a project above and the model knows its goal, backlog and recent work.</div><div class="suggs">${sug}</div></div>`}</div>
   <div class="composer"><textarea id="chIn" rows="1" placeholder="Message CodeFactory…  (Enter sends, Shift+Enter for a new line)" oninput="grow(this)" onkeydown="chatKey(event)"></textarea>
     <button class="primary send" id="chSend" onclick="chatSend()" title="Send (Enter)">↑</button><button class="send" id="chStop" onclick="chat.ctrl&&chat.ctrl.abort()" title="Stop answering" style="display:none">■</button></div>`
@@ -729,9 +730,18 @@ function drawChat(){
 function grow(t){t.style.height="auto";t.style.height=Math.min(t.scrollHeight,200)+"px"}
 function chatKey(e){if(e.key==="Enter"&&!e.shiftKey&&!e.isComposing){e.preventDefault();chatSend()}}
 function chatAsk(t){$("#chIn").value=t;chatSend()}
+function taskBlocks(t){return[...t.matchAll(/```task[ \t]*\n([\s\S]*?)```/g)].map(m=>m[1].trim()).filter(x=>x.length>=10)}
 function msgHtml(m,i){
-  return m.role==="user"?`<div class="msg user">${esc(m.content)}</div>`
-   :`<div class="msg assistant" data-i="${i}">${mdLite(m.content)}<div class="acts"><button class="small ghost" onclick="copyMsg(${i})">Copy</button><button class="small ghost" onclick="fromChat(${i},'say')">Add to ideas</button><button class="small ghost" onclick="fromChat(${i},'do')">Run as task</button></div></div>`;
+  if(m.role==="user")return `<div class="msg user">${esc(m.content)}</div>`;
+  const tool=chat.cur&&chat.cur.tool,tasks=tool?taskBlocks(m.content):[];
+  const acts=tool?tasks.map((_,k)=>`<button class="small primary" onclick="buildFromChat(${i},${k})">Build on test branch${tasks.length>1?" #"+(k+1):""}</button>`).join(""):`<button class="small ghost" onclick="fromChat(${i},'say')">Add to ideas</button><button class="small ghost" onclick="fromChat(${i},'do')">Run as task</button>`;
+  return `<div class="msg assistant" data-i="${i}">${mdLite(m.content.replace(/```task/g,"```"))}<div class="acts"><button class="small ghost" onclick="copyMsg(${i})">Copy</button>${acts}</div></div>`;
+}
+async function openToolChat(){try{const c=await api("/api/tool/chat");chat.cur=null;await showChat(c.id)}catch(e){toast(e.message,true)}}
+async function buildFromChat(i,k){
+  const t=taskBlocks(chat.cur.messages[i].content)[k];
+  if(!t||!confirm("Build this on a separate test branch (nothing is merged automatically)?\n\n"+t.slice(0,400)))return;
+  try{await api("/api/tool/task",{task:t,model:""});toast("Started on a test branch. Follow it in the Plan tab.");planId="";showTool();toolTab("plan")}catch(e){toast(e.message,true)}
 }
 function copyMsg(i){navigator.clipboard.writeText(chat.cur.messages[i].content).then(()=>toast("Copied"),()=>toast("Copy not allowed here",true))}
 async function newChat(){const p=chat.cur?chat.cur.projects:[];chat.cur=null;await showChat(null,p)}
