@@ -710,7 +710,7 @@ function renderTool(){
   if(toolTab_==="changes"){
     const br=x.branches||[];if(!toolBranch&&br.length)toolBranch=br[0].name;
     const sel=`<select onchange="toolBranch=this.value;codeView=null;extra=null;lastBody='';refresh()">${br.map(b=>`<option ${b.name===toolBranch?"selected":""}>${esc(b.name)}</option>`).join("")}</select>`;
-    return setBody(br.length?`<div class="row" style="margin-bottom:12px">Result branch: ${sel}</div>${previewBox(x.preview,x.last_merge)}${x.tree?codePanel(x):'<div class="hint">Loading…</div>'}${diffView?`<div class="panel" style="margin-top:16px"><h3>${esc(diffView.title)}</h3><pre>${fmtDiff(diffView.text)}</pre></div>`:""}`:'<div class="hint">No result branches yet. Start a task on the Task tab.</div>');
+    return setBody(br.length?`<div class="row" style="margin-bottom:12px">Result branch: ${sel}</div>${previewBox(x.preview,x.last_merge,x.running)}${x.tree?codePanel(x):'<div class="hint">Loading…</div>'}${diffView?`<div class="panel" style="margin-top:16px"><h3>${esc(diffView.title)}</h3><pre>${fmtDiff(diffView.text)}</pre></div>`:""}`:`${previewBox(x.preview,x.last_merge,x.running)}<div class="hint">No result branches yet. Start a task on the Task tab.</div>`);
   }
   const body=`<div class="panel"><h3>What should change?</h3>
   <p class="hint">Examples: "Add a make target that prints the status of all projects", "Make the UI log tab show the last 500 lines", "Change the Makefile so make start-tmux also opens make thinking". Tests must stay green and docs are updated; guards for web fetching, CI and this feature itself cannot be changed.</p>
@@ -723,22 +723,24 @@ function renderTool(){
   setBody(body);
   reasoningLive();
 }
-function previewBox(pv,lm){
-  if(!pv)return "";
+function previewBox(pv,lm,busy){
+  pv=pv||{};
+  const ready=!!toolBranch&&!busy,dis=ready?"":"disabled",why=!toolBranch?"Available as soon as a change has produced a result branch.":busy?"Available when the current self-change has finished.":"";
   const url=pv.running?`${location.protocol}//${location.hostname}:${pv.port}/`:"";
   const rc=pv.tests_rc;
   return `<div class="panel" style="margin-bottom:12px"><h3>Try it before you merge</h3>
   <p class="hint">Checks the selected branch out in a separate folder and starts its UI on its own port with an empty projects folder. Your running tool, your projects and <code>main</code> stay untouched.</p>
+  ${why?`<p class="hint"><b>${why}</b></p>`:""}
   <div class="row" style="flex-wrap:wrap">
-    <button class="primary" onclick="previewDo('/api/tool/preview',{branch:toolBranch})">${pv.running?"Restart preview":"Try this version"}</button>
-    <button onclick="previewDo('/api/tool/preview',{branch:toolBranch,tests:true})" title="Start the preview and run all unit tests plus the selftest in it">Try + run tests</button>
+    <button class="primary" ${dis} onclick="previewDo('/api/tool/preview',{branch:toolBranch})">${pv.running?"Restart preview":"Try this version"}</button>
+    <button ${dis} onclick="previewDo('/api/tool/preview',{branch:toolBranch,tests:true})" title="Start the preview and run all unit tests plus the selftest in it">Try + run tests</button>
     ${pv.running||pv.tests_running?`<button class="danger" onclick="previewDo('/api/tool/preview/stop',{})">Stop and remove</button>`:""}
     ${url?`<a href="${esc(url)}" target="_blank" rel="noopener">Open preview (${esc(pv.branch)}) →</a>`:""}
   </div>
   ${pv.tests_running?`<div class="hint">Tests are running…</div>`:rc==null?"":`<div class="hint"><b class="${rc===0?"lg-ok":"lg-err"}">${rc===0?"Tests and selftest passed":"Tests failed (exit "+rc+")"}</b></div>`}
   ${pv.tests_log&&(pv.tests_running||rc!=null)?`<details><summary>Test output</summary><div class="inner"><pre>${esc(pv.tests_log)}</pre></div></details>`:""}
   <div class="row" style="flex-wrap:wrap;margin-top:10px">
-    <button class="primary" ${toolBranch?"":"disabled"} onclick="mergeTool()" title="Merges the branch into the tool's current branch. A backup tag is created first.">Merge this branch</button>
+    <button class="primary" ${dis} onclick="mergeTool()" title="Merges the branch into the tool's current branch. A backup tag is created first.">Merge this branch</button>
     ${lm?`<button class="danger" onclick="undoMerge()" title="Go back to ${esc(lm.tag)}">Undo last merge</button>`:""}
   </div>
   <p class="hint" style="margin-top:8px">Merge = local merge with a backup tag and an undo (you need a restart of the UI afterwards). Don't want it? <code>git branch -D ${esc(toolBranch||"self-improve/…")}</code></p></div>`;
