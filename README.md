@@ -129,6 +129,10 @@ Before merging a result branch you can try it locally: **Changes → "Try this v
 
 Each project has an **Agent** page (Copilot-Studio style): name, answer style, instructions and capability toggles (plan critique, require tests, cleanup pass, security gate, browser tests). **Knowledge files** lets you upload (or paste) text files that are injected into the agent's prompts, ranked by relevance (max 200 KB per file, 40 files, 1.5 MB total). **Customize** stores per-project look and layout (accent, compact mode, start page, header figures, hidden pages) in the browser.
 
+## Dashboard (Web UI)
+
+Every section (live figures, needs attention, per project, time estimates, project diagnostics) collapses with a click on its title and moves up or down. Filter by project name or by Running / Idle / Needs attention, sort any table column, open a project by clicking its name, export a table as CSV, pause the live updates while you read, and hide sections or single figures under **View**. The layout is remembered in the browser; **Reset layout** restores the default. Selected text is not overwritten by the live refresh.
+
 ## Throughput figures (Web UI)
 
 The header of every project and of "Change the tool itself" shows tokens used, tokens/s, words/s (~0.75 per token), tokens/min averaged over working time, the GPU (live from `nvidia-smi`, plus the share of work time the model was generating) and the average time per call. Self-improve also shows the average step time, calculated from its past steps. Pick the figures per project under Customize.

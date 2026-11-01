@@ -354,11 +354,11 @@ class Service:
                 tot[k] += m.get(k, 0)
             sched = sa.read_json(a / "sched.json", {}) if summ["running"] else {}
             rows.append({"name": name, "running": summ["running"], "priority": summ["priority"], "iteration": summ["iteration"],
-                         "state": sched.get("state", ""), "live": live, "calls": m.get("calls", 0), "tokens": m.get("tokens", 0),
+                         "state": sched.get("state", ""), "live": live, "perf": throughput.perf(m), "calls": m.get("calls", 0), "tokens": m.get("tokens", 0),
                          "chars": m.get("chars", 0), "coder_chars": (a / "coder_live.txt").stat().st_size if summ["running"] and (a / "coder_live.txt").exists() else 0})
         tool_on = alive("tool")
         if tool_on:
-            rows.append({"name": "Self-improve", "tool": True, "running": True, "priority": "main", "iteration": 0, "state": "",
+            rows.append({"name": "Self-improve", "tool": True, "running": True, "priority": "main", "iteration": 0, "state": "", "perf": throughput.perf(sa.read_json(ROOT / "self_improve" / "metrics.json", {})),
                          "live": self.live_rate(read_live(ROOT / "self_improve" / "llm_stream.json", True)), **{k: sa.read_json(ROOT / "self_improve" / "metrics.json", {}).get(k, 0) for k in ("calls", "tokens", "chars")}, "coder_chars": 0})
         running = [r for r in rows if r["running"]]
         return {"time": time.time(), "projects": rows,
