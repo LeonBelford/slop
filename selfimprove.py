@@ -21,11 +21,13 @@ from __future__ import annotations
 import json
 import re
 import shutil
+import threading
 import time
 from pathlib import Path
 
 import codefactory as sa
 import models
+import perf
 import runledger
 import security
 
@@ -224,6 +226,7 @@ def _aider(model: str, timeout: int):
                "--model", model, "--message-file", str(pf)]
         if (work / MAP_FILE).is_file():
             cmd += ["--read", MAP_FILE]  # the coder sees the whole-project map for every edit
+        cmd += perf.aider_args(model, STATE)
         cmd += ["--edit-format", sa.os.getenv("AIDER_EDIT_FORMAT", "diff"), "--map-tokens", "1024"]  # diff: the model writes only the changed parts
         cmd += files if prompt.startswith("Documentation update") else _fit(work, files)
         STATE.mkdir(exist_ok=True)
@@ -280,6 +283,10 @@ def main(projects: Path, dry_run: bool = False, repo: Path | None = None, llm=No
     llm = llm or sa.LLM(cfg, log)
     coder = coder or _aider(cfg["coder_model"], cfg["limits"]["coder_timeout"])
     routes = _route(llm)
+    if not sa.LLM.mock and isinstance(llm, sa.LLM):
+        for f in perf.diagnose():
+            if f["level"] != "ok":
+                log(f"⚠ speed: {f['text']}")
     if getattr(coder, "use", None) and getattr(coder, "routes", None) is None:
         coder.routes = routes
     stamp = time.strftime("%Y%m%d-%H%M%S")
@@ -402,7 +409,7 @@ def _route(llm) -> dict:
     return r
 
 
-CONTEXT_TOKENS = 14000  # budget for the files Aider may edit; the model window is ~32k incl. map, prompt and answer
+CONTEXT_TOKENS = 7000  # budget for the files Aider may edit; the pinned model window (perf.NUM_CTX, 16k) also holds map, prompt and answer
 
 
 def _fit(work: Path, files: list[str], budget: int = CONTEXT_TOKENS) -> list[str]:
@@ -584,14 +591,19 @@ def _gates(work: Path, p: dict, files: list[str], llm, coder, log, ledger, pi: i
     if red:
         ledger.stage(pi, "tests_added", "ok", red)
     ok, report = _fast_tests(work, changes)  # quick feedback first, the full suite only follows when this is green
+    review: dict = {}
     if ok:
+        # the review is a model call (GPU) and the full suite is CPU work: run them side by side instead of one after the other
+        _git(work, "add", "-A")
+        ledger.stage(pi, "review", "running")
+        t = threading.Thread(target=lambda: review.update(res=_review(work, p, llm, log)), daemon=True)
+        t.start()
         ok, report = _tests_green(work, 900)
+        t.join()
     ledger.stage(pi, "test", "ok" if ok else "failed", report)
     if not ok:
         return False, report, "test"
-    _git(work, "add", "-A")
-    ledger.stage(pi, "review", "running")
-    ok, report = _review(work, p, llm, log)
+    ok, report = review.get("res", (True, ""))
     ledger.stage(pi, "review", "ok" if ok else "failed", report)
     return ok, report, "" if ok else "review"
 
@@ -756,6 +768,10 @@ def directed(instruction: str, repo: Path | None = None, llm=None, coder=None, l
     llm = llm or sa.LLM(cfg, log)
     coder = coder or _aider(cfg["coder_model"], cfg["limits"]["coder_timeout"])
     routes = _route(llm)
+    if not sa.LLM.mock and isinstance(llm, sa.LLM):
+        for f in perf.diagnose():
+            if f["level"] != "ok":
+                log(f"⚠ speed: {f['text']}")
     if getattr(coder, "use", None) and getattr(coder, "routes", None) is None:
         coder.routes = routes
     stamp = time.strftime("%Y%m%d-%H%M%S")

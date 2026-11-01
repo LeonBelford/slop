@@ -19,6 +19,7 @@ Two different things are called "agent memory", do not mix them up:
 | Path | Role |
 |---|---|
 | `codefactory.py` | The agent: config defaults, `LLM`, `Git`, `Backlog`, `Memory`, `Agent`, CLI (`main`), `selftest` |
+| `perf.py` | Ollama speed diagnostics and pinned context settings for Aider (`make doctor`) |
 | `selfimprove.py` | Self-improvement of this repo on `self-improve/<ts>` branches (worktree, tests, security gate, review, docs) |
 | `webui.py` | HTTP server + `Service` (JSON API, process spawning, dashboard, tool preview/merge) |
 | `web/index.html` | The whole UI in one file (CSS, markup, JS; no build step) |
@@ -91,6 +92,7 @@ branch in a separate worktree/port (`preview_*`; `runledger.verify_checkout` pro
 - Model routing (`_route`, `_coder_for`, built on `models.resolve`/`classify`): light/standard/heavy coder per job, strongest reviewer for review jobs, defaults when a model is not installed.
 - Learning router: `_learned_cls` + `runledger.model_stats` (attempts per model in the run ledger).
 - Context budget `_fit` (Aider edit files, `CONTEXT_TOKENS`); impact analysis shared between directed steps; plan critique only for multi-file changes.
+- Speed: `perf.py` (pinned num_ctx for Aider via `--model-settings-file`, Ollama diagnostics, `make doctor`), `scripts/ollama-tune.sh`; reasoning cap in `LLM._read`; review runs in a thread beside the full test suite in `_gates`.
 - Directed tasks with several requirements run as one proposal per requirement (`directed`), so passing steps are kept on the branch.
   (`webui.py` too, except for directed user tasks). Existing tests may not be modified, only new test files added.
 - Never loosen: URL/SSRF checks, UI host/origin/token checks, shell-injection safety, the rule "the script decides when to stop".

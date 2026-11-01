@@ -1,7 +1,7 @@
 P ?=
 
 .DEFAULT_GOAL := help
-.PHONY: update e2e-setup models ui-lan force-stop kill help setup selftest init start run status stop list ui start-tmux tmux attach watch thinking logs task do self-improve improve test-build try feedback say
+.PHONY: doctor update e2e-setup models ui-lan force-stop kill help setup selftest init start run status stop list ui start-tmux tmux attach watch thinking logs task do self-improve improve test-build try feedback say
 
 update:
 	@python3 update.py
@@ -22,6 +22,9 @@ help:
 
 setup:
 	bash scripts/setup.sh
+
+doctor:
+	python3 perf.py
 
 selftest:
 	python3 codefactory.py selftest

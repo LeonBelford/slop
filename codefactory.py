@@ -53,6 +53,7 @@ import e2e
 import gpusched
 import knowledge
 import models
+import perf
 import security
 import stacks
 from webaccess import Web, WebError
@@ -82,6 +83,8 @@ DEFAULT_CONFIG = {
         "coder_timeout": 1500,
         "cmd_timeout": 900,
         "llm_timeout": 900,
+        "think_chars": 6000,   # a model that reasons longer than this is cut off and asked to answer directly
+        "max_answer_tokens": 6000,
         "ideation_batch": 4,
         "ideation_min_score": 6,
         "refactor_every": 4,
@@ -465,6 +468,8 @@ class LLM:
     def __init__(self, cfg: dict, log):
         self.cfg, self.log = cfg, log
         self.installed: set[str] = set()  # model names reported by Ollama (set by preflight)
+        self.think_cap = int(cfg.get("limits", {}).get("think_chars", 6000))
+        self.cut_thinking = False
         self.overrides: dict[str, str] = {}  # role -> model chosen by routing
         self.live: Path | None = None  # file describing the model call in progress (for the UI)
         self.trace: Path | None = None  # set by Agent: every model call is appended here so you can watch the "thinking"
@@ -551,6 +556,9 @@ class LLM:
                     self.tok["chars"] += len(piece) + len(think_piece)
                     self.tok["t0"] = self.tok["t0"] or time.time()
                 self.sched.check()  # a side agent aborts here when the main agent needs the GPU
+                if len(thinking) + len(_open_think(content)) > self.think_cap and not _strip_think(content).strip():
+                    self.cut_thinking = True  # endless reasoning: stop the stream; json() asks again for a direct answer
+                    break
                 if time.time() - last_pub > 0.4:
                     last_pub = time.time()
                     self._publish(tag, role, model, since, thinking + _open_think(content), _strip_think(content), self.tok)
@@ -599,6 +607,7 @@ class LLM:
             "model": model,
             "messages": [{"role": "system", "content": system}, {"role": "user", "content": user}],
             "temperature": temperature,
+            "max_tokens": int(self.cfg["limits"].get("max_answer_tokens", 6000)),
             "stream": True,
             "stream_options": {"include_usage": True},  # exact token counts for the dashboard
         }).encode()
@@ -659,7 +668,9 @@ class LLM:
             try:
                 return parse_json(text)
             except ValueError:
-                prompt = user + "\n\nYour last answer was not valid JSON. Output JSON only."
+                prompt = user + "\n\nYour last answer was not valid JSON. Output JSON only." + (
+                    " /no_think Do not reason at length: answer directly with the JSON." if self.cut_thinking else "")
+                self.cut_thinking = False
         raise RuntimeError(f"Model returned no JSON ({tag})")
 
 
@@ -1470,6 +1481,7 @@ class Agent:
                "--model", model, "--message-file", str(pf)]
         for r in read:
             cmd += ["--read", r]
+        cmd += perf.aider_args(model, self.dir)
         cmd += edit
         env = {"OLLAMA_API_BASE": os.getenv("OLLAMA_API_BASE", "http://localhost:11434"), "PYTHONUNBUFFERED": "1"}
         t0 = time.time()

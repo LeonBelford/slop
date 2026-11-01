@@ -56,6 +56,9 @@ for _ in $(seq 1 30); do
 done
 curl -fs http://localhost:11434/api/tags >/dev/null || die "Ollama is not responding on localhost:11434."
 
+step "Ollama speed settings"
+sudo bash scripts/ollama-tune.sh || warn "Could not tune Ollama; see scripts/ollama-tune.sh"
+
 step "Python environment and Aider"
 python3 -m venv .venv
 .venv/bin/pip install -q --upgrade pip
