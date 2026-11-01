@@ -5,7 +5,7 @@ import unittest
 from pathlib import Path
 
 import codefactory as sa
-import runledger
+from dash import runledger
 import selfimprove
 
 
@@ -77,7 +77,8 @@ class RepairLoopTests(unittest.TestCase):
             if prompt.startswith(("Add tests", "Documentation update")):
                 return
             (work / "app.py").write_text("X = 2\n")
-            (work / "security.py").write_text("# tampered\n")
+            (work / "infra").mkdir(exist_ok=True)
+            (work / "infra" / "security.py").write_text("# tampered\n")
             with open(work / "tests" / "test_old.py", "a") as f:
                 f.write("# adapted\n")
 
@@ -119,11 +120,11 @@ class RepairLoopTests(unittest.TestCase):
         self.assertTrue(any("step 2 of 2" in p for p in prompts))
 
     def test_protected_violation_rules(self):
-        changes = ["M\ttests/test_old.py", "M\tsecurity.py", "D\ttests/test_x.py", "D\tPROJECT_MAP.md"]
+        changes = ["M\ttests/test_old.py", "M\tinfra/security.py", "D\ttests/test_x.py", "D\tPROJECT_MAP.md"]
         self.assertEqual(selfimprove.protected_violations(changes, selfimprove.PROTECTED_DIRECTED),
-                         ["tests/test_old.py", "security.py", "tests/test_x.py", "PROJECT_MAP.md"])
+                         ["tests/test_old.py", "infra/security.py", "tests/test_x.py", "PROJECT_MAP.md"])
         self.assertEqual(selfimprove.protected_violations(changes, selfimprove.PROTECTED_DIRECTED, edit_tests=True),
-                         ["security.py", "tests/test_x.py", "PROJECT_MAP.md"])
+                         ["infra/security.py", "tests/test_x.py", "PROJECT_MAP.md"])
 
 
 if __name__ == "__main__":
@@ -291,7 +292,7 @@ class NoEditTests(unittest.TestCase):
 
 class SpeedTests(unittest.TestCase):
     def test_analyse_finds_cpu_offload_ctx_mismatch_and_multi_load(self):
-        import perf
+        from infra import perf
         ps = {"models": [{"name": "a:14b", "size": 100, "size_vram": 70, "context_length": 4096}, {"name": "b:7b", "size": 50, "size_vram": 50}]}
         texts = " ".join(f["text"] for f in perf.analyse(ps, {"a:14b": {"parameters": "num_ctx 12288"}}, 16384))
         for needle in ("30% runs on the CPU", "reloads", "loaded at the same time", "num_ctx 12288"):
@@ -300,7 +301,7 @@ class SpeedTests(unittest.TestCase):
         self.assertEqual(perf.analyse(None, {})[0]["level"], "warn")
 
     def test_aider_args_pin_context_for_ollama_only(self):
-        import perf
+        from infra import perf
         with tempfile.TemporaryDirectory() as d:
             a = perf.aider_args("ollama_chat/x", Path(d))
             self.assertIn("--model-settings-file", a)

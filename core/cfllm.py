@@ -2,14 +2,14 @@
 from __future__ import annotations
 
 from pathlib import Path
-import gpusched
+from infra import gpusched
 import json
 import re
 import sys
 import threading
 import time
 import urllib.request
-from cfutil import _open_think, _strip_think, aider_tokens, clip, compact_thoughts, last_seq, now, parse_json, read_json, tail, write_json
+from core.cfutil import _open_think, _strip_think, aider_tokens, clip, compact_thoughts, last_seq, now, parse_json, read_json, tail, write_json
 
 
 class LLM:

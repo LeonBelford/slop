@@ -3,7 +3,7 @@ from __future__ import annotations
 
 from pathlib import Path
 import difflib
-from cfutil import now, read_json, sh, write_json
+from core.cfutil import now, read_json, sh, write_json
 
 
 # --------------------------------------------------------------------------- Git

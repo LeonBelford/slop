@@ -8,7 +8,7 @@ Why local agents feel slow while the GPU idles, and what this module does about 
     `/api/ps` and reports the CPU share together with the fix (flash attention + quantised KV cache, smaller context).
   * Models are unloaded after 5 idle minutes: `OLLAMA_KEEP_ALIVE` keeps them in VRAM (see scripts/ollama-tune.sh).
 
-`python3 perf.py` (or `make doctor`) prints the findings.
+`python3 -m infra.perf` (or `make doctor`) prints the findings.
 """
 from __future__ import annotations
 

@@ -4,7 +4,7 @@ import tempfile
 import unittest
 from pathlib import Path
 
-import runledger
+from dash import runledger
 import webui
 
 

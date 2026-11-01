@@ -134,7 +134,7 @@ Before merging a result branch you can try it locally: **Changes → "Try this v
 - **Learning router:** every coder attempt (model, result) is recorded in the run ledger. After a few attempts the router acts on it: a default coder that keeps failing is replaced by the heavy model, a heavy model that is not better is not used for file count alone (saves the VRAM swap). The UI track record shows successes per model.
 - **Lean context & planning:** Aider only gets files that need edits within a ~14k-token budget (docs and the project map are read-only), uses the compact `diff` edit format (`AIDER_EDIT_FORMAT=whole` to change) and a small repo map. The impact analysis is shared by all steps of one request; the plan critique only runs for multi-file changes and on the planner model (no model swap).
 - **Modular code:** the former 2700-line `codefactory.py` is split into small modules (`cfutil`, `cfllm`, `cfgit`, `cfmemory`, `cfa_*` mixins), each under 700 lines (`webui.py` and `selfimprove.py` are next), so a small model can load and edit a complete file in its context window. `codefactory.py` re-exports everything; `tests/test_module_size.py` keeps modules small.
- `perf.py` pins one context size (`CF_NUM_CTX`, default 16384, must equal `num_ctx` in `scripts/Modelfile.qwen-coder-14b`) for Aider and the model, because Ollama reloads a model whenever the context size changes. `make doctor` reports CPU offload (GPU waiting), several loaded models and context mismatches; `sudo bash scripts/ollama-tune.sh` sets flash attention, a q8 KV cache, one loaded model and a 30 min keep-alive. Reasoning longer than `limits.think_chars` is cut off and the model is asked to answer directly, answers are capped (`max_answer_tokens`), and the review (GPU) runs while the full test suite (CPU) runs. After updating run `ollama create qwen2.5-coder-agent -f scripts/Modelfile.qwen-coder-14b`.
+ `infra/perf.py` pins one context size (`CF_NUM_CTX`, default 16384, must equal `num_ctx` in `scripts/Modelfile.qwen-coder-14b`) for Aider and the model, because Ollama reloads a model whenever the context size changes. `make doctor` reports CPU offload (GPU waiting), several loaded models and context mismatches; `sudo bash scripts/ollama-tune.sh` sets flash attention, a q8 KV cache, one loaded model and a 30 min keep-alive. Reasoning longer than `limits.think_chars` is cut off and the model is asked to answer directly, answers are capped (`max_answer_tokens`), and the review (GPU) runs while the full test suite (CPU) runs. After updating run `ollama create qwen2.5-coder-agent -f scripts/Modelfile.qwen-coder-14b`.
 
  The Dashboard also shows diagnostics (`diagnostics.py`, `/api/diagnostics`): a "Needs attention" list (stalled agents, blocked tasks, low first-try rate, reasoning-heavy models, slowest step, idle GPU, low disk/RAM, Ollama issues), per-project key figures (tasks, first-try %, attempts, failure causes, review score, tasks/h, call time, reasoning share, files/lines/tests, idle time) and the self-improve track record.
 
@@ -147,10 +147,12 @@ Before merging a result branch you can try it locally: **Changes → "Try this v
 ## Structure
 ```
 codefactory/
-├─ codefactory.py        the complete loop (standard library only)
+├─ codefactory.py       entry point: agent loop and CLI (standard library only)
 ├─ webui.py, web/       local web interface (make ui, make ui-lan)
-├─ security.py          security rules, scanners and runtime probe
-├─ models.py            optional model catalog and routing (make models)
+├─ selfimprove.py       self-improvement pipeline
+├─ core/                agent engine: LLM client, git/backlog, memory, build/security/research/ops mixins
+├─ infra/               GPU scheduler, perf/Ollama tuning, models, stacks, knowledge base, web access, security, e2e, update, QR
+├─ dash/                dashboard logic: diagnostics, time estimates, run ledger, chat
 ├─ MASTER.md            global directives for all projects (picked up per session)
 ├─ Makefile, scripts/   quick-setup-popos.sh · setup.sh (venv + model only) · run.sh · Modelfile
 ├─ .env.example, config.example.json
@@ -201,7 +203,7 @@ Installed models are detected and used automatically (`routing.mode` = `auto`, s
 - **standard**: your configured `coder_model`, used for normal tasks.
 - **heavy** (`qwen3-coder:30b`, `devstral:24b`, `qwen2.5-coder:32b`, `codestral:22b`): tasks touching 4+ files, retries after a failed attempt and debug rounds 2+.
 - **final reviewer** (strongest installed of the heavy list, else `deepseek-r1:14b`/`phi4:14b`): the last independent review of every change.
-Tasks are classified from the plan (type, number of files, attempt); there is no extra model call. Each switch costs a model load (seconds to a minute on 12 GB VRAM), models above ~12 GB spill into RAM and run slower. Force specific models with `routing.light`/`heavy`/`final_reviewer` in `config.json`. Logic in `models.py`.
+Tasks are classified from the plan (type, number of files, attempt); there is no extra model call. Each switch costs a model load (seconds to a minute on 12 GB VRAM), models above ~12 GB spill into RAM and run slower. Force specific models with `routing.light`/`heavy`/`final_reviewer` in `config.json`. Logic in `infra/models.py`.
 
 ## Network access
 `make ui-lan` listens on all interfaces and prints a link with an access token (stored in `projects/.ui/token`). Open it once per device; a cookie keeps you logged in. It is plain HTTP, so use it on trusted networks only; the UI can start agents and delete projects. `make ui` stays local-only.

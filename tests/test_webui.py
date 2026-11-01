@@ -11,10 +11,10 @@ import selfimprove  # noqa: E402
 
 class ProtectedTests(unittest.TestCase):
     def test_directed_allows_webui_but_not_webaccess(self):
-        changes = ["M\twebui.py", "M\twebaccess.py"]
+        changes = ["M\twebui.py", "M\tinfra/webaccess.py"]
         bad = selfimprove.protected_violations(changes, selfimprove.PROTECTED_DIRECTED)
         self.assertEqual(len(bad), 1)
-        self.assertIn("webaccess.py", bad[0])
+        self.assertIn("infra/webaccess.py", bad[0])
 
     def test_autonomous_blocks_webui(self):
         self.assertTrue(selfimprove.protected_violations(["M\twebui.py"]))

@@ -5,7 +5,7 @@ import threading
 import unittest
 from pathlib import Path
 
-import chat
+from dash import chat
 import webui
 
 

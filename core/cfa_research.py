@@ -2,12 +2,12 @@
 from __future__ import annotations
 
 from pathlib import Path
-from webaccess import WebError
-import estimate
+from infra.webaccess import WebError
+from dash import estimate
 import json
-import knowledge
+from infra import knowledge
 import time
-from cfutil import LENSES, QUALITY_CHECKLIST, TUNABLE, clip, now, read_ideas, read_json, read_sources, sha, write_json, write_text
+from core.cfutil import LENSES, QUALITY_CHECKLIST, TUNABLE, clip, now, read_ideas, read_json, read_sources, sha, write_json, write_text
 
 
 class ResearchMixin:

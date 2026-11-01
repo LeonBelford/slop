@@ -1,16 +1,16 @@
 """Agent methods: model choice, coder call, build/test, debug loop, review, one task attempt."""
 from __future__ import annotations
 
-import estimate
-import gpusched
+from dash import estimate
+from infra import gpusched
 import json
-import models
+from infra import models
 import os
-import perf
+from infra import perf
 import re
 import shutil
 import time
-from cfutil import PRESETS, clip, sh, sh_live, sha, tail, write_json, write_text
+from core.cfutil import PRESETS, clip, sh, sh_live, sha, tail, write_json, write_text
 
 
 class BuildMixin:

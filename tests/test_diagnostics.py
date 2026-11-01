@@ -7,8 +7,8 @@ import unittest
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
-import diagnostics as dg  # noqa: E402
-import estimate  # noqa: E402
+from dash import diagnostics as dg  # noqa: E402
+from dash import estimate  # noqa: E402
 import webui  # noqa: E402
 
 

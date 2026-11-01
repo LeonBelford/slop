@@ -27,14 +27,14 @@ import webbrowser
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 
-import chat as chatlib
+from dash import chat as chatlib
 import codefactory as sa
-import diagnostics
-import models
-import perf
-import qr
-import runledger
-import update
+from dash import diagnostics
+from infra import models
+from infra import perf
+from infra import qr
+from dash import runledger
+from infra import update
 
 ROOT = Path(__file__).resolve().parent
 INDEX = ROOT / "web" / "index.html"
