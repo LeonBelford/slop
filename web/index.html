@@ -1057,12 +1057,27 @@ if(!mobileQ.matches&&localStorage.getItem("sbOff"))document.body.classList.add("
 document.addEventListener("keydown",e=>{if(e.key==="Escape")closeSb()});
 
 /* ---- dashboard: live AI numbers, polled every 2 s while the view is open ---- */
-const DH={tps:[],gpu:[],vram:[]};
+const DH={tps:[],gpu:[],vram:[],busy:[]};let DIAG=null,diagAt=0;
 const nfmt=n=>n>=1e6?(n/1e6).toFixed(1)+"M":n>=1e4?(n/1e3).toFixed(1)+"k":String(Math.round(n));
 function spark(a,max,cls){
   if(a.length<2)return `<svg class="spark ${cls||""}" viewBox="0 0 100 34" preserveAspectRatio="none"></svg>`;
   const m=max||Math.max(1,...a),pts=a.map((v,i)=>`${(i/(a.length-1)*100).toFixed(1)},${(32-Math.min(v,m)/m*30).toFixed(1)}`).join(" ");
   return `<svg class="spark ${cls||""}" viewBox="0 0 100 34" preserveAspectRatio="none"><polyline points="${pts}"/></svg>`;
+}
+async function loadDiag(){if(Date.now()-diagAt<10000)return;diagAt=Date.now();try{DIAG=await api("/api/diagnostics")}catch(e){}}
+const pct=v=>v==null?"–":Math.round(v*100)+"%";
+const dur=s=>s==null?"–":s<90?Math.round(s)+"s":s<5400?Math.round(s/60)+" min":(s/3600).toFixed(1)+" h";
+function diagPanels(d){
+  if(!DIAG)return `<div class="hint">Loading diagnostics…</div>`;
+  const D=DIAG,s=D.system,busy=DH.busy.length?Math.round(100*DH.busy.filter(x=>x).length/DH.busy.length):null;
+  const fnd=(D.findings||[]).map(f=>`<div class="row" style="margin:4px 0"><span class="pill ${f.level==="bad"?"bad":f.level==="warn"?"warn":"info"}">${esc(f.level)}</span> ${esc(f.text)}</div>`).join("")||`<div class="hint">Nothing needs attention.</div>`;
+  const gpuNote=busy!=null&&d.agents_running?`<div class="row" style="margin:4px 0"><span class="pill ${busy<40?"warn":"ok"}">GPU</span> busy ${busy}% of the last ${Math.round(DH.busy.length*1.5/60*10)/10} min while agents run${busy<40?": it waits a lot (CPU offload, model reloads, tests). Run <code>make doctor</code>.":"."}</div>`:"";
+  const sys=[["CPU load",s.load1==null?"–":s.load1+" / "+s.cpus+" cores"],["RAM free",s.ram_free_mb==null?"–":(s.ram_free_mb/1024).toFixed(1)+" / "+(s.ram_total_mb/1024).toFixed(0)+" GB"],["Disk free",s.disk_free_gb+" GB"]].map(([k,v])=>`<span class="pill info">${k}: ${v}</span>`).join(" ");
+  const T=D.tool||{},tool=T.proposals?`<span class="pill info">Self-improve: ${T.kept}/${T.proposals} steps kept (${pct(T.success_rate)}), ${T.repaired} saved by repair</span>`:"";
+  const rows=D.projects.map(p=>{const f=p.flow,m=p.models,h=p.health,r=p.repo||{},sl=m.slowest[0];
+    return `<tr><td><b>${esc(p.name)}</b>${h.stalled?` <span class="pill bad">stalled</span>`:""}</td><td>${f.done}/${f.total}${f.blocked?` <span class="pill warn">${f.blocked} blocked</span>`:""}</td><td>${pct(f.first_try_rate)}</td><td>${f.avg_attempts??"–"}</td><td>${f.failed_attempts}${Object.keys(f.fail_causes).length?`<br><span class="hint" style="margin:0">${esc(Object.entries(f.fail_causes).map(([k,v])=>k+" "+v).join(", "))}</span>`:""}</td><td>${f.avg_review_score??"–"}</td><td>${f.tasks_per_hour??"–"}</td><td>${m.avg_call_s==null?"–":m.avg_call_s+"s"}${sl?`<br><span class="hint" style="margin:0">slowest: ${esc(sl.tag)} ${sl.avg_s}s</span>`:""}</td><td>${pct(m.reasoning_share)}</td><td>${r.files??"–"} / ${r.loc??"–"}<br><span class="hint" style="margin:0">${r.tests??"–"} test files · ${r.commits??"–"} commits</span></td><td>${dur(h.idle_s)}${h.log_errors?`<br><span class="hint" style="margin:0">${h.log_errors} log errors</span>`:""}</td></tr>`}).join("");
+  return `<div class="panel"><h3>Needs attention</h3>${gpuNote}${fnd}<div style="margin-top:8px">${sys} ${tool}</div></div>
+  <div class="panel"><h3>Project diagnostics</h3><div class="tblwrap"><table><tr><th>Project</th><th title="done / all tasks">Tasks</th><th title="tasks that passed on the first attempt">First try</th><th>Attempts / task</th><th>Failed attempts</th><th title="average review score">Review</th><th>Tasks / h</th><th title="average model call time">Call time</th><th title="share of reasoning in all model output">Reasoning</th><th>Files / lines</th><th title="time since last activity">Idle</th></tr>${rows||`<tr><td colspan="11" class="hint">No projects yet</td></tr>`}</table></div></div>`;
 }
 function showDash(){
   closeSb();view="dash";tab="dash";dirty=false;extra=null;lastBody=lastHead=lastTabs="";renderList();
@@ -1073,6 +1088,8 @@ function showDash(){
 async function renderDash(){
   const d=await api("/api/dashboard");
   if(view!=="dash")return;
+  await loadDiag();if(view!=="dash")return;
+  if(d.agents_running&&d.gpu){DH.busy.push(d.gpu.util>=40);if(DH.busy.length>120)DH.busy.shift()}
   DH.tps.push(d.tps);if(DH.tps.length>90)DH.tps.shift();
   if(d.gpu){DH.gpu.push(d.gpu.util);DH.vram.push(d.gpu.mem_used/d.gpu.mem_total*100);if(DH.gpu.length>90){DH.gpu.shift();DH.vram.shift()}}
   const g=d.gpu,t=d.totals;
@@ -1090,7 +1107,7 @@ async function renderDash(){
   const rows=d.projects.map(p=>{const l=p.live,st=!p.running?`<span class="pill">idle</span>`:l.active?`<span class="pill ok">${l.streaming?"generating":"working"}</span>`:`<span class="pill info">${p.state?esc(p.state):"running"}</span>`;
     return `<tr><td><b>${esc(p.name)}</b> ${p.priority==="side"?`<span class="pill info">side</span>`:""}</td><td>${st}</td><td>${l.active?esc(l.role||l.tag)+`<br><span class="hint" style="margin:0">${esc(l.model||"")}</span>`:"–"}</td><td>${l.tps?(l.estimated?"~":"")+l.tps:"–"}</td><td>${l.active?nfmt(l.tokens):"–"}</td><td>${l.active?nfmt(l.chars):"–"}</td><td>${p.coder_chars?nfmt(p.coder_chars):"–"}</td><td>${nfmt(p.tokens)}</td></tr>`}).join("");
   const keepTop=$("#main").scrollTop;
-  $("#body").innerHTML=`<div class="dash-cards">${cards}</div><div class="panel"><h3>Per project</h3><div class="tblwrap"><table><tr><th>Project</th><th>State</th><th>Current call</th><th>tok/s</th><th>Tokens</th><th>Chars</th><th>Aider output</th><th>Total tokens</th></tr>${rows||`<tr><td colspan="8" class="hint">No projects yet</td></tr>`}</table></div></div>`;
+  $("#body").innerHTML=`<div class="dash-cards">${cards}</div><div class="panel"><h3>Per project</h3><div class="tblwrap"><table><tr><th>Project</th><th>State</th><th>Current call</th><th>tok/s</th><th>Tokens</th><th>Chars</th><th>Aider output</th><th>Total tokens</th></tr>${rows||`<tr><td colspan="8" class="hint">No projects yet</td></tr>`}</table></div></div>${diagPanels(d)}`;
   $("#main").scrollTop=keepTop;
 }
 setInterval(()=>{if(view==="dash")renderDash().catch(()=>{})},1500);

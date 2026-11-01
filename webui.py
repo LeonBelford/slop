@@ -29,7 +29,9 @@ from pathlib import Path
 
 import chat as chatlib
 import codefactory as sa
+import diagnostics
 import models
+import perf
 import qr
 import runledger
 import update
@@ -357,6 +359,24 @@ class Service:
                 "tps": round(sum(r["live"]["tps"] for r in running), 1),
                 "live_tokens": sum(r["live"]["tokens"] for r in running), "live_chars": sum(r["live"]["chars"] for r in running),
                 "totals": tot, "gpu": self.gpu_stats(), "models": self.loaded_models()}
+
+    def diagnostics(self) -> dict:
+        """Slow-moving figures for the Dashboard (flow, quality, model time, health, repo, system), cached for a few seconds."""
+        c = getattr(self, "_diag", None)
+        if c and time.time() - c[0] < 10:
+            return c[1]
+        projects = []
+        for p in sa.list_projects(self.projects):
+            summ = self.summary(p)
+            projects.append({**diagnostics.project(p, summ["running"], summ["hours"]), "running": summ["running"], "merged": summ["merged"]})
+        oc = getattr(Service, "_oll", None)
+        if not oc or time.time() - oc[0] > 30:
+            Service._oll = oc = (time.time(), perf.diagnose())
+        sysinfo = diagnostics.system(oc[1])
+        res = {"time": time.time(), "projects": projects, "system": sysinfo, "findings": diagnostics.findings(projects, sysinfo),
+               "tool": runledger.stats(ROOT / "self_improve")}
+        self._diag = (time.time(), res)
+        return res
 
     def tool_stream(self) -> dict:
         d, running = ROOT / "self_improve", alive("tool")
@@ -1219,6 +1239,8 @@ def make_handler(svc: Service, port: int, token: str | None = None):
                     return svc.get_master()
                 if path == "/api/dashboard":
                     return svc.dashboard()
+                if path == "/api/diagnostics":
+                    return svc.diagnostics()
                 if path == "/api/languages":
                     return svc.languages()
                 if path == "/api/ui-settings":
