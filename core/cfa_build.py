@@ -12,7 +12,7 @@ import shutil
 import time
 from core import failures
 from core.cfa_flow import removed_tests
-from core.cfutil import PRESETS, clip, sh, sh_live, sha, tail, write_json, write_text
+from core.cfutil import PRESETS, clip, read_json, sh, sh_live, sha, tail, write_json, write_text
 
 
 class BuildMixin:
@@ -223,6 +223,8 @@ class BuildMixin:
             branch = f"agent/{item['id']}-{attempt}"
             self.git.branch_from_main(branch)
             base_sha = self.git.out("rev-parse", "main")
+            if attempt == 2:
+                previous.append("Scope: deliver the smallest working slice that meets the core acceptance criteria; leave extras for later tasks.")
             self.retry_strategy(item, previous)
             try:
                 ok, why = self.attempt(item, previous, branch, base_sha)
@@ -256,13 +258,21 @@ class BuildMixin:
                 self.force_heavy = True
                 self.log(f"The same failure ({cls}) happened again: escalating to the stronger model and a different approach")
                 previous.append("The same failure repeated. Do NOT repeat the previous approach; change the approach fundamentally.")
+            if time.time() - t0 > self.lim.get("max_task_minutes", 120) * 60 and attempt < self.lim["max_attempts_per_task"]:
+                self.log(f"{item['id']} took over {self.lim.get('max_task_minutes', 120)} min: no more attempts of the same kind")
+                break
             if same >= 2:
                 self.log("Three identical failures: stopping this task instead of repeating it")
                 self.metric(kind="stalled", item=item["id"], where="task", sig=sig[:80])
                 notify.send(self.cfg, "stalled", self.ws.name, f"{item['id']} {item['title']} failed three times the same way")
                 break
         self.force_heavy = False
-        self.backlog.set(item, status="blocked")
+        self.drop_wip(item)
+        if self.split_task(item, previous):
+            self.cur_task, self.cur_attempt = "", 0
+            self.phase("Task split into smaller slices", None, item["title"])
+            return False
+        self.block_task(item)
         self.phase("Task blocked after repeated failures", None, item["title"])
         notify.send(self.cfg, "blocked", self.ws.name, f"{item['id']} {item['title']} is blocked after repeated failures")
         return False
@@ -277,12 +287,40 @@ class BuildMixin:
             lesson = clip(why, 300)
         self.mem.add_lesson(lesson, [], item["id"])
 
+    def save_wip(self, item: dict) -> None:
+        """Builds and tests are green: keep this work so a later gate failure only needs a fix, not a rewrite from scratch."""
+        if self.git.commit_all(f"{item['id']}: work in progress (build and tests green)") or self.git.changed_files():
+            self.git.run("branch", "-f", f"agent/wip-{item['id']}", "HEAD")
+
+    def resume_wip(self, item: dict) -> dict | None:
+        """On a retry after a failed quality gate: continue from the saved green work. Returns its plan, or None to start fresh."""
+        wip = f"agent/wip-{item['id']}"
+        plan = read_json(self.run_dir / "plan.json", None)
+        if not plan or self.git.run("rev-parse", "--verify", "-q", wip)[0] != 0 \
+                or self.git.run("merge", "--ff-only", "-q", wip)[0] != 0:
+            return None
+        self.log(f"Resuming from the saved green work of {item['id']}: only the failed gate is fixed, nothing is rewritten")
+        return plan
+
+    def drop_wip(self, item: dict) -> None:
+        self.git.run("branch", "-D", f"agent/wip-{item['id']}")
+
     def attempt(self, item: dict, previous: list[str], branch: str, base_sha: str) -> tuple[bool, str]:
-        plan = self.impact_analysis(item, previous)
-        self.implement(item, plan)
+        plan = self.resume_wip(item) if previous else None
+        if plan:
+            self.phase("Fixing the failed quality gate on the saved work", "implement", clip(previous[-1] if previous else "", 160))
+            self.code("resume_fix", sorted(set(self.git.changed_files()))[:self.lim["max_files_per_task"] + 4],
+                      [str(self.run_dir / "context.md")],
+                      f"Task {item['id']}: {item['title']}\nThe implementation builds and passes its tests, but it was rejected by a "
+                      f"quality gate. Fix exactly the problems below with minimal edits; keep everything that works.\n"
+                      + "\n".join(previous[-3:]) + f"\n\n{self.RULES}")
+        else:
+            plan = self.impact_analysis(item, previous)
+            self.implement(item, plan)
         ok, report = self.debug_loop(item)
         if not ok:
             return False, "Build/test red after debug rounds:\n" + report
+        self.save_wip(item)
         self.coverage_check(item)
         if not self.mutation_check(item):
             return False, "Red after the mutation fix round"
@@ -348,6 +386,7 @@ class BuildMixin:
             return False, str(e)
         shutil.rmtree(snap, ignore_errors=True)
         self.git.run("branch", "-D", branch)
+        self.drop_wip(item)
         self.state["merged"] += 1
         self.metric(item=item["id"], title=item["title"], type=item["type"], attempts=item["attempts"],
                     review_score=review.get("score"), files=len(changed_all), loc=sum(e.get("loc", 0) for e in self.mem.codemap.values()))

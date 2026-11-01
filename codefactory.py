@@ -93,9 +93,10 @@ from core.cfa_security import SecurityMixin
 from core.cfa_research import ResearchMixin
 from core.cfa_ops import OpsMixin
 from core.cfa_plan import PlanMixin
+from core.cfa_split import SplitMixin
 
 
-class Agent(BuildMixin, FlowMixin, VerifyMixin, SecurityMixin, ResearchMixin, OpsMixin, PlanMixin):
+class Agent(BuildMixin, FlowMixin, VerifyMixin, SecurityMixin, ResearchMixin, OpsMixin, PlanMixin, SplitMixin):
     def __init__(self, ws: Path, cfg: dict | None = None):
         self.ws = ws.resolve()
         self.repo, self.dir = self.ws / "repo", self.ws / "agent"
@@ -356,6 +357,7 @@ class Agent(BuildMixin, FlowMixin, VerifyMixin, SecurityMixin, ResearchMixin, Op
             if self.state["iteration"] % self.lim["health_every"] == 0:
                 self.health_check()
             self.reload_models()
+            self.revive_blocked()
             self.sync_ideas()
             self.sync_sources()
             if self.reflect_due():
