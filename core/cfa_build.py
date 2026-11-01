@@ -76,9 +76,7 @@ class BuildMixin:
             if not c:
                 continue
             self.log(f"▶ running {name}: {c}")
-            write_json(self.dir / "cmd_now.json", {"name": name, "cmd": c, "since": time.time()})
-            rc, out = sh_live(c, self.repo, t, self.dir / "cmd_live.txt", shell=True)
-            (self.dir / "cmd_now.json").unlink(missing_ok=True)
+            rc, out = self.run_cmd(name, c, t)
             if rc:
                 return False, f"[{name}] FAILED rc={rc}\n$ {c}\n{tail(out, 6000)}"
         return True, "build + tests ok"
@@ -152,7 +150,7 @@ class BuildMixin:
 
     def debug_loop(self, item: dict) -> tuple[bool, str]:
         self.phase("Building and running tests", "build")
-        ok, report = self.verify()
+        ok, report = self.verify_stage()
         for n in range(1, self.lim["max_debug_rounds"] + 1):
             if ok and self.cfg["features"]["require_tests"] and item["type"] in ("feature", "bug") \
                     and not any("test" in f.lower() for f in self.git.changed_files()):
@@ -169,7 +167,7 @@ class BuildMixin:
                       f"The build/test failed. Find the cause (not the symptoms) and fix it.\n"
                       f"The task was: {item['title']}\n\nError report:\n{report}\n\n{self.RULES}\n"
                       "Do not delete or weaken tests just to make them pass.")
-            ok, report = self.verify()
+            ok, report = self.verify_stage()
         return ok, report
 
     def review(self, item: dict, plan: dict) -> dict:
@@ -248,6 +246,9 @@ class BuildMixin:
         ok, report = self.debug_loop(item)
         if not ok:
             return False, "Build/test red after debug rounds:\n" + report
+        self.coverage_check(item)
+        if not self.mutation_check(item):
+            return False, "Red after the mutation fix round"
         ok, report = self.e2e_check(item)
         if not ok:
             return False, "Browser test failed:\n" + report
