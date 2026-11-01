@@ -23,6 +23,15 @@ aside header{padding:16px;font-weight:600;font-size:15px;letter-spacing:.04em;te
 .side-actions button{flex:1}
 .side-foot{padding:12px;border-top:1px solid var(--line)}
 .side-foot button{width:100%}
+.chat-switch{display:flex;align-items:center;justify-content:space-between;gap:10px;margin:10px 2px;padding:8px 10px;border:1px solid var(--line);border-radius:8px;cursor:pointer;font-size:13px;color:var(--text);transition:border-color .15s}
+.chat-switch:hover{border-color:#555}
+.sw{position:relative;display:inline-block;width:38px;height:22px;flex:0 0 auto}
+.sw input{position:absolute;opacity:0;width:100%;height:100%;margin:0;cursor:pointer;z-index:1}
+.sw-track{position:absolute;inset:0;background:#3a3a3a;border-radius:999px;transition:background .2s}
+.sw-thumb{position:absolute;top:2px;left:2px;width:18px;height:18px;border-radius:50%;background:#ccc;transition:transform .2s,background .2s;box-shadow:0 1px 2px rgba(0,0,0,.4)}
+.sw input:checked+.sw-track{background:#2e7d4f}
+.sw input:checked+.sw-track .sw-thumb{transform:translateX(16px);background:#56d364}
+.sw input:focus-visible+.sw-track{outline:2px solid #56d364;outline-offset:2px}
 #plist{flex:1;overflow:auto;padding:0 8px 12px}
 .card{padding:9px 10px;border-left:2px solid transparent;cursor:pointer}
 .card:hover{background:var(--panel2)}
@@ -172,7 +181,10 @@ button.ghost.danger{color:var(--bad)}
   <div id="ms" class="hint" style="padding:8px 16px"></div>
   <div id="plist"></div>
   <div class="side-foot"><button id="updBtn" onclick="openUpdate()" title="Check for a new version on GitHub and install it">Update</button>
-  <label class="hint" style="display:flex;gap:8px;align-items:center;margin:8px 0;cursor:pointer" title="The chat uses the same Ollama server as the agent. Turn it off so it never competes with the agent for the GPU."><input type="checkbox" id="chatOn" onchange="setChatEnabled(this.checked)"> Chat AI enabled</label>
+  <label class="chat-switch" title="The chat uses the same Ollama server as the agent. Turn it off so it never competes with the agent for the GPU.">
+    <span>Chat AI</span>
+    <span class="sw"><input type="checkbox" id="chatOn" onchange="setChatEnabled(this.checked)"><span class="sw-track"><span class="sw-thumb"></span></span></span>
+  </label>
   <button onclick="showTool()" title="Tell the tool itself what to change (Makefile, UI, loop ...)">Change the tool itself</button></div>
 </aside>
 <main id="main">
