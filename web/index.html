@@ -430,7 +430,12 @@ function renderNow(){
   reasoningLive();
   box.innerHTML=`<div class="what">${n?esc(n.phase):"Starting…"}</div>
   <div class="sub">${n&&n.task?`Task: ${esc(n.task)} · attempt ${n.attempt}/3 · `:""}${n?`in this step for ${fmtDur(t-n.since)}`:""}${n&&n.detail?`<br>${esc(n.detail)}`:""}</div>
-  ${stepper}${call}${a.queued_user_tasks&&a.queued_user_tasks.length?`<div class="sub" style="margin-top:8px">Your queued tasks: ${a.queued_user_tasks.map(esc).join("; ")}</div>`:""}${timeline(a.events)}`;
+  ${stepper}${schedLine(a.sched)}${call}${a.queued_user_tasks&&a.queued_user_tasks.length?`<div class="sub" style="margin-top:8px">Your queued tasks: ${a.queued_user_tasks.map(esc).join("; ")}</div>`:""}${timeline(a.events)}`;
+}
+function schedLine(sc){
+  if(!sc||sc.priority!=="side")return "";
+  const m={waiting:["lg-warn","⏸ Side agent: waiting for a free GPU (the main agent is working)"],preempted:["lg-warn","⏸ Side agent: stopped for the main agent, retrying when it is idle"],running:["lg-ok","▶ Side agent: using the GPU while main is idle"]}[sc.state]||["",sc.state];
+  return `<div class="call"><b class="${m[0]}">${m[1]}</b>${sc.detail?` <span class="hint">${esc(sc.detail)}</span>`:""}</div>`;
 }
 function timeline(ev){
   if(!ev||!ev.length)return "";
@@ -550,7 +555,10 @@ function settingsBody(d){
     <div id="mlist" style="margin-top:16px"></div>
     <div class="panel" style="margin-top:16px"><h3>Limits and behaviour</h3><div class="grid2">${lim}
     <label class="fld">web access<select id="web-mode">${["off","sources","open"].map(m=>`<option ${m===st.web_mode?"selected":""}>${m}</option>`).join("")}</select></label>
-    <label class="fld">documentation language<input id="doc-lang" value="${esc(st.doc_language)}"></label></div>
+    <label class="fld">documentation language<input id="doc-lang" value="${esc(st.doc_language)}"></label>
+    <label class="fld">GPU priority<select id="sc-prio"><option value="main" ${st.scheduler.priority==="main"?"selected":""}>main (keeps the GPU)</option><option value="side" ${st.scheduler.priority==="side"?"selected":""}>side (only while main is idle)</option></select></label>
+    <label class="fld">side waits until main is idle for (s)<input id="sc-idle" type="number" min="0" max="3600" value="${esc(st.scheduler.min_idle)}"></label></div>
+    <p class="hint">Run one project as <b>main</b> and others as <b>side</b>: side agents use the GPU only in the pauses of main (its builds, tests, waiting) and are stopped as soon as main needs the model again.</p>
     <div class="row" style="justify-content:space-between;margin-top:10px"><span class="hint">Stack: <b>${esc(st.preset)}</b> (fixed after creation). ${d.running?"Changes apply at the next start.":""}</span><button class="primary" onclick="saveSettings()">Save settings</button></div></div>
     <div class="panel" style="margin-top:16px"><h3>Smart model routing (optional)</h3>
     <p class="hint">Simple tasks go to a small fast coder, complex tasks and retries to a stronger one, and a strong model does the final review of every change. Models from the list below are used <b>automatically once installed</b>; nothing is required. Leave a field empty to auto-detect.</p>
@@ -567,7 +575,7 @@ function settingsBody(d){
 async function saveSettings(){
   const v=id=>$("#"+id).value,limits={};
   document.querySelectorAll("[id^=lim-]").forEach(e=>limits[e.id.slice(4)]=e.value);
-  try{const r=await api(`/api/project/${sel}/settings`,{models:{planner:v("m-planner"),reviewer:v("m-reviewer"),summarizer:v("m-summarizer")},coder_model:v("m-coder"),limits,web_mode:v("web-mode"),routing:{mode:v("rt-mode"),light:v("rt-light"),heavy:v("rt-heavy"),final_reviewer:v("rt-final")},doc_language:v("doc-lang")});
+  try{const r=await api(`/api/project/${sel}/settings`,{models:{planner:v("m-planner"),reviewer:v("m-reviewer"),summarizer:v("m-summarizer")},coder_model:v("m-coder"),limits,web_mode:v("web-mode"),routing:{mode:v("rt-mode"),light:v("rt-light"),heavy:v("rt-heavy"),final_reviewer:v("rt-final")},doc_language:v("doc-lang"),scheduler:{priority:v("sc-prio"),min_idle:v("sc-idle")}});
     dirty=false;toast(r.applies==="now"?"Settings saved":"Saved, applies at the next start");extra=null;await fetchExtra();lastBody="";renderProject()}catch(e){toast(e.message,true)}
 }
 async function renameProject(){

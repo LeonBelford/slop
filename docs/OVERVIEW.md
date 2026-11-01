@@ -62,3 +62,6 @@ Stdlib-only core, unit tests (`make test`), end-to-end selftest with a stub mode
 - Security gate, runtime probe, periodic audits
 - Full reasoning stream, code tree with highlighted changes, self-update, chat toggle
 - Self-changes with impact analysis, security gate, review and the same UI tabs; reasoning view scroll anchoring and click-to-enlarge fields
+
+## GPU scheduling
+`gpusched.py`: one MAIN agent has priority, SIDE agents (config `scheduler.priority`, `min_idle`) use the model only while main is idle. State is one JSON file per main process in `~/.codefactory/gpu`; `LLM.chat` and `Agent.code` wrap every GPU use in `sched.gpu()`. A side agent aborts a streaming call or stops Aider (`sh_live(gate=...)`, rc 75) when main becomes busy and retries later; a file lock allows only one side agent at a time. The UI shows the side state in the Now box (`agent/sched.json`).

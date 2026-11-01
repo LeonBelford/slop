@@ -211,7 +211,7 @@ class Service:
                 except ValueError:
                     pass
         return {"running": running, "now": sa.read_json(a / "activity.json", None) if running else None,
-                "llm": read_live(a / "llm_now.json", running), "coder": read_live(a / "coder_now.json", running), "cmd": read_live(a / "cmd_now.json", running),
+                "llm": read_live(a / "llm_now.json", running), "coder": read_live(a / "coder_now.json", running), "cmd": read_live(a / "cmd_now.json", running), "sched": read_live(a / "sched.json", running),
                 "events": events, "queued_user_tasks": [i["title"] for i in sa.read_json(a / "backlog.json", [])
                                                           if i.get("source") == "user" and i["status"] in ("pending", "in_progress")]}
 
@@ -486,7 +486,7 @@ class Service:
         eff = sa.Agent(ws).cfg
         inst = self.installed_models(eff["llm_api"])
         return {"settings": {"models": eff["models"], "coder_model": eff["coder_model"],
-                             "limits": {k: eff["limits"][k] for k in SETTING_LIMITS}, "web_mode": eff["web"]["mode"],
+                             "limits": {k: eff["limits"][k] for k in SETTING_LIMITS}, "web_mode": eff["web"]["mode"], "scheduler": eff["scheduler"],
                              "doc_language": eff["doc_language"], "preset": conf.get("preset", eff["preset"]),
                              "routing": {k: eff["routing"].get(k, "") for k in ("mode", "light", "heavy", "final_reviewer")}},
                 "limit_bounds": SETTING_LIMITS, "installed_models": inst,
@@ -529,6 +529,17 @@ class Service:
             for k in ("light", "heavy", "final_reviewer"):
                 if k in rt:
                     conf["routing"][k] = self.model_name(rt[k]) if str(rt[k]).strip() else ""
+        sc = body.get("scheduler")
+        if sc:
+            if sc.get("priority", "main") not in ("main", "side"):
+                raise UiError("Priority must be main or side")
+            try:
+                idle = float(sc.get("min_idle", 20))
+            except (TypeError, ValueError):
+                raise UiError("min_idle must be a number") from None
+            if not 0 <= idle <= 3600:
+                raise UiError("min_idle must be between 0 and 3600")
+            conf["scheduler"] = {"priority": sc.get("priority", "main"), "min_idle": idle}
         if "web_mode" in body:
             if body["web_mode"] not in ("off", "sources", "open"):
                 raise UiError("Web mode must be off, sources or open")

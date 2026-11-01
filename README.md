@@ -6,6 +6,10 @@ tests, debugs, cleans up and documents until you stop it or a limit is reached. 
 > The loop mechanics are tested with a stub model (`make selftest`, also in CI). They have not yet been run with a real model.
 > Start with a small idea and watch `agent.log`.
 
+## GPU scheduling (main + side agents)
+
+If your GPU sits at 30 % while one agent runs (it spends much of its time in builds, tests and thinking pauses), run a second project as a **side** agent: Settings → "GPU priority". One project stays **main** (default). Side agents only use the model while main has been idle for N seconds (default 20) and are stopped the moment main needs it again: a running model call is aborted and Aider is stopped, then retried when main is idle. Only one side agent works at a time. Caveat: with 12 GB VRAM a side agent using a different model makes Ollama swap models, so give side projects the same models as main for the best effect. Env override: `CODEFACTORY_PRIORITY=side`. Shared state: `~/.codefactory/gpu` (`CODEFACTORY_GPU_DIR`).
+
 ## Requirements
 Linux/macOS/WSL, Python ≥ 3.10, git, [Ollama](https://ollama.com/download). Recommended: 12 GB VRAM (RTX 3060) and 16 GB RAM.
 

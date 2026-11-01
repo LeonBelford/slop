@@ -49,6 +49,7 @@ import urllib.request
 from pathlib import Path
 
 import e2e
+import gpusched
 import knowledge
 import models
 import security
@@ -95,6 +96,8 @@ DEFAULT_CONFIG = {
     },
     "context": {"max_chars": 26000, "file_clip": 6000},
     # Internet access. mode: "off" | "sources" (only URLs listed in SOURCES.md) | "open" (also web search by the agent)
+    # GPU scheduling between agents: "main" keeps priority, "side" only uses the model while main is idle for min_idle seconds
+    "scheduler": {"priority": "main", "min_idle": 20},
     "web": {"mode": "sources", "refresh_hours": 24, "max_chars": 20000, "timeout": 20, "research_every": 4,
             "queries_per_research": 3, "results_per_query": 2, "max_new_pages_per_session": 40,
             "search_url": "https://html.duckduckgo.com/html/?q={q}", "blocked_domains": []},
@@ -190,7 +193,7 @@ def sh(cmd, cwd: Path, timeout: int = 900, shell: bool = False, env: dict | None
         return 127, f"Command not found: {e}"
 
 
-def sh_live(cmd, cwd: Path, timeout: int, live: Path, env: dict | None = None, shell: bool = False):
+def sh_live(cmd, cwd: Path, timeout: int, live: Path, env: dict | None = None, shell: bool = False, gate=None):
     """Like sh(), but mirrors the output into `live` while the command runs so the UI can show it as it is written."""
     try:
         p = subprocess.Popen(cmd, cwd=str(cwd), stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True, errors="replace", shell=shell,
@@ -208,12 +211,25 @@ def sh_live(cmd, cwd: Path, timeout: int, live: Path, env: dict | None = None, s
 
     th = threading.Thread(target=pump, daemon=True)
     th.start()
-    try:
-        p.wait(timeout=timeout)
-    except subprocess.TimeoutExpired:
-        force_stop_pid(p.pid, grace=2.0)
-        th.join(2)
-        return 124, f"TIMEOUT after {timeout}s: {cmd}"
+    t0 = time.time()
+    while True:
+        try:
+            p.wait(timeout=0.5)
+            break
+        except subprocess.TimeoutExpired:
+            pass
+        if time.time() - t0 > timeout:
+            force_stop_pid(p.pid, grace=2.0)
+            th.join(2)
+            return 124, f"TIMEOUT after {timeout}s: {cmd}"
+        if gate is not None:
+            try:
+                gate.check()
+            except gpusched.Preempted:
+                force_stop_pid(p.pid, grace=2.0)
+                th.join(2)
+                p.poll()
+                return gpusched.PREEMPTED_RC, "PREEMPTED"
     th.join(5)
     return p.returncode, "".join(chunks)
 
@@ -384,6 +400,7 @@ class LLM:
         self.trace: Path | None = None  # set by Agent: every model call is appended here so you can watch the "thinking"
         self.thoughts: Path | None = None  # full, untruncated record of every call incl. the model's reasoning (thoughts.jsonl)
         self.stream: Path | None = None  # the answer being written right now, updated while it streams (llm_stream.json)
+        self.sched = gpusched.NullScheduler()  # set by Agent
         self.seq = 0
         self.ctx = lambda: ""  # returns the current task id (set by Agent)
 
@@ -425,6 +442,7 @@ class LLM:
                     continue
                 content += delta.get("content") or ""
                 thinking += delta.get("reasoning") or delta.get("reasoning_content") or ""
+                self.sched.check()  # a side agent aborts here when the main agent needs the GPU
                 if time.time() - last_pub > 0.4:
                     last_pub = time.time()
                     self._publish(tag, role, model, since, thinking + _open_think(content), _strip_think(content))
@@ -486,16 +504,21 @@ class LLM:
         def heartbeat():
             t0 = time.time()
             while not done.wait(30):
+                if self.sched.waiting:
+                    continue
                 self.log(f"... still waiting for the model ({role}/{tag}, {int(time.time() - t0)}s). Normal for big models; see `ollama ps`.")
 
         threading.Thread(target=heartbeat, daemon=True).start()
-        for attempt in range(4):
+        attempt = 0
+        while attempt < 4:
             try:
                 req = urllib.request.Request(
                     self.cfg["llm_api"], data=body,
                     headers={"Content-Type": "application/json", "Authorization": "Bearer " + self.cfg["api_key"]})
-                with urllib.request.urlopen(req, timeout=self.cfg["limits"]["llm_timeout"]) as r:
-                    answer, thinking = self._read(r, tag, role, model, t_start)
+                with self.sched.gpu(f"{role}/{tag}"):
+                    t_start = time.time()
+                    with urllib.request.urlopen(req, timeout=self.cfg["limits"]["llm_timeout"]) as r:
+                        answer, thinking = self._read(r, tag, role, model, t_start)
                 done.set()
                 if self.live:
                     self.live.unlink(missing_ok=True)
@@ -505,9 +528,13 @@ class LLM:
                 self.log(f"🧠 [{role}/{tag}] answered in {time.time() - t_start:.0f}s"
                          + (f", reasoned {len(thinking)} chars" if thinking else "") + f": {clip(' '.join(answer.split()), 160)}")
                 return self._traced(tag, role, user, answer)
+            except gpusched.Preempted:
+                self._publish(tag, role, model, t_start, "", "")
+                continue  # not an error: main needs the GPU, wait for it to be idle and ask again
             except Exception as e:  # network/model briefly unavailable: wait and retry
                 last = e
-                self.log(f"LLM error ({tag}), attempt {attempt + 1}: {e}")
+                attempt += 1
+                self.log(f"LLM error ({tag}), attempt {attempt}: {e}")
                 time.sleep(5 * (attempt + 1))
         done.set()
         for f in (self.live, self.stream):
@@ -1161,6 +1188,7 @@ class Agent:
         self.llm.thoughts = self.dir / "thoughts.jsonl"
         self.llm.stream = self.dir / "llm_stream.json"
         self.llm.ctx = lambda: self.cur_task
+        self.llm.sched = gpusched.make(self.cfg, self.ws.name, self.log, self.dir / "sched.json")
         self.cur_task, self.cur_attempt = "", 0
         self.git = Git(self.repo)
         self.backlog = Backlog(self.dir / "backlog.json")
@@ -1336,7 +1364,12 @@ class Agent:
         cmd += edit
         env = {"OLLAMA_API_BASE": os.getenv("OLLAMA_API_BASE", "http://localhost:11434"), "PYTHONUNBUFFERED": "1"}
         t0 = time.time()
-        rc, out = sh_live(cmd, self.repo, self.lim["coder_timeout"], self.dir / "coder_live.txt", env=env)
+        while True:
+            with self.llm.sched.gpu(f"coder/{tag}") as gate:
+                rc, out = sh_live(cmd, self.repo, self.lim["coder_timeout"], self.dir / "coder_live.txt", env=env, gate=gate)
+            if rc != gpusched.PREEMPTED_RC:
+                break
+            self.log(f"⏸ [coder/{tag}] Aider stopped for the main agent, retrying when the GPU is idle")
         (self.dir / "coder_now.json").unlink(missing_ok=True)
         (self.dir / "coder_live.txt").unlink(missing_ok=True)
         self.llm.record(tag, "coder", model, prompt, out, "", time.time() - t0)
@@ -2217,7 +2250,7 @@ class Agent:
             pid = 0
         killed = force_stop_pid(pid) if pid else []
         sh(["tmux", "kill-session", "-t", f"agent-{self.ws.name}"], self.dir)
-        for f in ("agent.pid", "llm_now.json", "coder_now.json", "llm_stream.json", "coder_live.txt", "cmd_now.json"):
+        for f in ("agent.pid", "llm_now.json", "coder_now.json", "llm_stream.json", "coder_live.txt", "cmd_now.json", "sched.json"):
             (self.dir / f).unlink(missing_ok=True)
         self.cur_task, self.cur_attempt = "", 0
         self.phase("Force-stopped", None, "kill switch used; unfinished work is discarded on the next start")
