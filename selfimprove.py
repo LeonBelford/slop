@@ -219,7 +219,8 @@ def _aider(model: str, timeout: int):
         sa.write_json(STATE / "coder_now.json", {"tag": "self-change", "files": files[:12], "model": model, "since": time.time()})
         t0 = time.time()
         rc, out = sa.sh_live(cmd, work, timeout, STATE / "coder_live.txt",
-                             env={"OLLAMA_API_BASE": sa.os.getenv("OLLAMA_API_BASE", "http://localhost:11434"), "PYTHONUNBUFFERED": "1"})
+                             env={"OLLAMA_API_BASE": sa.os.getenv("OLLAMA_API_BASE", "http://localhost:11434"), "PYTHONUNBUFFERED": "1"},
+                             idle=True)  # the timeout only counts silence: Aider is never cut off while it is still writing
         for f in ("coder_now.json", "coder_live.txt"):
             (STATE / f).unlink(missing_ok=True)
         pf.unlink(missing_ok=True)
