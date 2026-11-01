@@ -62,3 +62,13 @@ class CompactTests(unittest.TestCase):
 
     def test_aider_token_lines(self):
         self.assertEqual(sa.aider_tokens("Tokens: 1.2k sent, 345 received.\nTokens: 8,432 sent, 1,023 received. Cost"), (9632, 1368))
+
+
+class PreviewTests(unittest.TestCase):
+    def test_preview_rejects_unknown_branches(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            svc = webui.Service(Path(tmp))
+            for bad in ("main", "../x", "self-improve/20990101-000000"):
+                with self.assertRaises(webui.UiError):
+                    svc.preview_start({"branch": bad})
+            self.assertFalse(svc.preview_state()["running"])
