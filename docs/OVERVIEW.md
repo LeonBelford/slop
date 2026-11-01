@@ -29,6 +29,7 @@ Python/FastAPI, Node, .NET, Go, Rust and more via presets; documentation languag
 Optional research with guards: http/https only, no private addresses, blocked domains, content treated as untrusted data.
 
 ## Web UI (`make ui`, `make ui-lan`)
+- **Reasoning tab:** live animated "thinking" indicator plus readable cards of recent plans, security reviews and decisions.
 - Live "Now" panel with the cycle stepper (Plan, Implement, Build, Browser test, Security, Review, ...); the Live log is colour-coded (steps, success, security, warnings, errors) and logs every step.
 - Live "Now" panel, AI activity log, file changes, backlog, goal, ideas.
 - Directed tasks ("Do a task"), project create/rename/delete/settings, kill switch.
@@ -52,4 +53,5 @@ Stdlib-only core, unit tests (`make test`), end-to-end selftest with a stub mode
 - Model routing, Playwright e2e, chat, self-improve backups
 - Knowledge base with hybrid search, lessons with expiry
 - Model manager and modern chat
+- Reasoning tab with live thinking animation
 - Security gate, runtime probe, periodic audits
