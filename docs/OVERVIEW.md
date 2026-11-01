@@ -42,6 +42,7 @@ Optional research with guards: http/https only, no private addresses, blocked do
 - LAN mode with access token; "Change the tool itself" (self-improve on a branch).
 
 ## Self-improvement
+Self-changes ("Change the tool itself") get the same transparency and safeguards as projects: a stage stepper (Plan, Backup, Impact, Implement, Security, Test, Review, Docs), a Reasoning tab with streamed thoughts and Aider/test output, a Changes tab (file tree with highlighted new lines per result branch) and a Live log. Before and after every change the agent runs impact analysis + plan critique, the security gate (static rules + attacker-minded review, one fix round), the full test suite and a final code review; `security.py` is protected from self-changes.
 The agent can change the tool itself on a branch, never merging on its own; a backup tag and bundle is made before every self-change. Security-critical files are protected.
 
 ## Security
@@ -60,3 +61,4 @@ Stdlib-only core, unit tests (`make test`), end-to-end selftest with a stub mode
 - Reasoning tab with live thinking animation
 - Security gate, runtime probe, periodic audits
 - Full reasoning stream, code tree with highlighted changes, self-update, chat toggle
+- Self-changes with impact analysis, security gate, review and the same UI tabs; reasoning view scroll anchoring and click-to-enlarge fields

@@ -304,3 +304,29 @@ def render(findings: list[dict], limit: int = 25) -> str:
     if len(findings) > limit:
         rows.append(f"- ... and {len(findings) - limit} more")
     return "\n".join(rows)
+
+
+def llm_review(llm, title: str, diff: str, log=print) -> list[dict]:
+    """Attacker-minded LLM review of a diff: only concrete, exploitable problems introduced by this change."""
+    try:
+        data = llm.json(
+            "security_review", "reviewer",
+            "You are a penetration tester reviewing a diff. Report only concrete, exploitable problems introduced or exposed by this change, "
+            "no style remarks. Think like an attacker: which new input, endpoint, file, command or dependency can they reach?",
+            f"Task: {title}\nChecklist: broken authentication/authorization, injection (SQL, command, template), remote code execution, "
+            "unsafe deserialization, XSS/CSRF, SSRF, path traversal, hard-coded or logged secrets, weak password hashing (must be argon2id/scrypt/bcrypt "
+            "with salt), insecure randomness, missing input validation or limits, verbose errors, vulnerable or unpinned dependencies, "
+            f"missing rate limiting on auth.\nDiff:\n{diff[:12000]}\nSchema: "
+            '{"findings": [{"severity": "critical|high|medium|low", "file": "", "problem": "", "fix": "", "confidence": 1-10}]}')
+    except Exception as e:  # noqa: BLE001
+        log(f"Security review failed: {e}")
+        return []
+    out = []
+    for f in data.get("findings", []) if isinstance(data, dict) else []:
+        try:
+            conf = int(f.get("confidence", 5) or 5)
+        except (TypeError, ValueError):
+            conf = 5
+        if isinstance(f, dict) and f.get("severity") in SEVERITIES and conf >= 6:
+            out.append(finding(f["severity"], "llm-review", str(f.get("file", "")), 0, str(f.get("problem", "")), str(f.get("fix", ""))))
+    return out
