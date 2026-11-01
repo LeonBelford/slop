@@ -88,21 +88,27 @@ class SecurityMixin:
         return added
 
     def e2e_check(self, item: dict) -> tuple[bool, str]:
-        """Real-browser check of web products: smoke test plus a generated Playwright script. Skipped when unavailable."""
+        """UI test of products that have a web UI: smoke test plus a generated Playwright script. Skipped for CLI tools, APIs and
+        libraries, while no UI exists yet, and when Playwright is unavailable."""
         feat = self.cfg["features"].get("e2e", "auto")
         url = e2e.extract_url(self.detect_run_plan().get("url", ""))
         if feat in (False, "off") or not url or item["type"] == "docs":
+            return True, ""
+        if not self.has_ui():
+            if not getattr(self, "ui_hinted", False):
+                self.ui_hinted = True
+                self.log("UI tests skipped: this project has no user interface (yet).")
             return True, ""
         py = e2e.find_python()
         if not py:
             if not getattr(self, "e2e_hinted", False):
                 self.e2e_hinted = True
-                self.log("Browser tests skipped. " + e2e.INSTALL_HELP)
+                self.log("UI tests skipped. " + e2e.INSTALL_HELP)
             return True, ""
         if e2e.port_busy(url):
-            self.log(f"Browser tests skipped: {url} is already in use.")
+            self.log(f"UI tests skipped: {url} is already in use.")
             return True, ""
-        self.phase("Starting the app for the browser test", "e2e", url)
+        self.phase("Starting the app for the UI test", "e2e", url)
         proc, err = e2e.start_app(PRESETS[self.cfg["preset"]]["run"], self.repo, url)
         if not proc:
             return False, "[e2e] " + err
@@ -110,7 +116,7 @@ class SecurityMixin:
         script = self.repo / "e2e" / f"e2e_{item['id'].lower()}.py"
         try:
             for rnd in range(1, 3):
-                self.phase(f"Browser test, round {rnd}", "e2e", "smoke + user flow")
+                self.phase(f"UI test, round {rnd}", "e2e", "smoke + user flow")
                 rep = e2e.smoke(py, url, out)
                 if rep.get("error") or not rep.get("ok"):
                     problems = rep.get("error") or "\n".join(rep.get("problems", []))
@@ -130,17 +136,17 @@ class SecurityMixin:
                         write_text(script, code)
                     res = e2e.run_script(py, script, url, out)
                     if res.get("ok"):
-                        self.log(f"Browser test passed ({script.name}).")
+                        self.log(f"UI test passed ({script.name}).")
                         return self.security_probe(url)
                     fail = f"[e2e script] {res.get('error') or ''}\n" + "\n".join(res.get("problems", [])) \
                         + f"\nPage now:\n{res.get('snapshot', '')[:2000]}"
-                self.log("Browser test failed: " + fail.splitlines()[0][:150])
+                self.log("UI test failed: " + fail.splitlines()[0][:150])
                 if rnd == 2:
                     return False, fail
                 files = sorted(set(self.git.changed_files()) | ({f"e2e/{script.name}"} if script.exists() else set()))
                 e2e.stop_app(proc)
                 self.code("e2e_fix", files[:self.lim["max_files_per_task"] + 4], [str(self.run_dir / "context.md")],
-                          f"A real-browser test failed. The product code or the test script e2e/{script.name} is wrong; "
+                          f"A UI test (real browser) failed. The product code or the test script e2e/{script.name} is wrong; "
                           f"fix whichever is at fault (never just weaken the assertion).\nTask: {item['title']}\n\n{fail}\n\n{self.RULES}")
                 vok, vrep = self.verify()
                 if not vok:

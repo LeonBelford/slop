@@ -70,6 +70,9 @@ class Git:
 # --------------------------------------------------------------------------- Backlog
 
 
+UNLAYERED = 50  # items without a layer are scheduled after every planned layer
+
+
 class Backlog:
     """The project's task queue (`agent/backlog.json`): add, dedupe, prioritise and pick the next item."""
 
@@ -93,7 +96,7 @@ class Backlog:
         return False
 
     def add(self, title, description, type_="feature", priority=5.0, acceptance=None, rationale="",
-            source="ideation", extra_titles=None, force=False):
+            source="ideation", extra_titles=None, force=False, layer=None, depends_on=None):
         """Appends a new backlog item and saves, or returns `None` if it looks like a duplicate (unless `force`)."""
         if not force and self.is_dup(title, extra_titles):
             return None
@@ -101,6 +104,10 @@ class Backlog:
                 "type": type_, "priority": float(priority), "status": "pending", "attempts": 0,
                 "acceptance": acceptance or [], "rationale": rationale, "source": source,
                 "created": now(), "notes": []}
+        if layer is not None:
+            item["layer"] = int(layer)
+        if depends_on:
+            item["depends_on"] = list(depends_on)
         self.items.append(item)
         self.save()
         return item
@@ -126,19 +133,27 @@ class Backlog:
         """Backlog items still waiting to be picked up."""
         return [i for i in self.items if i["status"] == "pending"]
 
+    def ready(self, pending: list[dict]) -> list[dict]:
+        """Pending items whose dependencies are finished (done or cancelled)."""
+        closed = {i["id"] for i in self.items if i["status"] in ("done", "cancelled")}
+        return [i for i in pending if all(d in closed for d in i.get("depends_on", []))]
+
     def next(self, prefer_light: bool | None = None):
-        """Highest priority first (user tasks, then bugs). Among near-equal priorities the task that suits the model already
+        """User tasks first, then bugs. After that the lowest layer first (core before features, items without a layer come last),
+        then by priority; items wait for their dependencies. Among near-equal priorities the task that suits the model already
         loaded (light = docs/tests, else regular) wins, which saves model switches on a small GPU."""
         self.reload()
         p = self.pending()
         if not p:
             return None
+        p = self.ready(p) or p  # never deadlock on a blocked dependency
 
-        def score(i):
-            base = i["priority"] + (1000 if i["type"] == "bug" else 0) + (2000 if i.get("source") == "user" else 0)
+        def key(i):
             light = i["type"] in ("docs", "test")
-            return base + (0.75 if prefer_light is not None and light == prefer_light else 0)
-        return max(p, key=score)
+            bonus = 0.75 if prefer_light is not None and light == prefer_light else 0
+            layer = i["layer"] if i.get("layer") is not None else UNLAYERED
+            return (i.get("source") == "user", i["type"] == "bug", -layer, i["priority"] + bonus)
+        return max(p, key=key)
 
     def set(self, item: dict, **kw) -> None:
         """Updates `item`'s fields in place and persists the backlog."""

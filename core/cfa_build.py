@@ -103,7 +103,7 @@ class BuildMixin:
         plan = self.llm.json("impact", "planner", sys_p,
                              f"Task {item['id']} ({item['type']}): {item['title']}\n{item['description']}\n"
                              f"Acceptance: {item.get('acceptance')}\nStack: {self.cfg['stack']}\n"
-                             f"Previous failed attempts:\n{chr(10).join(previous) or '-'}\n\n{ctx}\n\nSource code:\n{src}\n\nSchema: {schema}")
+                             f"{self.blueprint_ctx(item)}{self.ui_note()}\nPrevious failed attempts:\n{chr(10).join(previous) or '-'}\n\n{ctx}\n\nSource code:\n{src}\n\nSchema: {schema}")
         known = self.mem.consequences_for(plan.get("files_to_change", []) + plan.get("new_files", []), item["title"])
         plan["known_consequences"] = known
         if known:
@@ -233,6 +233,7 @@ class BuildMixin:
                 estimate.record(self.dir / "durations.jsonl", item["title"], time.time() - t0, item["type"], item["attempts"], True,
                                 desc=item.get("description", ""))
                 self.backlog.set(item, status="done")
+                self.layer_done(item)
                 self.force_heavy = False
                 self.last_light = item["type"] in ("docs", "test")
                 self.cur_task, self.cur_attempt = "", 0
@@ -287,7 +288,7 @@ class BuildMixin:
             return False, "Red after the mutation fix round"
         ok, report = self.e2e_check(item)
         if not ok:
-            return False, "Browser test failed:\n" + report
+            return False, "UI test failed:\n" + report
         ok, report = self.security_gate(item, plan)
         if not ok:
             return False, "Security gate failed:\n" + report

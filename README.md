@@ -108,8 +108,8 @@ Two levels, both bounded:
 - **Web sources** keep URL and date, are cited in prompts, and a research query already covered by stored pages is not searched again.
 - **Chat** linked to a project also searches this index for your question.
 
-## Browser tests (Playwright, optional)
-`make e2e-setup` installs Playwright and Chromium into `.venv`. For web products the agent then starts the app after the build is green, opens it in a real browser (localhost only), fails on console errors, JS exceptions, failed requests and broken links, writes a click-through test `e2e/e2e_<task>.py` from the acceptance criteria and the page's accessibility snapshot, and lets the coder fix failures (2 rounds). Without Playwright this step is skipped with a hint; set `features.e2e` to `"off"` to disable it.
+## UI tests (Playwright, optional)
+Only for products that have a web UI. CLI tools, APIs and libraries get none (the product brief states the interface, and UI files must actually exist, so early core layers are skipped too). `make e2e-setup` installs Playwright and Chromium into `.venv`. For web UIs the agent then starts the app after the build is green, opens it in a real browser (localhost only), fails on console errors, JS exceptions, failed requests and broken links, writes a click-through test `e2e/e2e_<task>.py` from the acceptance criteria and the page's accessibility snapshot, and lets the coder fix failures (2 rounds). Without Playwright this step is skipped with a hint; set `features.e2e` to `"off"` to disable it.
 
 ## Code, update and chat toggle (Web UI / CLI)
 - **File changes** shows the whole repo as a folder tree. Click a file to read it; new/changed lines are green (choose the comparison: uncommitted, last commit, last 5/20 ...).
@@ -197,6 +197,9 @@ Each project thus has its own codebase and its own memory; nothing is shared bet
 Every step is a capability you can switch per project on the Agent page (`auto` turns tests first / step by step on only where a small model needs them). Under Models & limits, **Automatic** picks the best installed model per task (light, standard, heavy, final reviewer); **Fixed** always uses the models you choose.
 
 Ends on: `stop`, `max_hours`, `max_iterations`, 5 consecutive failures, or no new ideas for a sustained period.
+
+## Strategic planning (core first)
+At `init` the agent no longer builds a flat feature list. It designs an **architecture blueprint** (`docs/BLUEPRINT.md`, `agent/blueprint.json`): principles, modules, stable interfaces and 3 to 5 **layers**. Layer 0 is the kernel (data model, core logic, interfaces, error handling, test harness); every next layer builds only on the public interfaces below. Tasks carry `layer` and `depends_on`, and the agent works strictly bottom-up (your tasks and bugs still go first). Each planning prompt contains the blueprint context, a finished layer is logged and tagged `layer-N`, ideas and reviews land above the plan, and the project page shows a *Build plan* with progress per layer. Projects created earlier keep the old behaviour.
 
 ## Models (RTX 3060, 12 GB)
 Rough guidelines, not measured on your hardware; check tags and licenses at [ollama.com/library](https://ollama.com/library).

@@ -8,7 +8,8 @@ import time
 from pathlib import Path
 
 import codefactory as sa
-from core import cfprofile
+from core import blueprint, cfprofile
+from core.cfgit import UNLAYERED
 from dash import throughput
 from infra import models, notify
 
@@ -22,7 +23,7 @@ class ProjectMixin:
         ws = self.ws(name)
         a = ws / "agent"
         feats = sa.read_json(a / "memory" / "features.json", {})
-        backlog = sorted(sa.read_json(a / "backlog.json", []), key=lambda i: -i["priority"])
+        backlog = sorted(sa.read_json(a / "backlog.json", []), key=lambda i: (i.get("layer") if i.get("layer") is not None else UNLAYERED, -i["priority"]))
         def read(p):
             return p.read_text("utf-8") if p.exists() else ""
         sm = self.summary(ws)
@@ -35,8 +36,9 @@ class ProjectMixin:
                 "activity": self.activity(ws), "log": tail(a / "agent.log"), "run_out": tail(a / "run.out", 15), "do_out": tail(a / "do.out", 15), "try_out": tail(a / "try.out", 15),
                 "features": [{"id": k, "title": v.get("title", k)} if isinstance(v, dict) else {"id": k, "title": str(v)}
                              for k, v in feats.items()],
-                "backlog_items": [{k: i.get(k) for k in ("id", "title", "type", "priority", "status", "source", "attempts")}
-                                  for i in backlog]}
+                "backlog_items": [{k: i.get(k) for k in ("id", "title", "type", "priority", "status", "source", "attempts", "layer")}
+                                  for i in backlog],
+                "plan": blueprint.progress(blueprint.load(a / "blueprint.json"), backlog)}
 
     def activity(self, ws: Path) -> dict:
         """What the agent is doing right now: phase, task, current model/Aider call and the recent event timeline."""
