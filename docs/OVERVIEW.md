@@ -29,10 +29,11 @@ Python/FastAPI, Node, .NET, Go, Rust and more via presets; documentation languag
 Optional research with guards: http/https only, no private addresses, blocked domains, content treated as untrusted data.
 
 ## Web UI (`make ui`, `make ui-lan`)
+- Live "Now" panel with the cycle stepper (Plan, Implement, Build, Browser test, Security, Review, ...); the Live log is colour-coded (steps, success, security, warnings, errors) and logs every step.
 - Live "Now" panel, AI activity log, file changes, backlog, goal, ideas.
 - Directed tasks ("Do a task"), project create/rename/delete/settings, kill switch.
-- **Chat:** streaming, Enter sends, thinking animation, link projects for context, "Add to ideas"/"Run as task".
-- **Models:** install and remove Ollama models with live progress; all model fields are dropdowns of installed models.
+- **Chat:** streaming, Markdown rendering, Enter sends, thinking animation, link projects for context, "Add to ideas"/"Run as task".
+- **Settings → Models:** install and remove Ollama models with live progress (recommended list included); all model fields are dropdowns of installed models.
 - LAN mode with access token; "Change the tool itself" (self-improve on a branch).
 
 ## Self-improvement
