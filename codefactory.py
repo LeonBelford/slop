@@ -402,7 +402,7 @@ class LLM:
     def _publish(self, tag: str, role: str, model: str, since: float, thinking: str, answer: str) -> None:
         if self.stream:
             write_json(self.stream, {"tag": tag, "role": role, "model": model, "since": since,
-                                     "thinking": thinking[-12000:], "answer": answer[-12000:], "updated": time.time()})
+                                     "thinking": thinking[-60000:], "answer": answer[-60000:], "updated": time.time()})
 
     def _read(self, r, tag: str, role: str, model: str, since: float) -> tuple[str, str]:
         """Reads a streamed (SSE) or plain JSON answer. Returns (answer, reasoning); <think> blocks count as reasoning."""
