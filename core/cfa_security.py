@@ -3,7 +3,7 @@ from __future__ import annotations
 
 from infra import e2e
 from infra import security
-from core.cfutil import PRESETS, now, read_json, write_json, write_text
+from core.cfutil import PRESETS, clip, now, read_json, write_json, write_text
 
 
 class SecurityMixin:
@@ -39,6 +39,8 @@ class SecurityMixin:
             self.log(f"Security: {len(bad)} blocking finding(s), round {rnd}")
             if rnd == 3:
                 break
+            self.handoff("security fix", "security gate", goal=item["title"], do=[clip(security.render(bad), 240)],
+                         do_not=["hide findings with comments", "change unrelated behaviour"], done_when=["the findings are gone and tests stay green"])
             self.code("security_fix", sorted(set(changed))[:self.lim["max_files_per_task"] + 4], [str(self.run_dir / "context.md")],
                       f"Fix these security problems without changing behavior otherwise. Never hide them with comments:\n"
                       f"{security.render(bad)}\n\n{self.RULES}")

@@ -16,6 +16,7 @@ class ConductorMixin:
     # ---- Task journal: shared working memory of one task
     def journal_start(self, item: dict) -> None:
         self.journal: list[str] = []
+        self.pinned, self.tried = "", []
         self.note("task", f"{item['id']} {item['title']} | acceptance: {clip(str(item.get('acceptance')), 300)}")
 
     def note(self, kind: str, text: str) -> None:
@@ -24,10 +25,12 @@ class ConductorMixin:
             self.journal = []
         self.journal.append(f"- [{kind}] {' '.join(str(text).split())[:400]}")
         body = "\n".join(self.journal)
-        self.llm.session_note = body[:300] + "\n...\n" + body[-(JOURNAL_CHARS - 300):] if len(body) > JOURNAL_CHARS else body
+        body = body[:300] + "\n...\n" + body[-(JOURNAL_CHARS - 300):] if len(body) > JOURNAL_CHARS else body
+        pinned = getattr(self, "pinned", "")
+        self.llm.session_note = (pinned + "\n\nJournal:\n" if pinned else "") + body
         rd = getattr(self, "run_dir", None)
         if rd:
-            write_text(rd / "journal.md", "# Task journal\n" + body + "\n")
+            write_text(rd / "journal.md", "# Task journal\n" + (pinned + "\n\n" if pinned else "") + body + "\n")
 
     def journal_file(self) -> list[str]:
         p = getattr(self, "run_dir", None)
