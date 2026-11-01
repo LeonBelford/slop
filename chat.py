@@ -11,6 +11,8 @@ import secrets
 import threading
 import time
 import urllib.request
+
+import knowledge
 from pathlib import Path
 from typing import Callable, Iterator
 
@@ -126,8 +128,33 @@ def project_context(ws: Path) -> str:
     return clip("\n\n".join(parts), CONTEXT_CHARS)
 
 
-def build_messages(chat: dict, ws_of: Callable[[str], Path | None]) -> list[dict]:
-    ctx = [project_context(w) for w in (ws_of(n) for n in chat["projects"]) if w]
+def knowledge_context(ws: Path, query: str, api: str, key: str, embed_model: str = "nomic-embed-text") -> str:
+    """Hits from the project's knowledge index (code, decisions, lessons, web sources) for the user's question."""
+    kb = knowledge.open_readonly(ws / "agent" / "memory" / "knowledge.db")
+    if not kb:
+        return ""
+    try:
+        if any(v["embedded"] for v in kb.stats().values()):
+            kb.embed = knowledge.ollama_embedder(api, embed_model, key, timeout=20)
+        hits = kb.search(query, None, 6)
+    except Exception:  # noqa: BLE001  (a broken index must never break the chat)
+        return ""
+    finally:
+        kb.close()
+    lines = []
+    for h in hits:
+        src = h["meta"].get("url") or h["meta"].get("file") or h["meta"].get("item") or ""
+        lines.append(f"- [{h['kind']}{' ' + str(src) if src else ''}] {clip(h['text'].replace(chr(10), ' '), 450)}")
+    return ("Knowledge base hits for the latest question:\n" + "\n".join(lines)) if lines else ""
+
+
+def build_messages(chat: dict, ws_of: Callable[[str], Path | None], api: str = "", key: str = "") -> list[dict]:
+    last = next((m["content"] for m in reversed(chat["messages"]) if m["role"] == "user"), "")
+    ctx = []
+    for w in (ws_of(n) for n in chat["projects"]):
+        if w:
+            k = knowledge_context(w, last, api, key) if last else ""
+            ctx.append(project_context(w) + ("\n\n" + k if k else ""))
     system = SYSTEM + ("\n\nLinked projects (current state):\n\n" + "\n\n".join(ctx) if ctx else "")
     kept, used = [], 0
     for m in reversed(chat["messages"]):

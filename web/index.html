@@ -84,17 +84,50 @@ details .inner{padding:0 12px 12px}
 .add{color:var(--ok)}.del{color:var(--bad)}.hunk{color:var(--info)}.meta{color:var(--mute)}
 .fl{font-family:ui-monospace,monospace;font-size:12.5px;display:flex;gap:10px;align-items:center;padding:2px 0}
 .fl a{color:var(--text);cursor:pointer;text-decoration:underline;text-decoration-color:#555}
-.chat{display:flex;flex-direction:column;gap:10px}
-.chatbar{display:flex;gap:8px;align-items:center;flex-wrap:wrap}
-.chatbar select{width:auto;max-width:260px}
+.side-actions{flex-wrap:wrap}
+.side-actions .primary{flex:1 1 100%}
+.side-actions button{padding:6px 4px;font-size:13px}
+button.ghost{background:transparent;border-color:transparent;color:var(--mute)}
+button.ghost:hover{color:var(--text);border-color:var(--line)}
+button.ghost.danger{color:var(--bad)}
+.chat{display:flex;flex-direction:column;gap:14px;height:calc(100vh - 150px);min-height:440px}
+.chat-top{display:flex;gap:10px;align-items:center;flex-wrap:wrap}
+.chat-top select{width:auto;min-width:220px;max-width:340px}
+.chat-meta{display:flex;gap:10px 22px;align-items:center;flex-wrap:wrap;padding:10px 14px;background:var(--panel);border:1px solid var(--line);border-radius:12px}
+.chat-meta label,.chips-wrap{display:flex;gap:8px;align-items:center;color:var(--mute);font-size:12.5px}
+.chat-meta select{width:auto;max-width:240px;color:var(--text)}
+.lbl{color:var(--mute)}
 .chips{display:flex;gap:6px;flex-wrap:wrap;align-items:center}
-.chip{border:1px solid var(--line);border-radius:12px;padding:2px 10px;font-size:12.5px;cursor:pointer;color:var(--mute);user-select:none}
+.chip{border:1px solid var(--line);border-radius:999px;padding:3px 12px;font-size:12.5px;cursor:pointer;color:var(--mute);user-select:none;transition:all .15s}
+.chip:hover{border-color:#777;color:var(--text)}
 .chip.on{border-color:#aaa;color:var(--text);background:var(--panel2)}
-.msgs{border:1px solid var(--line);border-radius:4px;background:#0c0c0c;padding:12px;height:52vh;overflow:auto;display:flex;flex-direction:column;gap:12px}
-.msg{max-width:88%;white-space:pre-wrap;word-break:break-word;line-height:1.5}
-.msg.user{align-self:flex-end;background:var(--panel2);border:1px solid var(--line);border-radius:8px;padding:8px 12px}
-.msg.assistant .acts{margin-top:6px;display:flex;gap:6px}
-.msg pre{background:#000;border:1px solid var(--line);padding:8px;border-radius:4px;overflow:auto;margin:6px 0}
+.msgs{flex:1;min-height:0;overflow:auto;padding:22px;border:1px solid var(--line);border-radius:14px;background:var(--panel);display:flex;flex-direction:column;gap:16px}
+.msg{max-width:78%;padding:11px 16px;border-radius:16px;line-height:1.65;white-space:pre-wrap;word-break:break-word;animation:pop .2s ease-out}
+.msg.user{align-self:flex-end;background:#2e2e2e;border:1px solid #3d3d3d;border-bottom-right-radius:4px}
+.msg.assistant{align-self:flex-start;background:var(--panel2);border:1px solid var(--line);border-bottom-left-radius:4px}
+.msg.streaming::after{content:"";display:inline-block;width:7px;height:15px;margin-left:3px;vertical-align:-2px;background:var(--mute);animation:blink 1s steps(2) infinite}
+.msg .acts{margin-top:8px;display:flex;gap:4px;opacity:0;transition:opacity .15s}
+.msg:hover .acts{opacity:1}
+.msg pre{background:#0d0d0d;border:1px solid var(--line);padding:10px 12px;border-radius:8px;overflow:auto;margin:8px 0;white-space:pre}
+.think{display:flex;align-items:center;gap:12px;color:var(--mute)}
+.dots span{display:inline-block;width:7px;height:7px;margin-right:4px;border-radius:50%;background:var(--mute);animation:bounce 1.2s infinite ease-in-out}
+.dots span:nth-child(2){animation-delay:.15s}.dots span:nth-child(3){animation-delay:.3s}
+.chat-empty{margin:auto;text-align:center;max-width:560px;display:flex;flex-direction:column;gap:10px;align-items:center}
+.chat-empty .big{font-size:20px;font-weight:600}
+.suggs{display:flex;flex-direction:column;gap:8px;margin-top:10px;width:100%}
+.sugg{text-align:left;padding:10px 14px;border-radius:10px;background:var(--panel2);color:var(--text)}
+.sugg:hover{border-color:#777;transform:translateY(-1px)}
+.composer{display:flex;gap:10px;align-items:flex-end;padding:8px 8px 8px 14px;background:var(--panel);border:1px solid var(--line);border-radius:16px;transition:border-color .15s}
+.composer:focus-within{border-color:#777}
+.composer textarea{border:0;background:transparent;resize:none;font-family:inherit;font-size:14px;line-height:1.5;padding:8px 0;max-height:200px}
+.composer textarea:focus{border:0;outline:none}
+.send{width:40px;height:40px;padding:0;border-radius:12px;font-size:18px;flex:none}
+.bar{height:6px;background:var(--panel2);border-radius:3px;overflow:hidden;margin:8px 0 4px}
+.bar i{display:block;height:100%;background:var(--ok);transition:width .4s}
+.dl{padding:6px 0}
+@keyframes pop{from{opacity:0;transform:translateY(6px)}to{opacity:1;transform:none}}
+@keyframes bounce{0%,80%,100%{opacity:.3;transform:translateY(0)}40%{opacity:1;transform:translateY(-5px)}}
+@keyframes blink{50%{opacity:0}}
 </style>
 </head>
 <body>
@@ -102,8 +135,9 @@ details .inner{padding:0 12px 12px}
   <header>CodeFactory</header>
   <div class="side-actions">
     <button class="primary" onclick="openNew()">+ New idea</button>
-    <button onclick="openMaster()" title="Global instructions for all projects">Master prompt</button>
     <button onclick="showChat()" title="Talk to a local model, optionally with a project as context">Chat</button>
+    <button onclick="showModels()" title="Install and remove Ollama models">Models</button>
+    <button onclick="openMaster()" title="Global instructions for all projects">Master prompt</button>
   </div>
   <div id="ms" class="hint" style="padding:8px 16px"></div>
   <div id="plist"></div>
@@ -290,12 +324,13 @@ function settingsBody(d){
   const x=extra&&extra.kind==="settings"?extra:null;
   if(!x)return `<div class="hint">Loading…</div>`;
   const st=x.settings,lb=x.limit_bounds;
-  const dl=`<datalist id="mdl">${x.installed_models.map(m=>`<option value="${esc(m)}">`).join("")}</datalist>`;
-  const model=(id,l,v)=>`<label class="fld">${l}<input id="${id}" list="mdl" value="${esc(v)}"></label>`;
+  const model=(id,l,v,o={})=>{const pre=o.prefix||"",cur=String(v||"").replace(pre,""),names=[...x.installed_models];
+    if(cur&&!names.includes(cur))names.unshift(cur);
+    return `<label class="fld">${l}<select id="${id}" data-pre="${esc(pre)}">${o.empty?`<option value="">(auto-detect)</option>`:""}${names.map(n=>`<option value="${esc(pre+n)}" ${n===cur?"selected":""}>${esc(n)}${x.installed_models.includes(n)?"":" (not installed)"}</option>`).join("")}</select></label>`};
   const lim=Object.entries(lb).map(([k,[lo,hi]])=>`<label class="fld">${esc(k.replace(/_/g," "))} <span class="meta">${lo}–${hi}</span><input id="lim-${k}" type="number" min="${lo}" max="${hi}" value="${st.limits[k]}"></label>`).join("");
-  return `<div class="panel"><h3>Models</h3>${dl}
-    <p class="hint">${x.installed_models.length?"Suggestions come from your installed Ollama models.":"Ollama is not reachable, so no suggestions. Names must match <code>ollama list</code>."} The coder uses the Aider notation, e.g. <code>ollama_chat/qwen2.5-coder:14b</code>.</p>
-    <div class="grid2">${model("m-planner","Planner (plans, ideas)",st.models.planner)}${model("m-reviewer","Reviewer",st.models.reviewer)}${model("m-summarizer","Summarizer (notes, docs)",st.models.summarizer)}${model("m-coder","Coder (Aider)",st.coder_model)}</div></div>
+  return `<div class="panel"><h3>Models</h3>
+    <p class="hint">${x.installed_models.length?"Pick from your installed Ollama models.":"Ollama is not reachable, so the list is empty."} Missing one? <a href="#" onclick="showModels();return false" style="color:var(--text)">Install models</a>.</p>
+    <div class="grid2">${model("m-planner","Planner (plans, ideas)",st.models.planner)}${model("m-reviewer","Reviewer",st.models.reviewer)}${model("m-summarizer","Summarizer (notes, docs)",st.models.summarizer)}${model("m-coder","Coder (Aider)",st.coder_model,{prefix:"ollama_chat/"})}</div></div>
     <div class="panel" style="margin-top:16px"><h3>Limits and behaviour</h3><div class="grid2">${lim}
     <label class="fld">web access<select id="web-mode">${["off","sources","open"].map(m=>`<option ${m===st.web_mode?"selected":""}>${m}</option>`).join("")}</select></label>
     <label class="fld">documentation language<input id="doc-lang" value="${esc(st.doc_language)}"></label></div>
@@ -303,7 +338,7 @@ function settingsBody(d){
     <div class="panel" style="margin-top:16px"><h3>Smart model routing (optional)</h3>
     <p class="hint">Simple tasks go to a small fast coder, complex tasks and retries to a stronger one, and a strong model does the final review of every change. Models from the list below are used <b>automatically once installed</b>; nothing is required. Leave a field empty to auto-detect.</p>
     <div class="grid2"><label class="fld">mode<select id="rt-mode">${["auto","off"].map(m=>`<option ${m===st.routing.mode?"selected":""}>${m}</option>`).join("")}</select></label>
-    ${model("rt-light","Light coder (override)",st.routing.light)}${model("rt-heavy","Heavy coder (override)",st.routing.heavy)}${model("rt-final","Final reviewer (override)",st.routing.final_reviewer)}</div>
+    ${model("rt-light","Light coder (override)",st.routing.light,{empty:true})}${model("rt-heavy","Heavy coder (override)",st.routing.heavy,{empty:true})}${model("rt-final","Final reviewer (override)",st.routing.final_reviewer,{empty:true})}</div>
     <p class="hint" style="margin-top:10px">Detected now: light <b>${esc(x.resolved.light||"none (uses default)")}</b> · heavy <b>${esc(x.resolved.heavy||"none (uses default)")}</b> · final reviewer <b>${esc(x.resolved.final_reviewer||"none (uses the reviewer model)")}</b></p>
     <table><tr><th>Model</th><th>Role</th><th>Size</th><th>Fits a 12 GB GPU?</th><th>Download</th></tr>${x.catalog.map(m=>`<tr><td>${esc(m.name)} ${m.installed?'<span class="pill ok">installed</span>':""}</td><td>${esc(m.tier)}</td><td>~${m.gb} GB</td><td>${esc(m.fit)}<div class="hint">${esc(m.note)}</div></td><td>${m.installed?"":`<code>${esc(m.pull)}</code>`}</td></tr>`).join("")}</table>
     <p class="hint">Sizes are approximate. Larger models than your VRAM spill into RAM and run slower. Switching models costs a few seconds of load time per switch.</p></div>
@@ -328,7 +363,7 @@ async function deleteProject(){
 function setTab(k){tab=k;dirty=false;extra=null;lastBody="";$("#body").dataset.tab="";lastTabs="";renderProject();fetchExtra().then(renderProject)}
 async function fetchExtra(){
   try{
-    if(view==="chat")return;
+    if(view==="chat"||view==="models")return;
     if(view==="tool"){extra={kind:"tool",...await api("/api/tool")};return}
     if(!sel)return;
     if(tab==="llm")extra={kind:"llm",...await api(`/api/project/${encodeURIComponent(sel)}/llm`)};
@@ -409,30 +444,38 @@ async function showChat(id,projects){
   }catch(e){toast(e.message,true)}
   drawChat();
 }
+const SUGGEST_LINKED=["What should we build next?","Summarize the current state of the project","Which open tasks are the riskiest, and why?"];
+const SUGGEST_FREE=["Help me turn a rough idea into a project plan","Compare two tech stacks for a small web app","Review my architecture idea and find weak spots"];
 function drawChat(){
   const c=chat.cur,b=$("#body");b.dataset.tab="chat";
   const opts=chat.list.map(x=>`<option value="${x.id}" ${c&&x.id===c.id?"selected":""}>${esc(x.title)}</option>`).join("");
   const models=[...new Set([...(c?[c.model]:[]),...chat.models])];
   const names=list.projects.map(p=>p.name);
+  const sug=(c&&c.projects.length?SUGGEST_LINKED:SUGGEST_FREE).map(t=>`<button class="sugg" onclick="chatAsk(this.dataset.t)" data-t="${esc(t)}">${esc(t)}</button>`).join("");
   b.innerHTML=`<div class="chat">
-  <div class="chatbar"><select id="chSel" onchange="showChat(this.value)">${opts||"<option>No chats yet</option>"}</select>
-    <button onclick="newChat()">New chat</button>${c?`<button class="danger" onclick="delChat()">Delete</button>`:""}</div>
-  ${c?`<div class="chatbar"><label style="margin:0">Model</label><select id="chModel" onchange="chatUpdate({model:this.value})">${models.map(m=>`<option ${m===c.model?"selected":""}>${esc(m)}</option>`).join("")}</select>
-    <label style="margin:0">Projects</label><div class="chips">${names.map(n=>`<span class="chip ${c.projects.includes(n)?"on":""}" onclick="toggleLink('${esc(n)}')">${esc(n)}</span>`).join("")||'<span class="hint">no projects</span>'}</div></div>
-  <div class="msgs" id="msgs">${c.messages.map(msgHtml).join("")||'<div class="hint">Ask anything. With a project linked you can say "what should we build next?" or "plan the settings page".</div>'}</div>
-  <div class="chatbar"><textarea id="chIn" rows="3" placeholder="Message (Ctrl+Enter sends)" onkeydown="if(event.key==='Enter'&&(event.ctrlKey||event.metaKey)){event.preventDefault();chatSend()}"></textarea></div>
-  <div class="chatbar"><button class="primary" id="chSend" onclick="chatSend()">Send</button><button id="chStop" onclick="chat.ctrl&&chat.ctrl.abort()" disabled>Stop</button>
-    <span class="hint" style="margin:0 0 0 auto">Answer buttons use:</span><select id="chTarget">${c.projects.map(n=>`<option>${esc(n)}</option>`).join("")||"<option value=''>(link a project)</option>"}</select></div>`
-  :`<div class="hint">Create a chat to start.</div>`}</div>`;
+  <div class="chat-top"><select id="chSel" onchange="showChat(this.value)">${opts||"<option>No chats yet</option>"}</select>
+    <button onclick="newChat()">+ New chat</button>${c?`<button class="ghost danger" onclick="delChat()">Delete</button>`:""}</div>
+  ${c?`<div class="chat-meta"><label>Model<select id="chModel" onchange="chatUpdate({model:this.value})">${models.map(m=>`<option ${m===c.model?"selected":""}>${esc(m)}</option>`).join("")}</select></label>
+    <div class="chips-wrap"><span class="lbl">Projects</span><div class="chips">${names.map(n=>`<span class="chip ${c.projects.includes(n)?"on":""}" onclick="toggleLink('${esc(n)}')">${esc(n)}</span>`).join("")||'<span class="hint" style="margin:0">no projects yet</span>'}</div></div>
+    <label>Answer buttons use<select id="chTarget">${c.projects.map(n=>`<option>${esc(n)}</option>`).join("")||"<option value=''>(link a project)</option>"}</select></label></div>
+  <div class="msgs" id="msgs">${c.messages.map(msgHtml).join("")||`<div class="chat-empty"><div class="big">What are we working on?</div><div class="hint">Ask anything. Link a project above and the model knows its goal, backlog and recent work.</div><div class="suggs">${sug}</div></div>`}</div>
+  <div class="composer"><textarea id="chIn" rows="1" placeholder="Message CodeFactory…  (Enter sends, Shift+Enter for a new line)" oninput="grow(this)" onkeydown="chatKey(event)"></textarea>
+    <button class="primary send" id="chSend" onclick="chatSend()" title="Send (Enter)">↑</button><button class="send" id="chStop" onclick="chat.ctrl&&chat.ctrl.abort()" title="Stop answering" style="display:none">■</button></div>`
+  :`<div class="chat-empty"><div class="big">Start a conversation</div><button class="primary" onclick="newChat()">+ New chat</button></div>`}</div>`;
   const m=$("#msgs");if(m)m.scrollTop=m.scrollHeight;
+  const i=$("#chIn");if(i)i.focus();
 }
+function grow(t){t.style.height="auto";t.style.height=Math.min(t.scrollHeight,200)+"px"}
+function chatKey(e){if(e.key==="Enter"&&!e.shiftKey&&!e.isComposing){e.preventDefault();chatSend()}}
+function chatAsk(t){$("#chIn").value=t;chatSend()}
 function msgHtml(m,i){
   return m.role==="user"?`<div class="msg user">${esc(m.content)}</div>`
-   :`<div class="msg assistant" data-i="${i}">${mdLite(m.content)}<div class="acts"><button class="small" onclick="fromChat(${i},'say')">Add to ideas</button><button class="small" onclick="fromChat(${i},'do')">Run as task</button></div></div>`;
+   :`<div class="msg assistant" data-i="${i}">${mdLite(m.content)}<div class="acts"><button class="small ghost" onclick="copyMsg(${i})">Copy</button><button class="small ghost" onclick="fromChat(${i},'say')">Add to ideas</button><button class="small ghost" onclick="fromChat(${i},'do')">Run as task</button></div></div>`;
 }
+function copyMsg(i){navigator.clipboard.writeText(chat.cur.messages[i].content).then(()=>toast("Copied"),()=>toast("Copy not allowed here",true))}
 async function newChat(){const p=chat.cur?chat.cur.projects:[];chat.cur=null;await showChat(null,p)}
 async function delChat(){if(!confirm("Delete this chat?"))return;try{await api(`/api/chat/${chat.cur.id}/delete`,{});chat.cur=null;await showChat()}catch(e){toast(e.message,true)}}
-async function chatUpdate(b){try{chat.cur=await api(`/api/chat/${chat.cur.id}/update`,b);if(b.projects){drawChat()}}catch(e){toast(e.message,true)}}
+async function chatUpdate(b){try{chat.cur=await api(`/api/chat/${chat.cur.id}/update`,b);if(b.projects){const t=$("#chIn").value;drawChat();$("#chIn").value=t}}catch(e){toast(e.message,true)}}
 function toggleLink(n){const p=chat.cur.projects.slice(),i=p.indexOf(n);i<0?p.push(n):p.splice(i,1);chatUpdate({projects:p})}
 async function fromChat(i,kind){
   const t=$("#chTarget").value,m=chat.cur.messages[i];
@@ -440,13 +483,15 @@ async function fromChat(i,kind){
   if(kind==="do"&&!confirm(`Send this answer to the agent of "${t}" as a task?`))return;
   try{await api(`/api/project/${t}/${kind}`,kind==="do"?{task:m.content}:{msg:m.content});toast(kind==="do"?"Task sent":"Added to ideas")}catch(e){toast(e.message,true)}
 }
+function setBusy(on){$("#chSend").style.display=on?"none":"";$("#chStop").style.display=on?"":"none"}
 async function chatSend(){
   const inp=$("#chIn"),text=inp.value.trim();if(!text||chat.ctrl)return;
-  inp.value="";const box=$("#msgs");
-  if(box.querySelector(".hint"))box.innerHTML="";
-  box.insertAdjacentHTML("beforeend",`<div class="msg user">${esc(text)}</div><div class="msg assistant" id="live">…</div>`);
+  inp.value="";grow(inp);const box=$("#msgs");
+  const em=box.querySelector(".chat-empty");if(em)em.remove();
+  box.insertAdjacentHTML("beforeend",`<div class="msg user">${esc(text)}</div><div class="msg assistant" id="live"><div class="think"><span class="dots"><span></span><span></span><span></span></span><span id="thinkT">Thinking…</span></div></div>`);
   const live=$("#live");box.scrollTop=box.scrollHeight;
-  chat.ctrl=new AbortController();$("#chSend").disabled=true;$("#chStop").disabled=false;
+  const t0=Date.now(),timer=setInterval(()=>{const e=$("#thinkT");if(!e){clearInterval(timer);return}const s=Math.round((Date.now()-t0)/1000);e.textContent=`Thinking… ${s}s`+(s>=8?" (the model may still be loading)":"")},500);
+  chat.ctrl=new AbortController();setBusy(true);
   const id=chat.cur.id;let acc="";
   try{
     const r=await fetch(`/api/chat/${id}/send`,{method:"POST",headers:{"X-UI":"1","Content-Type":"application/json"},body:JSON.stringify({content:text}),signal:chat.ctrl.signal});
@@ -459,17 +504,50 @@ async function chatSend(){
         const ev=buf.slice(0,k).replace(/^data: /,"");buf=buf.slice(k+2);
         if(ev==="[DONE]")continue;
         const j=JSON.parse(ev);
-        if(j.delta){acc+=j.delta;live.innerHTML=mdLite(acc);if(box.scrollHeight-box.scrollTop-box.clientHeight<120)box.scrollTop=box.scrollHeight}
+        if(j.delta){acc+=j.delta;live.classList.add("streaming");live.innerHTML=mdLite(acc);if(box.scrollHeight-box.scrollTop-box.clientHeight<140)box.scrollTop=box.scrollHeight}
         if(j.error)toast(j.error,true);
       }
     }
   }catch(e){if(e.name!=="AbortError")toast(e.message,true)}
-  chat.ctrl=null;
+  clearInterval(timer);chat.ctrl=null;
   if(view==="chat"&&chat.cur&&chat.cur.id===id){
     try{chat.cur=await api("/api/chat/"+id);chat.list=(await api("/api/chats")).chats}catch(e){}
     drawChat();
   }
 }
+
+/* ---- models: install and remove through Ollama ---- */
+let mdl=null,mdlTimer=null;
+async function showModels(){
+  view="models";tab="models";dirty=false;extra=null;lastBody=lastHead=lastTabs="";renderList();
+  $("#now").innerHTML="";$("#now").className="";$("#tabs").innerHTML="";
+  $("#head").innerHTML=`<div class="top"><div><h1>Models</h1><div class="idea">Install and remove Ollama models. Installed models show up in all dropdowns and are used automatically where they fit.</div></div></div>`;
+  $("#body").dataset.tab="models";
+  $("#body").innerHTML=`<div class="panel"><h3>Install a model</h3><div class="row"><input id="mdlName" placeholder="e.g. qwen2.5-coder:7b (any name from ollama.com/library)" onkeydown="if(event.key==='Enter')pullModel($('#mdlName').value)"><button class="primary" onclick="pullModel($('#mdlName').value)">Install</button></div></div><div id="mlist"></div>`;
+  await loadModels();
+}
+async function loadModels(){
+  if(view!=="models")return;
+  try{mdl=await api("/api/models")}catch(e){return}
+  const m=mdl,act=Object.entries(m.pulls).filter(([k,v])=>v.active||v.error||v.status==="done");
+  const bar=v=>{const p=v.total?Math.round(v.completed/v.total*100):0;return `<div class="bar"><i style="width:${p}%"></i></div><span class="meta">${esc(v.status)}${v.total?` · ${p}% of ${(v.total/1e9).toFixed(1)} GB`:""}</span>`};
+  const html=`${m.ok?"":`<div class="warnbox">Ollama is not reachable at ${esc(m.url)}. Start it with <code>ollama serve</code>.</div>`}
+  ${act.length?`<div class="panel" style="margin-bottom:16px"><h3>Downloads</h3>${act.map(([k,v])=>`<div class="dl"><div class="row" style="justify-content:space-between"><b>${esc(k)}</b>${v.active?`<button class="small" onclick="modelCancel('${esc(k)}')">Cancel</button>`:`<span class="pill ${v.error?"bad":"ok"}">${v.error?esc(v.error):"installed"}</span>`}</div>${v.active?bar(v):""}</div>`).join("")}</div>`:""}
+  <div class="panel"><h3>Installed (${m.installed.length})</h3>
+  ${m.installed.length?`<table><tr><th>Model</th><th>Size</th><th>Used by</th><th></th></tr>${m.installed.map(x=>`<tr><td><code>${esc(x.name)}</code></td><td>${x.gb} GB</td><td>${x.used_by.map(u=>esc(u.project)+(u.running?" (running)":"")).join(", ")||"-"}</td><td style="text-align:right"><button class="small danger" onclick="removeModel('${esc(x.name)}')">Remove</button></td></tr>`).join("")}</table>`:'<div class="hint">Nothing installed yet.</div>'}</div>
+  <div class="panel" style="margin-top:16px"><h3>Recommended (optional)</h3><p class="hint">Sizes are approximate. Larger models than your VRAM spill into RAM and run slower.</p>
+  <table><tr><th>Model</th><th>Role</th><th>Size</th><th>Fits a 12 GB GPU?</th><th></th></tr>${m.catalog.map(c=>{const p=m.pulls[c.name];return `<tr><td>${esc(c.name)} ${c.installed?'<span class="pill ok">installed</span>':""}</td><td>${esc(c.tier)}</td><td>~${c.gb} GB</td><td>${esc(c.fit)}<div class="hint">${esc(c.note)}</div></td><td style="text-align:right">${c.installed?"":`<button class="small primary" onclick="pullModel('${esc(c.name)}')" ${p&&p.active?"disabled":""}>${p&&p.active?"Downloading…":"Install"}</button>`}</td></tr>`}).join("")}</table></div>`;
+  const el=$("#mlist");if(el&&el.dataset.h!==html){el.innerHTML=html;el.dataset.h=html}
+  clearTimeout(mdlTimer);mdlTimer=setTimeout(loadModels,Object.values(m.pulls).some(v=>v.active)?1000:5000);
+}
+async function pullModel(n){n=(n||"").trim();if(!n){toast("Enter a model name",true);return}try{await api("/api/models/pull",{name:n});toast("Download started");$("#mdlName")&&($("#mdlName").value="");await loadModels()}catch(e){toast(e.message,true)}}
+async function modelCancel(n){try{await api("/api/models/cancel",{name:n});toast("Cancelling…")}catch(e){toast(e.message,true)}}
+async function removeModel(n){
+  const u=(mdl.installed.find(x=>x.name===n)||{used_by:[]}).used_by;
+  if(!confirm(`Remove ${n}?`+(u.length?`\nIt is set in: ${u.map(x=>x.project).join(", ")}. Those projects need another model before they can run.`:"")))return;
+  try{await api("/api/models/delete",{name:n});toast("Removed "+n);extra=null;await loadModels()}catch(e){toast(e.message,true)}
+}
+
 
 let shownErr=false;
 async function refresh(){
@@ -479,7 +557,7 @@ async function refresh(){
     renderList();
     if(view==="project"&&sel)detail=await api("/api/project/"+encodeURIComponent(sel));
     await fetchExtra();
-    if(view==="chat"){renderNow();return}
+    if(view==="chat"||view==="models"){renderNow();return}
     if(view==="tool")renderTool();else renderProject();
     renderNow();
   }catch(e){if(!shownErr){shownErr=true;toast(e.message,true)}}

@@ -75,3 +75,66 @@ class ManageTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class ModelManagerTests(unittest.TestCase):
+    def setUp(self):
+        import http.server
+        import json
+        import threading
+        self.models = {"a:1b": 1e9}
+
+        outer = self
+
+        class H(http.server.BaseHTTPRequestHandler):
+            def log_message(self, *a):
+                pass
+
+            def body(self):
+                return json.loads(self.rfile.read(int(self.headers["Content-Length"])))
+
+            def do_GET(self):
+                self.send_response(200)
+                self.end_headers()
+                self.wfile.write(json.dumps({"models": [{"name": n, "size": s} for n, s in outer.models.items()]}).encode())
+
+            def do_DELETE(self):
+                outer.models.pop(self.body()["model"], None)
+                self.send_response(200)
+                self.end_headers()
+
+            def do_POST(self):
+                b = self.body()
+                self.send_response(200)
+                self.end_headers()
+                self.wfile.write(b'{"status":"pulling x","total":10,"completed":5}\n')
+                outer.models[b["model"]] = 2e9
+                self.wfile.write(b'{"status":"success"}\n')
+
+        self.srv = http.server.ThreadingHTTPServer(("127.0.0.1", 0), H)
+        threading.Thread(target=self.srv.serve_forever, daemon=True).start()
+        self.tmp = tempfile.TemporaryDirectory()
+        self.svc = webui.Service(Path(self.tmp.name))
+        self.svc.ollama_base = lambda: f"http://127.0.0.1:{self.srv.server_port}"
+
+    def tearDown(self):
+        self.srv.shutdown()
+        self.tmp.cleanup()
+        webui.PULLS.clear()
+
+    def test_pull_then_delete(self):
+        import time
+        self.svc.model_pull({"name": "b:2b"})
+        for _ in range(50):
+            if not webui.PULLS["b:2b"]["active"]:
+                break
+            time.sleep(0.05)
+        self.assertEqual(webui.PULLS["b:2b"]["error"], "")
+        names = [m["name"] for m in self.svc.models_overview()["installed"]]
+        self.assertIn("b:2b", names)
+        self.svc.model_delete({"name": "b:2b"})
+        self.assertNotIn("b:2b", [m["name"] for m in self.svc.models_overview()["installed"]])
+
+    def test_invalid_name_rejected(self):
+        with self.assertRaises(webui.UiError):
+            self.svc.model_pull({"name": "x; rm -rf /"})
