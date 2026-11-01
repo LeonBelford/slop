@@ -293,7 +293,7 @@ body.sb-off main{padding-top:60px}
 const $=s=>document.querySelector(s);
 const esc=s=>String(s??"").replace(/[&<>"]/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c]));
 let sel=localStorage.getItem("sel")||null, view="project", tab="overview", list={projects:[],init_jobs:[]}, detail=null, extra=null, dirty=false, langs=[];
-let toolTab_="tool",toolBranch="",planId="",codeBase="head",codeOpen=new Set(),codeView=null,codeInit=false;
+let toolTab_="tool",toolBranch="",planId="",taskPrefill="",codeBase="head",codeOpen=new Set(),codeView=null,codeInit=false;
 let diffView=null, lastBody="", lastHead="", lastTabs="", openKeys=new Set();
 const EDITABLE=["ideas","sources","task","tool","settings","goal"];
 const STEPS=[["plan","Plan"],["implement","Implement"],["build","Build & test"],["e2e","Browser test"],["security","Security"],["review","Review"],["cleanup","Cleanup"],["docs","Docs & memory"],["merge","Merge"]];
@@ -699,6 +699,7 @@ async function runTask(){
 }
 
 /* ---- tool view ---- */
+const TOOL_EXAMPLES=["Add a make target that prints the status of all projects","Make the UI log tab show the last 500 lines","Show the GPU temperature on the dashboard","Add a button to copy a project's log to the clipboard"];
 const TOOL_STEPS=[["plan","Plan"],["backup","Backup"],["impact","Impact"],["implement","Implement"],["security","Security"],["test","Test"],["review","Review"],["docs","Docs"]];
 function toolTab(k){$("#main").scrollTop=0;LS=null;liveHtml="";toolTab_=k;dirty=false;lastBody=lastTabs="";extra=null;codeView=null;renderTool();refresh()}
 function renderTool(){
@@ -713,17 +714,20 @@ function renderTool(){
   if(toolTab_==="changes"){
     const br=x.branches||[];if(!toolBranch&&br.length)toolBranch=br[0].name;
     const sel=`<select onchange="toolBranch=this.value;codeView=null;extra=null;lastBody='';refresh()">${br.map(b=>`<option ${b.name===toolBranch?"selected":""}>${esc(b.name)}</option>`).join("")}</select>`;
-    return setBody(br.length?`<div class="row" style="margin-bottom:12px">Result branch: ${sel}</div>${restartBanner(x.build)}${runSummary(x.branchRun)}${previewBox(x.preview,x.last_merge,x.running)}${x.tree?codePanel(x):'<div class="hint">Loading…</div>'}${diffView?`<div class="panel" style="margin-top:16px"><h3>${esc(diffView.title)}</h3><pre>${fmtDiff(diffView.text)}</pre></div>`:""}`:`${previewBox(x.preview,x.last_merge,x.running)}<div class="hint">No result branches yet. Start a task on the Task tab.</div>`);
+    return setBody(br.length?`<div class="row" style="margin-bottom:8px">Result branch: ${sel}</div>${(()=>{const b=br.find(z=>z.name===toolBranch);return b?`<div class="chips" style="margin-bottom:6px">${branchBadges(b)}</div><div class="row" style="margin-bottom:12px;flex-wrap:wrap">${branchActions(b,x.running)}</div>`:""})()}${restartBanner(x.build)}${runSummary(x.branchRun)}${previewBox(x.preview,x.last_merge,x.running)}${x.tree?codePanel(x):'<div class="hint">Loading…</div>'}${diffView?`<div class="panel" style="margin-top:16px"><h3>${esc(diffView.title)}</h3><pre>${fmtDiff(diffView.text)}</pre></div>`:""}`:`${previewBox(x.preview,x.last_merge,x.running)}<div class="hint">No result branches yet. Start a task on the Task tab.</div>`);
   }
   const body=`<div class="panel"><h3>What should change?</h3>
   <p class="hint">Examples: "Add a make target that prints the status of all projects", "Make the UI log tab show the last 500 lines", "Change the Makefile so make start-tmux also opens make thinking". Tests must stay green and docs are updated; guards for web fetching, CI and this feature itself cannot be changed.</p>
-  <textarea id="tool" rows="6" oninput="dirty=true" ${x.running?"disabled":""}></textarea>
-  <div class="row" style="justify-content:flex-end;margin-top:10px"><button class="primary" onclick="runTool()" ${x.running?"disabled":""}>${x.running?"Working…":"Do this"}</button></div>
+  <div class="chips" style="margin:6px 0">${TOOL_EXAMPLES.map((t,i)=>`<span class="chip" onclick="taskPrefill=TOOL_EXAMPLES[${i}];toolTab('tool')">${esc(t.slice(0,48))}${t.length>48?"…":""}</span>`).join("")}</div>
+  <textarea id="tool" rows="6" oninput="dirty=true" ${x.running?"disabled":""}>${esc(taskPrefill)}</textarea>
+  <div class="row" style="justify-content:flex-end;margin-top:10px">${x.running?'<button class="danger" onclick="toolCancel()">Cancel</button>':""}<button class="primary" onclick="runTool()" ${x.running?"disabled":""}>${x.running?"Working…":"Do this"}</button></div>
+  ${x.running?'<p class="hint">Follow the checklist and every step in the <a href="#" onclick="planId=\'\';toolTab(\'plan\');return false">Plan</a> tab.</p>':""}
   ${x.log?`<h4>Progress</h4><pre>${colorLog(x.log)}</pre>`:""}</div>
-  <div class="panel" style="margin-top:16px"><h3>Result branches</h3><p class="hint">Open the <b>Changes</b> tab to browse every changed file with new lines highlighted. Review in the terminal with <code>git diff HEAD...&lt;branch&gt;</code>, then <code>git merge &lt;branch&gt;</code> if you like it, or ignore it. Nothing changes in the running program until you merge.</p>
-  ${x.branches.length?x.branches.map(b=>`<details data-k="${esc(b.name)}"><summary><code>${esc(b.name)}</code> ${esc(b.subject)} <span class="meta">${esc(b.date.slice(0,16))}</span></summary><div class="inner"><pre>${esc(b.stat.join("\n")||"no changes")}</pre><div style="margin-top:8px"><button class="small" onclick="toolDiff('${esc(b.name)}')">Show full diff</button></div></div></details>`).join(""):'<div class="hint">No branches yet.</div>'}</div>
+  <div class="panel" style="margin-top:16px"><h3>Result branches</h3><p class="hint">Open the <b>Changes</b> tab to browse every changed file, try the branch and merge it there. Nothing changes in the running program until you merge.</p>
+  ${x.branches.length?x.branches.map(b=>`<details data-k="${esc(b.name)}"><summary><code>${esc(b.name)}</code> ${esc(b.subject)} <span class="meta">${esc(b.date.slice(0,16))}</span></summary><div class="inner"><div class="chips" style="margin-bottom:8px">${branchBadges(b)}</div><pre>${esc(b.stat.join("\n")||"no changes")}</pre><div class="row" style="margin-top:8px;flex-wrap:wrap"><button class="small" onclick="toolDiff('${esc(b.name)}')">Show full diff</button><button class="small" onclick="toolBranch='${esc(b.name)}';toolTab('changes')">Try / merge</button>${branchActions(b,x.running)}</div></div></details>`).join(""):'<div class="hint">No branches yet.</div>'}</div>
   ${diffView?`<div class="panel" style="margin-top:16px"><h3>${esc(diffView.title)}</h3><pre>${fmtDiff(diffView.text)}</pre></div>`:""}`;
   setBody(body);
+  if(taskPrefill){dirty=true;taskPrefill=""}
   reasoningLive();
 }
 const REQ_ICON={done:["✔","lg-ok"],partial:["◐","lg-warn"],missing:["✘","lg-err"],failed:["✘","lg-err"],unverified:["?","lg-warn"],open:["○",""]};
@@ -738,6 +742,28 @@ function runSummary(run){
   const rs=run.requirements||[],done=rs.filter(r=>r.status==="done").length;
   return `<details class="panel" style="margin-bottom:12px"><summary><b>What was asked: ${done}/${rs.length} requirements done</b>${(run.tests_added||[]).length?` <span class="pill ok">${run.tests_added.length} new test file(s)</span>`:` <span class="pill warn">no new tests</span>`}</summary><div class="inner">${reqList(run)}<div class="hint">Details in the <a href="#" onclick="planId='${esc(run.id)}';toolTab('plan');return false">Plan</a> tab.</div></div></details>`;
 }
+function branchBadges(b){
+  const bad=[];
+  if(b.merged)bad.push('<span class="pill info">already merged</span>');
+  else{
+    bad.push(`<span class="pill">${b.ahead} commit${b.ahead===1?"":"s"}</span>`);
+    bad.push(b.mergeable===true?'<span class="pill ok">merges cleanly</span>':b.mergeable===false?'<span class="pill bad">conflicts with current code</span>':'<span class="pill">merge not checked</span>');
+    if(b.behind)bad.push(`<span class="pill warn">current code moved on by ${b.behind}</span>`);
+  }
+  if(b.req_total)bad.push(`<span class="pill ${b.req_done===b.req_total?"ok":"warn"}">${b.req_done}/${b.req_total} requirements</span>`);
+  bad.push(b.tests_added?`<span class="pill ok">${b.tests_added} new test file(s)</span>`:'<span class="pill warn">no new tests</span>');
+  return bad.join(" ");
+}
+function branchActions(b,busy){
+  return `<button class="small" ${busy||!b.behind||b.merged?"disabled":""} onclick="updateBranch('${esc(b.name)}')" title="Merge the current code into this branch so it stays mergeable">Update from current code</button>
+  <button class="small danger" ${busy?"disabled":""} onclick="discardBranch('${esc(b.name)}')">Discard</button>
+  ${b.task?`<button class="small" onclick="reuseTask(${esc(JSON.stringify(b.task))})" title="Put the original request into the Task box">Reuse request</button>`:""}`;
+}
+async function toolPost(path,body,ok){try{const r=await api(path,body);if(ok!==false)toast(r.message||"Done");lastBody="";await refresh();return r}catch(e){toast(e.message,true)}}
+function toolCancel(){if(confirm("Stop the running self-change? Work in progress is discarded (finished commits stay on the branch)."))toolPost("/api/tool/cancel",{},false).then(()=>toast("Cancelled"))}
+function discardBranch(n){if(confirm(`Delete ${n}? The changes on it are lost (the backup tags stay).`)){if(toolBranch===n)toolBranch="";toolPost("/api/tool/discard",{branch:n})}}
+function updateBranch(n){toast("Merging the current code into the branch…");toolPost("/api/tool/update-branch",{branch:n})}
+function reuseTask(t){taskPrefill=t;toolTab("tool")}
 function restartBanner(b){
   return b&&b.restart_needed?`<div class="panel" style="margin-bottom:12px;border-color:var(--warn)"><b class="lg-warn">Restart needed:</b> the code on disk (${esc(b.head.slice(0,8))}) is newer than the running UI (${esc(b.sha.slice(0,8))}). Stop it and start <code>make ui</code> again.</div>`:"";
 }
@@ -745,12 +771,13 @@ function planBody(x){
   const runs=x.runs||[],pl=x.plan||{},run=pl.run;
   const sel=runs.length?`<div class="row" style="margin-bottom:12px">Run: <select onchange="planId=this.value;extra=null;lastBody='';refresh()">${runs.map(r=>`<option value="${esc(r.id)}" ${run&&r.id===run.id?"selected":""}>${esc(r.id)} · ${esc(r.status)} · ${r.done}/${r.total} · ${esc(r.title)}</option>`).join("")}</select></div>`:"";
   if(!run)return `${restartBanner(x.build)}<div class="hint">No runs yet. Describe a change on the <b>Task</b> tab: the request is split into a checklist and every step shows up here.</div>`;
-  const ph=pl.phase&&pl.running?`<div class="hint"><b>Now:</b> ${esc(pl.phase.step)} ${esc(pl.phase.detail||"")}</div>`:"";
+  const ph=pl.phase&&pl.running?`<div class="hint"><b>Now:</b> ${esc(pl.phase.step)} ${esc(pl.phase.detail||"")} <button class="small danger" onclick="toolCancel()">Cancel</button></div>`:"";
+  const again=run.instruction&&!pl.running&&["failed","cancelled"].includes(run.status)?`<div style="margin-top:8px"><button class="small" onclick="reuseTask(${esc(JSON.stringify(run.instruction))})">Run this request again</button></div>`:"";
   const props=(run.proposals||[]).map(p=>`<div class="panel" style="margin-top:10px"><h3 style="margin:0">${esc(p.title)} <span class="pill ${p.status==="kept"?"ok":p.status==="reverted"?"bad":"info"}">${esc(p.status)}</span></h3>
     <div class="chips" style="margin:8px 0">${Object.keys(STAGE_NAME).map(k=>`<span class="pill ${STAGE_CLS[p.stages[k]]||""}">${STAGE_NAME[k]}: ${esc(p.stages[k]||"pending")}</span>`).join("")}</div>
     ${p.note?`<div class="hint"><b>Note:</b> ${esc(p.note)}</div>`:""}${p.plan?`<details><summary>Plan and impact analysis</summary><div class="inner"><pre>${esc(p.plan)}</pre></div></details>`:""}</div>`).join("");
-  return `${restartBanner(x.build)}${sel}<div class="panel"><h3>Todo: requirements <span class="pill ${run.status==="done"?"ok":run.status==="failed"?"bad":"info"}">${esc(run.status)}</span></h3>
-  ${run.instruction?`<p class="hint">${esc(run.instruction)}</p>`:""}${reqList(run)}${ph}${run.summary?`<div class="hint">${esc(run.summary)}</div>`:""}
+  return `${restartBanner(x.build)}${sel}<div class="panel"><h3>Todo: requirements <span class="pill ${run.status==="done"?"ok":["failed","cancelled"].includes(run.status)?"bad":"info"}">${esc(run.status)}</span></h3>
+  ${run.instruction?`<p class="hint">${esc(run.instruction)}</p>`:""}${reqList(run)}${ph}${run.summary?`<div class="hint">${esc(run.summary)}</div>`:""}${again}
   ${run.branch?`<div class="hint">Result: <code>${esc(run.branch)}</code> · ${(run.files||[]).length} file(s) changed · <a href="#" onclick="toolBranch='${esc(run.branch)}';toolTab('changes');return false">Try it / merge</a></div>`:""}</div>
   <h4 style="margin-top:16px">Plan and progress per change</h4>${props||'<div class="hint">Planning…</div>'}`;
 }

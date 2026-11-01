@@ -69,8 +69,8 @@ LLM calls: `LLM.chat(tag, role, system, user)`; roles `planner`, `reviewer`, `su
   host/origin are checked (DNS-rebinding guard).
 - `Service` methods back the routes: projects (`summary`, `list`, `detail`, `activity`, `thoughts`, `stream`, `tree`, `changes`,
   settings), dashboard (`dashboard`, `live_rate`, `coder_rate`, `gpu_stats`, `loaded_models`), tool (`tool`, `tool_task`,
-  `tool_activity`, `tool_stream`, `tool_tree`, `tool_diff`, `tool_run`, `preview_*`, `tool_merge`, `tool_undo_merge`), update, chats, models.
-- Route table is in `make_handler` (`handle_any`): GET `/api/build`, `/api/tool/run[?id=|branch=]`, `/api/projects`, `/api/project/<n>[/settings|llm|changes|diff|thoughts|tree|file|stream]`,
+  `tool_activity`, `tool_stream`, `tool_tree`, `tool_diff`, `tool_run`, `tool_cancel`, `tool_discard`, `tool_update_branch`, `branch_status`, `preview_*`, `tool_merge`, `tool_undo_merge`), update, chats, models.
+- Route table is in `make_handler` (`handle_any`): POST `/api/tool/cancel`, `/api/tool/discard`, `/api/tool/update-branch`; GET `/api/build`, `/api/tool/run[?id=|branch=]`, `/api/projects`, `/api/project/<n>[/settings|llm|changes|diff|thoughts|tree|file|stream]`,
   `/api/dashboard`, `/api/tool[/stream|activity|tree|file|diff]`, `/api/chats`, `/api/chat/<id>`, `/api/models`, `/api/lan`, `/api/update/*`;
   POST `/api/projects`, `/api/project/<n>/<action>`, `/api/tool/task`, `/api/tool/preview[/tests|stop]`, `/api/tool/merge`,
   `/api/tool/undo-merge`, `/api/chats`, `/api/ui-settings`, `/api/master`.
