@@ -105,3 +105,16 @@ class MergeTests(unittest.TestCase):
                 self.assertFalse((repo / "b.txt").exists())
             finally:
                 webui.ROOT = old_root
+
+
+class IdleTimeoutTests(unittest.TestCase):
+    def test_idle_timeout_only_counts_silence(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            live = Path(tmp) / "l.txt"
+            cmd = ["python3", "-u", "-c", "import time\nfor i in range(5):\n print(i);time.sleep(0.8)"]
+            rc, _ = sa.sh_live(cmd, Path(tmp), 3, live)  # absolute: 4 s of work > 3 s
+            self.assertEqual(rc, 124)
+            rc, out = sa.sh_live(cmd, Path(tmp), 3, live, idle=True)  # chatty: never silent for 3 s
+            self.assertEqual(rc, 0)
+            rc, _ = sa.sh_live(["python3", "-c", "import time;time.sleep(9)"], Path(tmp), 2, live, idle=True)
+            self.assertEqual(rc, 124)

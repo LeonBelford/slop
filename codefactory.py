@@ -258,18 +258,22 @@ def sh(cmd, cwd: Path, timeout: int = 900, shell: bool = False, env: dict | None
         return 127, f"Command not found: {e}"
 
 
-def sh_live(cmd, cwd: Path, timeout: int, live: Path, env: dict | None = None, shell: bool = False, gate=None):
-    """Like sh(), but mirrors the output into `live` while the command runs so the UI can show it as it is written."""
+def sh_live(cmd, cwd: Path, timeout: int, live: Path, env: dict | None = None, shell: bool = False, gate=None, idle: bool = False,
+            hard_cap: float = 6 * 3600):
+    """Like sh(), but mirrors the output into `live` while the command runs so the UI can show it as it is written.
+    idle=True: `timeout` only counts silence (a model that is still writing is never cut off); `hard_cap` still ends a runaway."""
     try:
         p = subprocess.Popen(cmd, cwd=str(cwd), stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True, errors="replace", shell=shell,
                              env={**os.environ, **(env or {})})
     except FileNotFoundError as e:
         return 127, f"Command not found: {e}"
     chunks: list[str] = []
+    last_out = [time.time()]
 
     def pump() -> None:
         with open(live, "w", encoding="utf-8") as f:
             for line in p.stdout:
+                last_out[0] = time.time()
                 chunks.append(line)
                 f.write(line)
                 f.flush()
@@ -283,10 +287,11 @@ def sh_live(cmd, cwd: Path, timeout: int, live: Path, env: dict | None = None, s
             break
         except subprocess.TimeoutExpired:
             pass
-        if time.time() - t0 > timeout:
+        waited = time.time() - (last_out[0] if idle else t0)
+        if waited > timeout or (idle and time.time() - t0 > hard_cap):
             force_stop_pid(p.pid, grace=2.0)
             th.join(2)
-            return 124, f"TIMEOUT after {timeout}s: {cmd}"
+            return 124, f"TIMEOUT after {int(waited)}s{' without output' if idle else ''}: {cmd}"
         if gate is not None:
             try:
                 gate.check()
@@ -1470,7 +1475,7 @@ class Agent:
         t0 = time.time()
         while True:
             with self.llm.sched.gpu(f"coder/{tag}", model) as gate:
-                rc, out = sh_live(cmd, self.repo, self.lim["coder_timeout"], self.dir / "coder_live.txt", env=env, gate=gate)
+                rc, out = sh_live(cmd, self.repo, self.lim["coder_timeout"], self.dir / "coder_live.txt", env=env, gate=gate, idle=True)
             if rc != gpusched.PREEMPTED_RC:
                 break
             self.log(f"⏸ [coder/{tag}] Aider stopped for the main agent, retrying when the GPU is idle")

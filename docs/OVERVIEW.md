@@ -95,3 +95,6 @@ Tool → Changes tab → "Try it before you merge": `POST /api/tool/preview` che
 
 ## Project map
 `PROJECT_MAP.md` (repo root) is the complete description of the tool for the self-improve agent. `selfimprove.project_map()` loads it and aborts if it is missing; it is injected into `improve_plan`, `tool_files`, `tool_impact`, `tool_plan_critique` and `tool_review`, and Aider gets it via `--read`. `docs/ARCHITECTURE.md` stays the supplementary technical reference. Update the map whenever you add a module, route, config key or command (`tests/test_project_map.py` checks that referenced files exist).
+
+## Aider timeout = silence, not total time
+`limits.coder_timeout` (1500 s) now only counts time **without output** from Aider (self-improve and the project agents). As long as it keeps writing it is never cut off; a hard cap of 6 h still stops a runaway. Build/test commands keep their absolute timeouts.
