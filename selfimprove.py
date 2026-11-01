@@ -49,14 +49,17 @@ def project_map(repo: Path, required: bool = True, limit: int = 14000) -> str:
     return sa.clip(text, limit)
 
 
-def protected_violations(changes: list[str], protected: tuple = PROTECTED) -> list[str]:
-    """changes: lines of `git diff --name-status`. Existing tests may not change; new test files are welcome."""
+def protected_violations(changes: list[str], protected: tuple = PROTECTED, edit_tests: bool = False) -> list[str]:
+    """changes: lines of `git diff --name-status`. Existing tests may not change (edit_tests=True, for requests you wrote yourself,
+    allows adapting them but never deleting or renaming); new test files are welcome."""
     bad = []
     for line in changes:
         parts = line.split("\t")
         status, paths = parts[0][:1], parts[1:]
+        if status in "DR" and MAP_FILE in paths[:1]:
+            bad.append(MAP_FILE)
         for path in paths:
-            if path.startswith(protected) or (path.startswith("tests/") and status != "A"):
+            if path.startswith(protected) or (path.startswith("tests/") and status != "A" and not (edit_tests and status == "M")):
                 bad.append(path)
     return bad
 
@@ -370,6 +373,131 @@ def _verify_requirements(repo: Path, base: str, branch: str, ledger, llm, log) -
     log("  requirements: " + ", ".join(f"{r['id']}={r['status']}" for r in ledger.d["requirements"]))
 
 
+FIX_ROUNDS = 2  # repair rounds after the first attempt: the failure is diagnosed and handed back to the coder
+
+
+def _restore(work: Path, paths: list[str]) -> None:
+    """Puts protected files back to the last commit (new ones are removed)."""
+    for path in paths:
+        if _git(work, "cat-file", "-e", f"HEAD:{path}")[0] == 0:
+            _git(work, "checkout", "HEAD", "--", path)
+        else:
+            (work / path).unlink(missing_ok=True)
+            _git(work, "rm", "-q", "--cached", "--ignore-unmatch", path)
+
+
+def _clean_changes(work: Path, protected: tuple, directed: bool, log, notes: list) -> tuple[list[str], list[str]]:
+    """Current changes. Directed runs get protected files restored automatically (and may adapt existing tests);
+    autonomous runs treat any protected change as a reason to reject the whole proposal."""
+    changes = _changes(work)
+    bad = protected_violations(changes, protected, edit_tests=directed)
+    if bad and directed:
+        _restore(work, bad)
+        notes.append(f"restored protected file(s): {bad}")
+        log(f"  restored protected file(s): {bad}")
+        changes = _changes(work)
+        bad = protected_violations(changes, protected, edit_tests=directed)
+    return changes, bad
+
+
+def _diagnose(llm, p: dict, stage: str, report: str, work: Path) -> str:
+    """Reasoning step between attempts: why did it fail and what exactly should change."""
+    if llm is None:
+        return ""
+    try:
+        d = llm.json("tool_diagnose", "planner",
+                     "A code change failed an automatic check. Find the root cause and say precisely what to change in the code. "
+                     "Do not suggest removing or editing safeguards or checks to make them pass.",
+                     f"Change: {p['title']}\n{p['change']}\nFailed stage: {stage}\nOutput:\n{sa.clip(report, 3000)}\n"
+                     f"Current diff:\n{sa.clip(_git(work, 'diff', '--cached', 'HEAD')[1], 6000)}\nSchema: " '{"cause": "...", "fix": "..."}')
+    except Exception:  # noqa: BLE001
+        return ""
+    return f"Cause: {d.get('cause', '')}\nFix: {d.get('fix', '')}" if isinstance(d, dict) and (d.get("cause") or d.get("fix")) else ""
+
+
+def _gates(work: Path, p: dict, files: list[str], llm, coder, log, ledger, pi: int, protected: tuple, directed: bool, state: dict) -> tuple[bool, str, str]:
+    """One pass over all gates for the current state of the worktree. Returns (ok, report, failed stage)."""
+    changes, bad = _clean_changes(work, protected, directed, log, state["notes"])
+    if bad:
+        return False, f"touches protected files: {bad}", "protected"
+    if not changes:
+        return False, "the coder made no usable edit", "implement"
+    code, has_tests = _needs_tests(changes)
+    if code and not has_tests and not state["tests_round"]:
+        state["tests_round"] = True
+        _phase("implement", "Adding tests for the change")
+        ledger.stage(pi, "tests_added", "running")
+        coder(work, [f for f in files if (work / f).is_file()][:4],
+              f"Add tests for this change: {p['title']}.\nCreate a NEW unittest file in tests/ (standard library only) that "
+              "checks the new behavior and would fail without it. Do not modify existing tests and do not change non-test code.")
+        changes, bad = _clean_changes(work, protected, directed, log, state["notes"])
+        if bad:
+            return False, f"touches protected files: {bad}", "protected"
+        has_tests = _needs_tests(changes)[1]
+    ledger.stage(pi, "implement", "ok")
+    ledger.stage(pi, "tests_added", "ok" if has_tests else ("warn" if code else "skipped"), "" if has_tests else "no new test file was written")
+    edited = [l.split("\t")[-1] for l in changes if l[:1] == "M" and l.split("\t")[-1].startswith("tests/")]
+    if edited:
+        ledger.d["proposals"][pi]["tests_modified"] = edited
+        ledger.save()
+    ledger.stage(pi, "security", "running")
+    ok, report = _security_gate(work, p, llm, coder, log)
+    ledger.stage(pi, "security", "ok" if ok else "failed", report)
+    if not ok:
+        return False, report, "security"
+    _phase("test", "Selftest and unit tests on the changed copy")
+    ledger.stage(pi, "test", "running")
+    ok, report = _tests_green(work, 900)
+    ledger.stage(pi, "test", "ok" if ok else "failed", report)
+    if not ok:
+        return False, report, "test"
+    _git(work, "add", "-A")
+    ledger.stage(pi, "review", "running")
+    ok, report = _review(work, p, llm, log)
+    ledger.stage(pi, "review", "ok" if ok else "failed", report)
+    return ok, report, "" if ok else "review"
+
+
+def _work_on(work: Path, p: dict, files: list[str], impact: str, llm, coder, log, ledger, pi: int, protected: tuple,
+             out_dir: Path, stamp: str) -> tuple[bool, str]:
+    """Implement, check, and when a check fails: diagnose, hand the problem back to the coder and try again (FIX_ROUNDS times)."""
+    directed = ledger.d["kind"] == "directed"
+    state = {"tests_round": False, "notes": []}
+    test_rule = ("Existing tests may only be adapted where the new behavior requires it; never delete a test or loosen an assertion. "
+                 if directed else "Do not modify existing tests; add new tests if sensible. ")
+    prompt = (f"{p['change']}\n\nRationale: {p.get('rationale', '')}\n{impact}\n"
+              "Write secure code: validate input, no shell injection, no secrets, never disable or loosen a safeguard. "
+              f"Keep the change focused. {test_rule}Standard library only. Documentation is updated in a separate step afterwards.")
+    ok, report, stage = False, "", ""
+    for rnd in range(FIX_ROUNDS + 1):
+        _phase("implement", p["title"] if rnd == 0 else f"{p['title']} (repair round {rnd}: {stage})")
+        ledger.stage(pi, "implement", "running")
+        coder(work, [f for f in dict.fromkeys(files + [l.split("\t")[-1] for l in _changes(work) if not l.split("\t")[-1].startswith("tests/")]) if (work / f).is_file()][:8], prompt)
+        ok, report, stage = _gates(work, p, files, llm, coder, log, ledger, pi, protected, directed, state)
+        if ok or stage == "protected" and not directed:
+            break
+        if stage == "implement":
+            ledger.stage(pi, "implement", "failed", report)
+        ledger.d["proposals"][pi]["rounds"] = rnd + 1
+        ledger.proposal(pi, note=f"round {rnd + 1} failed at {stage}: {report[:300]}")
+        if rnd == FIX_ROUNDS:
+            break
+        log(f"  round {rnd + 1} failed at {stage}; diagnosing and repairing ({rnd + 1}/{FIX_ROUNDS})")
+        _phase("implement", f"Diagnosing the failure ({stage})")
+        diag = _diagnose(llm, p, stage, report, work)
+        prompt = (f"Repair round {rnd + 1}. Your previous change failed at the '{stage}' stage.\nProblem:\n{sa.clip(report, 2500)}\n"
+                  f"{diag}\nFix the code so every check passes. The original task is still:\n{p['change']}\n{test_rule}"
+                  "Never remove or loosen a safeguard to make a check pass. Standard library only.")
+    if not ok:
+        patch = _git(work, "diff", "--cached", "HEAD")[1]
+        if patch.strip():
+            sa.write_text(out_dir / f"failed-{stamp}-{pi + 1}.patch", patch)  # kept for inspection, not applied anywhere
+            report += f" (the last attempt is saved in self_improve/failed-{stamp}-{pi + 1}.patch)"
+    elif state["notes"]:
+        ledger.proposal(pi, note="; ".join(state["notes"]))
+    return ok, report
+
+
 def _implement(repo: Path, proposals: list[dict], coder, stamp: str, out_dir: Path, log, protected: tuple, llm=None, ledger=None) -> dict:
     ledger = ledger or runledger.Ledger(out_dir, stamp, "auto")
     if not ledger.d["requirements"]:
@@ -404,49 +532,7 @@ def _implement_run(repo: Path, proposals: list[dict], coder, stamp: str, out_dir
             files, impact = _impact(work, p, files, llm, log, protected)
             ledger.stage(pi, "impact", "ok" if impact else "skipped")
             ledger.proposal(pi, plan=f"Files: {files}\n{sa.clip(impact, 1500)}")
-            _phase("implement", p["title"])
-            ledger.stage(pi, "implement", "running")
-            coder(work, files, f"{p['change']}\n\nRationale: {p.get('rationale', '')}\n{impact}\n"
-                  "Write secure code: validate input, no shell injection, no secrets, never disable or loosen a safeguard. Keep the change small and focused. Do not modify existing tests; add new tests if sensible. Standard library only. "
-                  "Documentation is updated in a separate step afterwards.")
-            changes = _changes(work)
-            bad = protected_violations(changes, protected)
-            if bad:
-                ok, report = False, f"touches protected files: {bad}"
-            elif not changes:
-                ok, report = False, "no changes"
-            else:
-                code, has_tests = _needs_tests(changes)
-                if code and not has_tests:
-                    _phase("implement", "Adding tests for the change")
-                    ledger.stage(pi, "tests_added", "running")
-                    coder(work, [f for f in files if (work / f).is_file()][:4],
-                          f"Add tests for this change: {p['title']}.\nCreate a NEW unittest file in tests/ (standard library only) that "
-                          "checks the new behavior and would fail without it. Do not modify existing tests and do not change non-test code.")
-                    changes = _changes(work)
-                    bad = protected_violations(changes, protected)
-                    has_tests = _needs_tests(changes)[1]
-                if bad:
-                    ok, report = False, f"touches protected files: {bad}"
-                else:
-                    ledger.stage(pi, "implement", "ok")
-                    ledger.stage(pi, "tests_added", "ok" if has_tests else ("warn" if code else "skipped"),
-                                 "" if has_tests else "no new test file was written")
-                    ledger.stage(pi, "security", "running")
-                    ok, report = _security_gate(work, p, llm, coder, log)
-                    ledger.stage(pi, "security", "ok" if ok else "failed", report)
-                if ok:
-                    _phase("test", "Selftest and unit tests on the changed copy")
-                    ledger.stage(pi, "test", "running")
-                    ok, report = _tests_green(work, 900)
-                    ledger.stage(pi, "test", "ok" if ok else "failed", report)
-                if ok:
-                    _git(work, "add", "-A")
-                    ledger.stage(pi, "review", "running")
-                    ok, report = _review(work, p, llm, log)
-                    ledger.stage(pi, "review", "ok" if ok else "failed", report)
-            if not ok and ledger.d["proposals"][pi]["stages"]["implement"] == "running":
-                ledger.stage(pi, "implement", "failed", report)
+            ok, report = _work_on(work, p, files, impact, llm, coder, log, ledger, pi, protected, out_dir, stamp)
             if ok:
                 _git(work, "-c", "user.name=codefactory", "-c", "user.email=agent@localhost", "commit", "-q", "-m",
                      f"self-improve: {p['title']}\n\n{p.get('rationale', '')}")
@@ -524,8 +610,11 @@ def directed(instruction: str, repo: Path | None = None, llm=None, coder=None, l
         log(f"Could not pick files automatically: {e}")
         files = []
     files = [f for f in files if isinstance(f, str) and f in tracked][:6]
+    change = instruction.strip()
+    if len(requirements) > 1:
+        change += "\n\nRequirements (implement all of them):\n" + "\n".join(f"{i}. {r}" for i, r in enumerate(requirements, 1))
     proposal = {"title": sa.clip(instruction.strip().splitlines()[0], 80), "rationale": "Requested directly by the user.",
-                "files": files, "change": instruction.strip(), "risk": "user"}
+                "files": files, "change": change, "risk": "user"}
     sa.write_text(out_dir / f"task-{stamp}.md", f"# Directed task {stamp}\n\n{instruction}\n\nFiles: {files}\n")
     ledger.set_requirements(requirements)
     try:
