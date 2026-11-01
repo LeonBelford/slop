@@ -14,8 +14,8 @@ import urllib.error
 import urllib.request
 from pathlib import Path
 
-ROOT = Path(__file__).resolve().parent
-RUNNER = ROOT / "e2e_runner.py"
+ROOT = Path(__file__).resolve().parent.parent
+RUNNER = Path(__file__).resolve().parent / "e2e_runner.py"
 INSTALL_HELP = ("Browser tests need Playwright: run `make e2e-setup` "
                 "(installs it into .venv with Chromium; on a fresh Linux also `sudo .venv/bin/playwright install-deps chromium`).")
 

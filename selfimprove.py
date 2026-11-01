@@ -26,15 +26,15 @@ import time
 from pathlib import Path
 
 import codefactory as sa
-import estimate
-import models
-import perf
-import runledger
-import security
+from dash import estimate
+from infra import models
+from infra import perf
+from dash import runledger
+from infra import security
 
-PROTECTED = ("webaccess.py", "security.py", "webui.py", "selfimprove.py", ".github/", ".env", "scripts/quick-setup-popos.sh")
+PROTECTED = ("infra/webaccess.py", "infra/security.py", "webui.py", "selfimprove.py", ".github/", ".env", "scripts/quick-setup-popos.sh")
 # Directed tasks (user-written instruction) may also change the web UI server; the guards for fetching and this module stay locked.
-PROTECTED_DIRECTED = ("webaccess.py", "security.py", "selfimprove.py", ".github/", ".env", "scripts/quick-setup-popos.sh")
+PROTECTED_DIRECTED = ("infra/webaccess.py", "infra/security.py", "selfimprove.py", ".github/", ".env", "scripts/quick-setup-popos.sh")
 MAX_PROPOSALS = 3
 MAP_FILE = "PROJECT_MAP.md"  # complete description of this repository; read before every plan and every change
 
@@ -117,9 +117,9 @@ def _dependents(work: Path, files: list[str]) -> dict[str, list[str]]:
     for f in files:
         if not f.endswith(".py"):
             continue
-        mod = Path(f).stem
-        pat = re.compile(rf"^\s*(?:import|from)\s+{re.escape(mod)}\b", re.M)
-        out[f] = sorted(p.name for p in work.rglob("*.py") if p.name != Path(f).name and ".venv" not in p.parts
+        mod = re.escape(Path(f).stem)
+        pat = re.compile(rf"^\s*(?:import\s+(?:\w+\.)*{mod}\b|from\s+(?:\w+\.)*{mod}\b|from\s+[\w.]+\s+import\s+[^\n]*\b{mod}\b)", re.M)
+        out[f] = sorted(str(p.relative_to(work)) for p in work.rglob("*.py") if str(p.relative_to(work)) != f and ".venv" not in p.parts
                         and pat.search(p.read_text("utf-8", "replace")))
     return out
 
@@ -305,7 +305,8 @@ def main(projects: Path, dry_run: bool = False, repo: Path | None = None, llm=No
         ledger.status("failed", "No evidence yet")
         return {"branch": None, "proposals": []}
     pmap = project_map(repo, required=_is_tool(repo))  # mandatory for the real tool: without the map there is no plan
-    code_files = sorted(p.name for p in repo.glob("*.py") if p.name not in PROTECTED) + ["scripts/run.sh", "MASTER.md"]
+    code_files = sorted(str(p.relative_to(repo)) for p in [*repo.glob("*.py"), *repo.glob("core/*.py"), *repo.glob("infra/*.py"), *repo.glob("dash/*.py")]
+                        if not str(p.relative_to(repo)).startswith(PROTECTED)) + ["scripts/run.sh", "MASTER.md"]
     d = llm.json("improve_plan", "planner",
                  "You improve an autonomous coding agent (this repository). Propose small, safe, high-value changes to the "
                  "agent's own code: better prompts, smarter heuristics, more robust error handling, better context selection. "

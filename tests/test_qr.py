@@ -3,7 +3,7 @@ import unittest
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
-import qr  # noqa: E402
+from infra import qr  # noqa: E402
 
 
 class QrTests(unittest.TestCase):

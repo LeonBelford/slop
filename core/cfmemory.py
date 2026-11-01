@@ -4,14 +4,14 @@ from __future__ import annotations
 from pathlib import Path
 import ast
 import json
-import knowledge
+from infra import knowledge
 import os
 import re
 import shutil
 import tempfile
 import time
-from cfllm import LLM
-from cfutil import clip, now, read_ideas, read_json, sha, words, write_json, write_text
+from core.cfllm import LLM
+from core.cfutil import clip, now, read_ideas, read_json, sha, words, write_json, write_text
 
 
 # --------------------------------------------------------------------------- Memory

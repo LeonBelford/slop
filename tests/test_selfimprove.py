@@ -14,8 +14,8 @@ import selfimprove  # noqa: E402
 
 class SelfImproveTest(unittest.TestCase):
     def test_protected_paths(self):
-        self.assertEqual(selfimprove.protected_violations(["M\twebaccess.py", "M\ttests/test_x.py", "A\ttests/test_new.py",
-                                                           "M\tcodefactory.py"]), ["webaccess.py", "tests/test_x.py"])
+        self.assertEqual(selfimprove.protected_violations(["M\tinfra/webaccess.py", "M\ttests/test_x.py", "A\ttests/test_new.py",
+                                                           "M\tcodefactory.py"]), ["infra/webaccess.py", "tests/test_x.py"])
 
     def test_branch_keeps_green_changes_and_reverts_protected(self):
         tmp = Path(tempfile.mkdtemp())
@@ -24,6 +24,8 @@ class SelfImproveTest(unittest.TestCase):
             repo.mkdir()
             for f in ROOT.glob("*.py"):
                 shutil.copy(f, repo / f.name)
+            for pkg in ("core", "infra", "dash"):
+                shutil.copytree(ROOT / pkg, repo / pkg, ignore=shutil.ignore_patterns("__pycache__"))
             shutil.copytree(ROOT / "tests", repo / "tests", ignore=shutil.ignore_patterns("test_selfimprove.py", "__pycache__"))
             shutil.copytree(ROOT / "scripts", repo / "scripts")
             shutil.copy(ROOT / "MASTER.md", repo / "MASTER.md")
@@ -48,7 +50,7 @@ class SelfImproveTest(unittest.TestCase):
                         f.write("\nSelf-improved.\n")
                     return
                 if "weaken" in prompt:
-                    (work / "webaccess.py").write_text("# weakened\n")
+                    (work / "infra" / "webaccess.py").write_text("# weakened\n")
                 else:
                     with open(work / "codefactory.py", "a") as f:
                         f.write("\n# improved\n")

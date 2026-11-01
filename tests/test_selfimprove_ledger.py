@@ -7,7 +7,7 @@ import unittest
 from pathlib import Path
 
 import codefactory as sa
-import runledger
+from dash import runledger
 import selfimprove
 
 

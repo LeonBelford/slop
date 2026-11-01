@@ -4,7 +4,7 @@ P ?=
 .PHONY: doctor update e2e-setup models ui-lan force-stop kill help setup selftest init start run status stop list ui start-tmux tmux attach watch thinking logs task do self-improve improve test-build try feedback say
 
 update:
-	@python3 update.py
+	@python3 -m infra.update
 
 help:
 	@echo "First time:   make setup"
@@ -24,7 +24,7 @@ setup:
 	bash scripts/setup.sh
 
 doctor:
-	python3 perf.py
+	python3 -m infra.perf
 
 selftest:
 	python3 codefactory.py selftest
@@ -79,7 +79,7 @@ e2e-setup:
 
 # Optional models to download (and which ones are already installed)
 models:
-	python3 models.py
+	python3 -m infra.models
 
 # Let the agent improve its own code on a review branch (never auto-merged): make self-improve [ARGS=--dry-run]
 self-improve improve:

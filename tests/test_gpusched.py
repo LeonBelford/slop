@@ -7,7 +7,7 @@ import unittest
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
-import gpusched  # noqa: E402
+from infra import gpusched  # noqa: E402
 import codefactory as cf  # noqa: E402
 
 

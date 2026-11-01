@@ -17,7 +17,7 @@ import re
 import shutil
 import subprocess
 import time
-import estimate
+from dash import estimate
 from collections import Counter, defaultdict
 from pathlib import Path
 
@@ -154,7 +154,7 @@ def system(ollama: list[dict] | None = None) -> dict:
                 mem[k] = int(v.split()[0]) // 1024
     except OSError:
         pass
-    disk = shutil.disk_usage(Path(__file__).resolve().parent)
+    disk = shutil.disk_usage(Path(__file__).resolve().parent.parent)
     return {"cpus": os.cpu_count(), "load1": round(load, 2) if load is not None else None, "ram_total_mb": mem.get("MemTotal"),
             "ram_free_mb": mem.get("MemAvailable"), "disk_free_gb": round(disk.free / 1e9, 1), "ollama": ollama or []}
 

@@ -5,9 +5,9 @@ import types
 import unittest
 from pathlib import Path
 
-import chat
+from dash import chat
 import codefactory as sa
-import knowledge
+from infra import knowledge
 
 
 def fake_embed(texts):
