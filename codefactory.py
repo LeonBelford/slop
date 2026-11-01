@@ -57,7 +57,7 @@ import threading
 import time
 import urllib.request
 
-from core import cfprofile
+from core import cfprofile, cfutil
 from core.cfutil import (  # noqa: F401
     DEFAULT_CONFIG,
     IDEAS_TEMPLATE,
@@ -173,6 +173,7 @@ class Agent(BuildMixin, FlowMixin, VerifyMixin, SecurityMixin, ResearchMixin, Op
         with open(self.dir / "events.jsonl", "a", encoding="utf-8") as f:
             f.write(json.dumps({"time": now(), "phase": name, "step": step, "detail": detail[:300], "task": self.cur_task,
                                 "attempt": self.cur_attempt}, ensure_ascii=False) + "\n")
+        cfutil.rotate_jsonl(self.dir / "events.jsonl")
 
     def save_state(self) -> None:
         write_json(self.dir / "state.json", self.state)
@@ -180,6 +181,7 @@ class Agent(BuildMixin, FlowMixin, VerifyMixin, SecurityMixin, ResearchMixin, Op
     def metric(self, **kw) -> None:
         with open(self.dir / "metrics.jsonl", "a", encoding="utf-8") as f:
             f.write(json.dumps({"time": now(), **kw}, ensure_ascii=False) + "\n")
+        cfutil.rotate_jsonl(self.dir / "metrics.jsonl")
 
     @property
     def directive(self) -> str:

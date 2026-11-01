@@ -102,6 +102,19 @@ LENSES = [
 # --------------------------------------------------------------------------- Helpers
 
 
+def rotate_jsonl(path: Path, max_bytes: int = 2_000_000, keep: int = 3000) -> None:
+    """Keeps an append-only .jsonl file from growing forever: above max_bytes only the newest `keep` lines stay."""
+    try:
+        if path.stat().st_size <= max_bytes:
+            return
+        lines = path.read_text("utf-8", "replace").splitlines()[-keep:]
+        tmp = path.with_suffix(".tmp")
+        tmp.write_text("\n".join(lines) + "\n", "utf-8")
+        tmp.replace(path)
+    except OSError:
+        pass
+
+
 def now() -> str:
     return time.strftime("%Y-%m-%d %H:%M:%S")
 

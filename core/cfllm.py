@@ -67,6 +67,14 @@ class LLM:
         for k, v in (("words", len(answer.split()) + len(thinking.split())), ("wall_seconds", round(max(gap, seconds), 1)), ("calls", 1), ("prompt_tokens", sent), ("tokens", tokens), ("chars", chars), ("gen_seconds", round(seconds, 1)),
                      ("day_calls", 1), ("day_tokens", tokens), ("day_chars", chars)):
             m[k] = round(m.get(k, 0) + v, 1) if k in ("gen_seconds", "wall_seconds") else m.get(k, 0) + v
+        days = m.setdefault("days", {})  # per-day history for the dashboard chart, last 60 days
+        d = days.setdefault(day, {"tokens": 0, "calls": 0, "gen_seconds": 0.0, "wall_seconds": 0.0})
+        d["tokens"] += tokens
+        d["calls"] += 1
+        d["gen_seconds"] = round(d["gen_seconds"] + seconds, 1)
+        d["wall_seconds"] = round(d["wall_seconds"] + max(gap, seconds), 1)
+        for old_day in sorted(days)[:-60]:
+            del days[old_day]
         write_json(f, m)
         self.tok = {"tokens": 0, "chars": 0, "t0": None}
 

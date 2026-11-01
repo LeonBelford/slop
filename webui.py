@@ -27,7 +27,7 @@ import webbrowser
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 
-from dash import throughput, chat as chatlib
+from dash import history, throughput, chat as chatlib
 import codefactory as sa
 from core import cfprofile
 from dash import diagnostics
@@ -130,6 +130,7 @@ def read_live(path: Path, running: bool) -> dict | None:
 
 class Service:
     def __init__(self, projects: Path):
+        self._dash_lock = threading.Lock()
         self.projects = projects.resolve()
         self.settings_path = self.projects / ".ui" / "settings.json"
         self.update_cache: dict | None = None
@@ -341,7 +342,27 @@ class Service:
         except Exception:  # noqa: BLE001
             return []
 
-    def dashboard(self) -> dict:
+    def dashboard(self, max_age: float = 1.0) -> dict:
+        """The dashboard snapshot, shared by every open tab and stream: rebuilt at most once per `max_age` seconds."""
+        with self._dash_lock:
+            c = getattr(self, "_dash", None)
+            if c and time.time() - c[0] < max_age:
+                return c[1]
+            res = self._dashboard_build()
+            self._dash = (time.time(), res)
+            return res
+
+    def history(self) -> dict:
+        """Per-day series per project, for the whole tool and for self-improve (cached for 15 s)."""
+        c = getattr(self, "_hist", None)
+        if c and time.time() - c[0] < 15:
+            return c[1]
+        per = {p.name: history.daily(p / "agent") for p in sa.list_projects(self.projects)}
+        res = {"projects": per, "total": history.merge(list(per.values())), "tool": history.daily(ROOT / "self_improve")}
+        self._hist = (time.time(), res)
+        return res
+
+    def _dashboard_build(self) -> dict:
         """Everything the Dashboard shows: running agents, live token/char rates, totals, GPU and loaded models."""
         rows, tot = [], {"calls": 0, "tokens": 0, "chars": 0, "day_calls": 0, "day_tokens": 0, "day_chars": 0}
         sources = [(p.name, p, self.summary(p)) for p in sa.list_projects(self.projects)]
@@ -376,13 +397,15 @@ class Service:
         projects = []
         for p in sa.list_projects(self.projects):
             summ = self.summary(p)
-            projects.append({**diagnostics.project(p, summ["running"], summ["hours"]), "running": summ["running"], "merged": summ["merged"]})
+            projects.append({**diagnostics.project(p, summ["running"], summ["hours"]), "running": summ["running"], "merged": summ["merged"],
+                             "quality": history.quality(p / "agent")})
         oc = getattr(Service, "_oll", None)
         if not oc or time.time() - oc[0] > 30:
             Service._oll = oc = (time.time(), perf.diagnose())
         sysinfo = diagnostics.system(oc[1])
         res = {"time": time.time(), "projects": projects, "system": sysinfo, "findings": diagnostics.findings(projects, sysinfo),
-               "tool": {**runledger.stats(ROOT / "self_improve"), "durations": diagnostics.tool_durations(ROOT / "self_improve")}}
+               "tool": {**runledger.stats(ROOT / "self_improve"), "durations": diagnostics.tool_durations(ROOT / "self_improve"),
+                         "quality": history.quality(ROOT / "self_improve")}}
         self._diag = (time.time(), res)
         return res
 
@@ -1289,6 +1312,8 @@ def make_handler(svc: Service, port: int, token: str | None = None):
                     return svc.dashboard()
                 if path == "/api/diagnostics":
                     return svc.diagnostics()
+                if path == "/api/history":
+                    return svc.history()
                 if path == "/api/languages":
                     return svc.languages()
                 if path == "/api/ui-settings":
@@ -1410,7 +1435,46 @@ def make_handler(svc: Service, port: int, token: str | None = None):
                     return
                 self.send(200, INDEX.read_bytes(), "text/html")
                 return
+            path = self.path.split("?", 1)[0]
+            if path == "/api/dashboard/stream":
+                return self.dashboard_stream()
+            if path.startswith("/static/"):
+                return self.static(path[8:])
             self.handle_any("GET")
+
+        def static(self, name: str) -> None:
+            """The UI's own css/js files (whitelisted names inside web/, nothing else)."""
+            kind = {".css": "text/css", ".js": "text/javascript"}.get(Path(name).suffix)
+            f = INDEX.parent / name
+            if not self.guard(False):
+                return
+            if not kind or not re.fullmatch(r"[a-z0-9_-]+\.(?:css|js)", name) or not f.is_file():
+                return self.send(404, {"error": "Not found"})
+            self.send(200, f.read_bytes(), kind)
+
+        def dashboard_stream(self) -> None:
+            """Server-sent events: the dashboard snapshot, sent only when something changed (a ping keeps idle connections open)."""
+            if not self.guard(False):
+                return
+            self.send_response(200)
+            self.send_header("Content-Type", "text/event-stream; charset=utf-8")
+            self.send_header("Cache-Control", "no-store")
+            self.send_header("Connection", "close")
+            self.end_headers()
+            self.close_connection = True
+            last, quiet = "", 0
+            try:
+                while True:
+                    snap = svc.dashboard()
+                    key = json.dumps({**snap, "time": 0}, sort_keys=True)
+                    if key != last or quiet >= 15:
+                        self.wfile.write(b"data: " + json.dumps(snap, ensure_ascii=False).encode() + b"\n\n" if key != last else b": ping\n\n")
+                        self.wfile.flush()
+                        last, quiet = key, 0
+                    time.sleep(1.0)
+                    quiet += 1
+            except OSError:
+                return
 
         def do_POST(self):
             self.handle_any("POST")
