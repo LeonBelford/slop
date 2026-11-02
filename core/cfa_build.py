@@ -12,6 +12,8 @@ import shutil
 import time
 from core import failures
 from core.cfa_flow import removed_tests
+from core.cfllm import LLMError
+from core.cfa_write import extract_files, write_files
 from core.cfutil import PRESETS, clip, read_json, sh, sh_live, sha, tail, write_json, write_text
 
 
@@ -68,16 +70,21 @@ class BuildMixin:
 
         before = self.work_fingerprint(edit)
         rc, out = run_aider(cmd)
-        if edit and self.work_fingerprint(edit) == before and out.count("```") >= 2:
-            # reasoning models often write the code into the chat only; force a real file write before anything is tested again
-            self.log(f"[coder/{tag}] code was only written into the chat, no file changed: retrying once in whole-file mode")
-            write_text(pf, prompt + "\n\nIMPORTANT: your last answer put code only in the chat and changed NO file. Do not explain. "
-                                     "Return the complete updated content of each file you must change so that it is written to disk.")
+        if edit and self.work_fingerprint(edit) == before:
+            # the coder must always write to disk (reasoning models like to answer in the chat only): retry once, then write it ourselves
+            self.log(f"[coder/{tag}] no file changed: retrying once in whole-file mode")
+            write_text(pf, prompt + "\n\nIMPORTANT: your last answer changed NO file. Do not explain and do not only show code in the chat. "
+                                     "Output the complete updated content of every file you must change so that it is written to disk.")
             rc, out2 = run_aider(cmd + ["--edit-format", "whole"])
             out += "\n" + out2
             if self.work_fingerprint(edit) == before:
-                self.log(f"[coder/{tag}] still no file written")
-                self.note("coder", f"{tag} produced no file change even in whole-file mode")
+                written = write_files(self.repo, extract_files(out2, edit) or extract_files(out, edit))
+                if written:
+                    self.log(f"[coder/{tag}] wrote {written} from the chat answer")
+                    self.note("coder", f"{tag}: files written from the chat answer: {written}")
+                else:
+                    self.log(f"[coder/{tag}] still no file written")
+                    self.note("coder", f"{tag} produced no file change even in whole-file mode")
         (self.dir / "coder_now.json").unlink(missing_ok=True)
         (self.dir / "coder_live.txt").unlink(missing_ok=True)
         self.llm.record(tag, "coder", model, prompt, out, "", time.time() - t0)
@@ -272,8 +279,11 @@ class BuildMixin:
             if attempt == 2:
                 previous.append("Scope: deliver the smallest working slice that meets the core acceptance criteria; leave extras for later tasks.")
             self.retry_strategy(item, previous)
+            outage = None
             try:
                 ok, why = self.attempt(item, previous, branch, base_sha)
+            except LLMError as e:
+                ok, why, outage = False, f"Exception: {e}", e
             except Exception as e:
                 ok, why = False, f"Exception: {e}"
             self.mem.lesson_feedback(ok)
@@ -291,6 +301,11 @@ class BuildMixin:
             self.git.hard_reset()
             self.git.run("checkout", "-q", "main")
             self.git.run("branch", "-D", branch)
+            if outage:
+                # the model server failed, not the task: do not count the attempt, do not split or block, let the loop back off
+                self.backlog.set(item, status="pending", attempts=max(0, item["attempts"] - 1))
+                self.cur_task, self.cur_attempt = "", 0
+                raise outage
             cls, sig = failures.classify(why), failures.signature(why)
             previous.append(f"Attempt {attempt} [{cls}]: {clip(why, 600)}")
             self.note("failed", f"attempt {attempt} [{cls}]: {clip(why, 250)}")

@@ -76,6 +76,22 @@ if __name__ == "__main__":
     unittest.main()
 
 
+class FallbackTests(unittest.TestCase):
+    def test_answer_in_chat_is_written_to_disk_when_retry_fails_too(self):
+        with tempfile.TemporaryDirectory() as d:
+            (Path(d) / "a.py").write_text("x=1")
+            ag = Agent(d)
+            answer = "a.py\n```python\nx = 2\ny = 3\nz = 4\n```\n"
+            with mock.patch.object(cfa_build, "sh_live", lambda *a, **k: (0, answer)), mock.patch.object(cfa_build.perf, "fit_context", lambda e, r, p, repo: (e, r, [])):
+                ag.code("debug1", ["a.py"], [], "fix")
+            self.assertIn("y = 3", (Path(d) / "a.py").read_text())
+            self.assertTrue(any("written from the chat" in n for n in ag.notes))
+
+    def test_unlisted_file_is_never_written(self):
+        from core.cfa_write import extract_files
+        self.assertEqual(extract_files("../evil.py\n```\nx\n```", ["a.py"]), {})
+
+
 class NoThinkTests(unittest.TestCase):
     def test_qwen3_coder_gets_no_think_prefix(self):
         with tempfile.TemporaryDirectory() as d:
