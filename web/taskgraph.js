@@ -65,10 +65,10 @@ function tgPanel(d){
   tgItems=by;
   if(tgState.sel&&!by[tgState.sel])tgState.sel=null;
   const live=d.activity&&d.activity.now&&d.activity.now.task?d.activity.now.task.split(" ")[0]:null;
-  const bar=`<div class="tg-top"><h3>Task graph</h3><span class="meta">${tgComps(items).length} graph(s) · ${items.filter(i=>i.status!=="done").length} open task(s)</span><span class="sp"></span>
-    <button class="small" onclick="setPref('showDone',${!P.showDone})" title="Finished graphs are hidden; a finished task is always shown while its graph still has open work">${P.showDone?"Hide":"Show"} finished graphs${finished?` (${finished})`:""}</button>
-    <button class="small" onclick="gtOpenHistory()" title="See the graphs as they were after each review">History</button>
-    ${d.running?"":`<button class="small" onclick="doPreview()" title="Let the agent propose changes; nothing is applied until you confirm">Preview re-plan</button> <button class="small primary" onclick="doReplan()" title="Think the plan through again as a graph: re-link, merge tasks that belong together, split big ones into steps">Re-plan as graph</button>`}${typeof templateBar==="function"?templateBar(d):""}</div>`;
+  const bar=`<div class="tg-top"><div class="tg-head"><h3>Task graph</h3>${typeof gtStats==="function"?gtStats(d,items):""}</div>
+    <div class="tg-tools"><div class="tg-grp"><button class="small" onclick="setPref('showDone',${!P.showDone})" title="Finished graphs are hidden; a finished task is always shown while its graph still has open work">${P.showDone?"Hide":"Show"} finished${finished?` (${finished})`:""}</button><button class="small" onclick="gtOpenHistory()" title="See the graphs as they were after each review">History</button></div>
+    ${typeof templateBar==="function"?templateBar(d):""}
+    ${d.running?"":`<div class="tg-grp"><button class="small" onclick="doPreview()" title="Let the agent propose changes; nothing is applied until you confirm">Preview re-plan</button><button class="small primary" onclick="doReplan()" title="Think the plan through again as a graph: re-link, merge, split, and suggest new graphs">Re-plan</button></div>`}</div></div>`;
   if(!items.length)return `<div class="panel">${bar}<div class="hint">${all.length?"Everything is finished. Use “Show finished graphs” to see it.":"No tasks yet."}</div></div>`;
   const L=tgLayout(items),ids=new Set(items.map(i=>i.id)),on=tgState.sel?tgChain(items,tgState.sel):null,crit=gtCritical(d),blocks=d.blocks||{};
   const bands=L.bands.map(b=>`<g><rect x="2" y="${b.y}" width="${Math.max(b.w,260)}" height="${b.h}" rx="10" fill="#ffffff05" stroke="#ffffff10"/><text x="14" y="${b.y+16}" fill="#8a8a8a" font-size="11">${gtBandLabel(b,gtSummary(d,b.ids))}</text>${gtBar(b,gtSummary(d,b.ids))}</g>`).join("");

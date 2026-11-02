@@ -423,7 +423,12 @@ body.dock-on main{flex:1 1 0;margin:0}
 .ed-term-in{display:flex;gap:8px;align-items:center;padding:6px 12px;border-top:1px solid var(--line);font-family:ui-monospace,monospace}
 .ed-term-in input{flex:1;background:transparent;border:0;outline:0;font-family:inherit;padding:2px}
 .tg-bar{display:flex;gap:6px;align-items:center;margin-bottom:6px}.tg-bar .hint{margin-left:8px}.tg-n{cursor:pointer;transition:opacity .15s}.tg-e{transition:opacity .15s}.tg-wrap{cursor:grab}
-.tg-top{display:flex;gap:10px;align-items:center;margin-bottom:8px}.tg-top h3{margin:0}.tg-top .sp{flex:1}
+.tg-top{display:flex;gap:10px 16px;align-items:center;justify-content:space-between;flex-wrap:wrap;margin-bottom:10px;padding-bottom:10px;border-bottom:1px solid var(--line)}.tg-top h3{margin:0}
+.tg-head{display:flex;gap:12px;align-items:center}.tg-stats{display:flex;gap:6px}.tg-pill{font-size:12px;color:var(--mute);background:#ffffff0a;border:1px solid var(--line);border-radius:999px;padding:2px 10px}.tg-pill b{color:var(--fg,#eee)}.tg-pill.bad{border-color:#e06c7566}.tg-pill.warn{border-color:#e5a14a66}
+.tg-tools{display:flex;gap:10px;align-items:center;flex-wrap:wrap}.tg-grp{display:flex;gap:4px;align-items:center;padding:3px;background:#ffffff08;border:1px solid var(--line);border-radius:10px}
+.tg-two{display:grid;grid-template-columns:repeat(auto-fit,minmax(340px,1fr));gap:16px;margin-top:16px}.tg-card{display:flex;justify-content:space-between;gap:10px;padding:8px 0;border-top:1px solid var(--line)}.tg-act{display:flex;gap:4px;align-items:flex-start;flex-shrink:0}
+.tg-steps{margin:4px 0 0 18px}.tg-form{display:flex;flex-direction:column;gap:8px;margin-top:10px}.tg-form textarea{width:100%;box-sizing:border-box}.tg-row{display:flex;gap:10px;align-items:center;flex-wrap:wrap}
 .tg-live rect:first-of-type{animation:tgp 1.4s ease-in-out infinite}@keyframes tgp{50%{stroke-width:3.5}}
 table.tt .tt-g td{background:#ffffff08;padding:6px 8px;border-top:1px solid var(--line)}table.tt .tt-done td:nth-child(2){color:var(--mute)}
 .tt-c{display:inline-block;width:16px;color:var(--mute);cursor:pointer;user-select:none}.tt-dot{cursor:default;opacity:.5}
+.tg-grp button,.tg-grp select{white-space:nowrap}.tg-grp select{max-width:190px}

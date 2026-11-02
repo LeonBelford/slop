@@ -39,7 +39,12 @@ function gtNodeClick(id){
 }
 function templateBar(d){
   const t=d.templates||[];if(!t.length)return "";
-  return `<span class="sp"></span><select id="tplSel" class="small">${t.map(x=>`<option value="${esc(x.id)}">${esc(x.label)} (${x.steps} steps)</option>`).join("")}</select> <button class="small" onclick="gtTemplate()" title="Add a ready-made task graph for a typical change">+ Graph from template</button>`;
+  return `<div class="tg-grp"><select id="tplSel" class="small">${t.map(x=>`<option value="${esc(x.id)}">${esc(x.label)} (${x.steps} steps)</option>`).join("")}</select><button class="small" onclick="gtTemplate()" title="Add a ready-made task graph for a typical change">+ Add graph</button></div>`;
+}
+function gtStats(d,items){
+  const g=d.graphs||[],open=items.filter(i=>i.status!=="done").length,blocked=items.filter(i=>i.status==="blocked").length,eta=g.reduce((a,x)=>Math.max(a,x.critical_s||0),0);
+  const pill=(n,l,c)=>`<span class="tg-pill${c?" "+c:""}"><b>${n}</b> ${l}</span>`;
+  return `<div class="tg-stats">${pill(tgComps(items).length,"graphs")}${pill(open,"open")}${blocked?pill(blocked,"blocked","bad"):""}${eta?pill("~"+gtEta(eta),"critical path","warn"):""}</div>`;
 }
 async function gtTemplate(){
   const name=prompt("What is it about (e.g. the endpoint or screen name)?");if(!name||!name.trim())return;
@@ -72,3 +77,40 @@ function historyPanel(){
     <p class="hint">${esc(s.reason||"")}${Object.keys(st).length?" · "+Object.entries(st).filter(([,v])=>v).map(([k,v])=>`${k} ${v}`).join(", "):""}</p>
     <div class="tg-wrap"><svg width="${L.width}" height="${L.height}">${edges}${nodes}</svg></div><button class="small" onclick="gtCloseHistory()">Close</button></div>`;
 }
+
+/* AI graph ideas and your own standard processes: two separate panels below the graph */
+const PR_PRESETS={
+  "Refactoring":{steps:"Find duplicated code and over-long functions\nSimplify and split them without changing behaviour\nClean up names and comments",type:"refactor"},
+  "Bug hunt":{steps:"Read the code for bugs and unhandled errors: list them in the notes\nFix the most serious bugs and add a test for each",type:"refactor"},
+  "Docs":{steps:"Check README and docs against the code and list what is outdated\nUpdate the docs and examples",type:"refactor"},
+  "Optimisation":{steps:"Find optimisation chances: slow paths, repeated work, needless dependencies\nApply the cheap wins that keep behaviour the same\nAdd a guard test for the optimised code",type:"refactor"}};
+let prDraft=null;
+function prNew(k){const x=PR_PRESETS[k]||{steps:"",type:"refactor"};prDraft={id:"",name:k||"",steps:x.steps,type:x.type,sequential:true,every:0};lastBody="";renderProject()}
+function prEdit(id){const p=(detail&&detail.processes||[]).find(x=>x.id===id);if(!p)return;prDraft={...p};lastBody="";renderProject()}
+function prSet(k,v){if(prDraft)prDraft[k]=v}
+async function prSave(){
+  if(!prDraft)return;
+  const r=await gtAct("process-save",{...prDraft,every:+prDraft.every||0},"Process saved");
+  if(r!==false){prDraft=null;lastBody="";renderProject()}
+}
+function prForm(){
+  const p=prDraft;if(!p)return "";
+  return `<div class="tg-form"><input class="small" placeholder="Name, e.g. Weekly cleanup" value="${esc(p.name)}" oninput="prSet('name',this.value)">
+    <textarea rows="5" placeholder="One step per line. Optional detail after a colon: Find dead code: unused functions and imports" oninput="prSet('steps',this.value)">${esc(p.steps)}</textarea>
+    <div class="tg-row"><label>Type <select class="small" onchange="prSet('type',this.value)">${["refactor","feature","test"].map(t=>`<option${p.type===t?" selected":""}>${t}</option>`).join("")}</select></label>
+    <label><input type="checkbox" ${p.sequential?"checked":""} onchange="prSet('sequential',this.checked)"> steps follow each other</label>
+    <label>Auto every <input class="small" type="number" min="0" max="500" style="width:64px" value="${+p.every||0}" oninput="prSet('every',this.value)"> merged tasks (0 = only on click)</label></div>
+    <div class="tg-row"><button class="small primary" onclick="prSave()">Save</button><button class="small" onclick="prDraft=null;lastBody='';renderProject()">Cancel</button></div></div>`;
+}
+function ideasPanel(d){
+  const ideas=d.ideas||[];
+  return `<div class="panel tg-half"><h3>Ideas from the AI <span class="meta">made at every re-plan from your goal and the features built so far</span></h3>${ideas.length?ideas.map(i=>`<div class="tg-card"><div><b>${esc(i.title)}</b><div class="hint">${esc(i.why||"")}</div>
+    <ol class="hint tg-steps">${i.steps.map(s=>`<li>${esc(s.title)}</li>`).join("")}</ol></div><div class="tg-act"><button class="small primary" onclick="gtAct('idea-add',{id:'${esc(i.id)}'},'Graph added')">Add as graph</button><button class="small" onclick="gtAct('idea-dismiss',{id:'${esc(i.id)}'},'Dismissed')">Dismiss</button></div></div>`).join(""):'<div class="hint">No ideas yet. They appear after the next re-plan.</div>'}</div>`;
+}
+function processPanel(d){
+  const procs=d.processes||[];
+  return `<div class="panel tg-half"><h3>Standard processes <span class="meta">your own routines, separate from the AI ideas</span></h3>${procs.map(p=>`<div class="tg-card"><div><b>${esc(p.name)}</b> <span class="meta">${p.every?`every ${p.every} merged tasks`:"on click"}</span>
+    <ol class="hint tg-steps">${p.steps.split("\n").filter(x=>x.trim()).slice(0,6).map(x=>`<li>${esc(x.split(":")[0])}</li>`).join("")}</ol></div><div class="tg-act"><button class="small primary" onclick="gtAct('process-run',{id:'${esc(p.id)}'},'Graph added')">Run now</button><button class="small" onclick="prEdit('${esc(p.id)}')">Edit</button><button class="small" onclick="confirm('Delete this process?')&&gtAct('process-delete',{id:'${esc(p.id)}'},'Deleted')">Delete</button></div></div>`).join("")||'<div class="hint">Nothing yet. Start from an example or write your own.</div>'}
+    ${prDraft?prForm():`<div class="tg-row" style="margin-top:8px"><span class="hint">New:</span>${Object.keys(PR_PRESETS).map(k=>`<button class="small" onclick="prNew('${k}')">${k}</button>`).join("")}<button class="small" onclick="prNew('')">Own…</button></div>`}</div>`;
+}
+function routinePanels(d){return `<div class="tg-two">${ideasPanel(d)}${processPanel(d)}</div>`}

@@ -1,6 +1,8 @@
 """Graph planning for the agent: merging and splitting tasks inside the dependency graph, plus the re-plan at the start of a run."""
 from __future__ import annotations
 
+import hashlib
+
 from core import taskgraph
 from core.cfa_conductor import REPLAN_EVERY_MERGES
 from core.cfa_triage import MIN_OPEN, RELAYOUT_EVERY_MERGES
@@ -49,6 +51,11 @@ class GraphMixin:
         return ids
 
     # ---- the one graph review: every trigger is collected, the model is asked once
+    def directives_hash(self) -> str:
+        """Fingerprint of what you wrote (goal and ideas), so a change always triggers a review."""
+        ideas = self.ideas_path.read_text("utf-8") if self.ideas_path.exists() else ""
+        return hashlib.sha1((self.goal + "\0" + ideas).encode()).hexdigest()[:12]
+
     def review_reasons(self) -> tuple[list[str], list[str]]:
         """Why the graphs should be reviewed now (human readable) and which tasks the review should focus on (blocked chains)."""
         items = self.backlog.items
@@ -62,6 +69,10 @@ class GraphMixin:
             changed = taskgraph.signature(items) != self.state.get("graph_sig")
             if changed or flaws or self.feat("graph_review_always"):
                 reasons.append("start of the run" + ("" if changed else " (nothing changed since the last review)"))
+        if "directives_hash" not in self.state:
+            self.state["directives_hash"] = self.directives_hash()  # first look: the start review covers it
+        elif self.directives_hash() != self.state["directives_hash"]:
+            reasons.append("GOAL.md or IDEAS.md changed: turn the new wishes into tasks")
         if self.state.get("milestone_replan"):
             reasons.append("the milestone review found the product drifting from the vision")
         blocked = sum(1 for i in items if i["status"] == "blocked")
@@ -140,6 +151,15 @@ class GraphMixin:
         moved = [i for i, a in res["assign"].items() if next((x.get("layer") for x in items if x["id"] == i), None) != a["layer"]]
         if moved:
             lines.append(f"RE-LAYER {len(moved)} task(s)")
+        cur = {i["id"]: i for i in items}
+        for i, a in res["assign"].items():
+            if a["depends_on"] and i in cur and cur[i]["status"] in ("pending", "blocked") and set(a["depends_on"]) != set(cur[i].get("depends_on") or []):
+                lines.append(f"RE-LINK {i} {title.get(i, '')[:50]}: now needs {', '.join(a['depends_on'])}" + (f" ({a['why']})" if a.get("why") else ""))
+        if not lines:
+            self.proposal_path.unlink(missing_ok=True)
+            self.log("The model found nothing concrete to change (no usable new, cancelled, merged, split or re-linked tasks): no proposal made.")
+            self.phase("Idle (re-plan preview: nothing to change)", None)
+            return {"proposal": 0}
         write_json(self.proposal_path, {"ts": now(), "assessment": res.get("assessment", ""), "lines": lines, "data": data,
                                         "requeue": requeue, "focus": focus or [], "reason": getattr(self, "_review_reason", "manual")})
         self.log(f"Plan proposal saved ({len(lines)} change(s)); waiting for your confirmation in the UI.")

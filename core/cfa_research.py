@@ -95,6 +95,7 @@ class ResearchMixin:
                 self.backlog.add(f"Add tests for: {', '.join(untested)}", "Write missing unit tests including error cases.",
                                  "test", 4.5, ["Tests exist for all listed files"], "Hygiene", "hygiene")
             self.state["last_coverage_at"] = merged
+        self.run_due_processes(merged)
 
     def health_check(self) -> None:
         self.phase("Health check: building main", None)

@@ -318,6 +318,7 @@ function renderProject(){
 }
 function setBody(html){
   const b=$("#body"),el=document.activeElement;
+  if(typeof prDraft!=="undefined"&&prDraft&&el&&["INPUT","TEXTAREA","SELECT"].includes(el.tagName)&&b.contains(el))return;
   if(EDITABLE.includes(tab)&&(dirty||(el&&["INPUT","TEXTAREA"].includes(el.tagName)&&b.contains(el)))&&b.dataset.tab===tab)return;
   if(html===lastBody&&b.dataset.tab===tab)return;
   const keep=$("#main").scrollTop,h0=$("#main").scrollHeight,lb=$("#logbox"),stick=lb&&lb.scrollHeight-lb.scrollTop-lb.clientHeight<40;

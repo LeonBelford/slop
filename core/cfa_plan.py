@@ -27,12 +27,16 @@ REEVAL_SCHEMA = ('{"keep_plan": true if the graphs are sound and nothing needs t
                  '"new_tasks": [{"key": "short-id", "title": "", "description": "", "acceptance": ["testable"], "type": "feature|refactor|test", '
                  '"layer": 0, "depends_on": ["task ids or keys of earlier tasks"], "why": "short reason this task is needed", "value": 1-10, "effort": 1-10}], '
                  '"cancel": [{"id": "T0002", "why": ""}], "merge": [{"ids": ["T0004", "T0005"], "title": "", "description": "", "acceptance": ["testable"], "why": ""}], '
-                 '"split": [{"id": "T0009", "steps": [{"title": "", "description": "", "acceptance": ["testable"], "why": ""}]}]}. Every open and finished task should appear in assign.')
+                 '"split": [{"id": "T0009", "steps": [{"title": "", "description": "", "acceptance": ["testable"], "why": ""}]}], '
+                 '"graph_ideas": [{"title": "new feature or improvement", "why": "why it fits this project", "steps": [{"title": "", "description": "", "type": "feature|refactor|test", "acceptance": ["testable"], "needs": [0], "why": ""}]}]}. Every open and finished task should appear in assign.')
 GRAPH_RULES = (" Think in a graph: every task lists in depends_on exactly the tasks whose result it needs (never a cycle); independent work stays in separate branches, "
                "a task needing several branches joins them. Merge pending tasks that touch the same code or would be one change anyway (merge, at most 5 ids each, never in_progress "
                "or user tasks). Split a pending task that is too big for one iteration into 2 to 4 small steps (split). Use new_tasks for missing steps. "
                "Review every graph: do the steps make sense, are they in the right order and size, is a step missing for the vision, is a step still needed? "
                "Every task carries a `why`; keep a task while its why holds, cancel it only with a concrete reason (cancel needs `why`), and give new tasks a why. "
+               "Besides, suggest up to 3 graph_ideas: new features or improvements (2 to 5 steps each, needs = indexes of earlier steps) that fit the goal and build on the features already built; "
+               "never repeat an existing task or graph, and leave graph_ideas empty if nothing useful comes to mind. "
+               "Re-read the Goal and the user directives (IDEAS.md) every time: every wish in them that no task covers yet becomes a new task (or graph) with a why; open tasks that contradict them are cancelled with a reason. "
                "Do NOT rebuild what is sound: without a valid reason change nothing, set keep_plan true and leave the lists empty. Moving or re-linking a task needs a reason too.")
 
 
@@ -161,17 +165,19 @@ class PlanMixin:
                                    "layer": i.get("layer"), "source": i.get("source"), "why": clip(i.get("why", ""), 100)}.items() if v not in (None, [], "")}
                 for i in items if i["id"] in visible]
         ideas = self.ideas_path.read_text("utf-8") if self.ideas_path.exists() else ""
+        self.state["directives_hash"] = self.directives_hash()
         graph = taskgraph.render(items, 70 if sctx else 100, int(6000 * max(share, 0.4)))
         data = self.llm.json(
             "reevaluate", "strategist", SYSTEM + GRAPH_RULES + " You are re-planning a project that already has code and tasks: keep what works, think briefly (a few sentences), then answer the JSON only, "
             "fix the order. Finished tasks are foundation: put them in the layer they belong to. Add tasks for missing foundation, "
             "cancel tasks that are redundant or contradict the architecture. Never cancel tasks the user wrote.",
-            f"Goal:\n{clip(self.goal, int(2500 * max(share, 0.4)))}{self.directive}\nUser directives (IDEAS.md):\n{clip(ideas, int(1500 * share)) or '-'}\n"
+            f"Goal:\n{clip(self.goal, int(2500 * max(share, 0.4)))}{self.directive}\nUser directives (IDEAS.md):\n{clip(ideas, int(3000 * share)) or '-'}\n"
             f"Previous layers: {[ly['name'] for ly in old['layers']] if old else 'none (the project was planned feature by feature)'}\n"
             f"Features built: {[f['title'] for f in self.mem.features.values()]}\nArchitecture notes:\n"
             f"{clip(arch.read_text('utf-8') if arch.exists() else '', int(2500 * share))}\nCode map:\n{clip(self.mem.render_codemap(), int(5000 * share))}\n"
             f"Current state of the project:\n{state_note or '-'}\nDependency graphs now:\n{graph}\nTasks: {json.dumps(rows)}\n3 to 5 layers. Schema: " + REEVAL_SCHEMA)
         self._review_reason = reason
+        self.store_ideas(data.get("graph_ideas"), self.backlog.items)
         res = blueprint.normalize_reevaluation(data, items)
         self._reeval_note(data, res, by_title={i["id"]: i["title"] for i in items})
         if preview or (self.feat("plan_confirm") and reason != "confirmed"):

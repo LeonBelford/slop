@@ -102,6 +102,15 @@ class ReviewTests(unittest.TestCase):
         ag._graph_started = False
         self.assertTrue(ag.graph_review())
 
+    def test_changed_goal_or_ideas_trigger_a_review(self):
+        ag = self.ag
+        ag._graph_started = True
+        ag.backlog.add("Task", "d", priority=5, force=True, layer=0)
+        ag.state["directives_hash"] = ag.directives_hash()
+        self.assertEqual(ag.review_reasons()[0], [])
+        (ag.dir / "GOAL.md").write_text("new wish")
+        self.assertIn("GOAL.md or IDEAS.md changed", ag.review_reasons()[0][0])
+
     def test_blocked_chain_gets_a_focused_mini_replan_once(self):
         ag = self.ag
         ag.reevaluate = lambda **kw: self.calls.append(kw) or {}
