@@ -11,6 +11,17 @@ button.small{padding:3px 10px;font-size:12px;border-radius:6px}
 button:disabled{opacity:.45;cursor:not-allowed}
 input,textarea,select{font:inherit;width:100%;background:#0e0e0e;color:var(--text);border:1px solid var(--line);border-radius:var(--r);padding:8px 10px}
 input:focus,textarea:focus,select:focus{outline:none;border-color:#888;box-shadow:0 0 0 3px rgba(255,255,255,.06)}
+/* custom checkbox: the browser-native box looks out of place on a dark UI, so we draw our own square + tick */
+input[type=checkbox]{appearance:none;-webkit-appearance:none;width:16px;height:16px;flex:0 0 auto;padding:0;margin:0;border:1px solid #555;border-radius:4px;background:#0e0e0e;display:inline-block;position:relative;cursor:pointer;vertical-align:-3px;transition:background .15s,border-color .15s}
+input[type=checkbox]:hover{border-color:#888}
+input[type=checkbox]:checked{background:var(--text);border-color:var(--text)}
+input[type=checkbox]:checked::after{content:"";position:absolute;left:4px;top:0px;width:4px;height:8px;border:solid #111;border-width:0 2px 2px 0;transform:rotate(45deg)}
+input[type=checkbox]:focus-visible{outline:2px solid var(--info);outline-offset:2px}
+input[type=checkbox]:disabled{opacity:.45;cursor:not-allowed}
+label{display:inline-flex;align-items:center;gap:6px;cursor:pointer}
+.sw input[type=checkbox]{appearance:none;-webkit-appearance:none;width:100%;height:100%;border:none;border-radius:0;background:none}
+.sw input[type=checkbox]:checked{background:none}
+.sw input[type=checkbox]:checked::after{content:none}
 *{scrollbar-width:thin;scrollbar-color:#3a3a3a transparent}
 textarea{resize:vertical;font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:13px}
 aside{width:270px;background:var(--panel);border-right:1px solid var(--line);display:flex;flex-direction:column;flex:none}
@@ -38,7 +49,8 @@ aside header{padding:16px;font-weight:600;font-size:15px;letter-spacing:.04em;te
 .card .s{color:var(--mute);font-size:12px;margin-top:2px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .dot{width:8px;height:8px;border-radius:50%;background:#555;flex:none}
 .dot.run{background:var(--ok)}.dot.stop{background:var(--warn)}
-main{flex:1;overflow:auto;padding:26px 36px 50px;min-width:0;max-width:1500px}
+main{flex:0 1 80%;overflow:auto;padding:26px 36px 50px;min-width:0;margin:0 auto}
+@media(max-width:1300px){main{flex-basis:94%}}
 .empty{color:var(--mute);margin-top:15vh;text-align:center}
 .empty h2{color:var(--text);font-weight:600}
 .top{display:flex;justify-content:space-between;gap:20px;align-items:flex-start;flex-wrap:wrap}
@@ -219,7 +231,7 @@ th.sortable{cursor:pointer;user-select:none;white-space:nowrap}th.sortable:hover
   body.sb-open #sbBack{display:block}
   #sbOpen,body.sb-off #sbOpen{display:block}
   body.sb-open #sbOpen{display:none}
-  main,body.sb-off main{padding:62px 14px 40px}
+  main,body.sb-off main{padding:62px 14px 40px;flex-basis:100%;margin:0}
   button,.tab,select{min-height:40px}
   button.small{min-height:32px;padding:4px 10px}
   input,textarea,select{font-size:16px;padding:9px 10px}
