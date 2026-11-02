@@ -4,8 +4,8 @@ let sel=localStorage.getItem("sel")||null, view="project", tab="overview", list=
 let taskModel="",toolMcfg=null,toolTab_="tool",toolBranch="",planId="",taskPrefill="",codeBase="head",codeOpen=new Set(),codeView=null,codeInit=false;
 let diffView=null, lastBody="", lastHead="", lastTabs="", openKeys=new Set();
 const EDITABLE=["ideas","sources","task","tool","settings","goal","profile","knowledge"];
-const GROUPS=[["overview","Overview",["overview"]],["pdash","Dashboard",["pdash"]],["chat","Chat",["chat"]],["task","Do a task",["task"]],["agent","Agent",["profile","knowledge","goal","ideas","sources","settings"]],["activity","Activity",["log","reasoning","llm"]],["code","Code & test",["changes","testing"]],["customize","Customize",["customize"]]];
-const LEAF={pdash:"Dashboard",profile:"Instructions & capabilities",knowledge:"Knowledge files",goal:"Goal",ideas:"Ideas",sources:"Web sources",settings:"Models & limits",log:"Live log",reasoning:"Reasoning",llm:"AI activity",changes:"File changes",testing:"Test version"};
+const GROUPS=[["overview","Overview",["overview"]],["pdash","Dashboard",["pdash"]],["chat","Chat",["chat"]],["task","Do a task",["task"]],["agent","Agent",["profile","knowledge","goal","ideas","sources","settings"]],["activity","Activity",["log","reasoning","llm"]],["code","Code & test",["editor","changes","testing"]],["customize","Customize",["customize"]]];
+const LEAF={pdash:"Dashboard",profile:"Instructions & capabilities",knowledge:"Knowledge files",goal:"Goal",ideas:"Ideas",sources:"Web sources",settings:"Models & limits",log:"Live log",reasoning:"Reasoning",llm:"AI activity",editor:"Editor",changes:"Review changes",testing:"Test version"};
 const ACCENTS=["","#5fb36b","#6fa3d8","#d6a23c","#c678dd","#e06c75","#56b6c2"];
 const STAT_KEYS=[["merged","Features merged"],["open","Open tasks"],["done","Done"],["blocked","Blocked"],["iterations","Iterations"],["hours","Runtime"],["tokens","Tokens used"],["tps","Tokens / s"],["wps","Words / s"],["tpm","Tokens / min"],["gpu","GPU"],["avgcall","Avg. call time"]];
 let lastLeaf={};
@@ -42,7 +42,7 @@ function renderList(){
   $("#plist").innerHTML=jobs+(projs.map(p=>{const[c,t]=statusOf(p);
     return `<div class="card ${view==="project"&&p.name===sel?"sel":""}" onclick="select('${esc(p.name)}')"><div class="n"><span class="dot ${c}"></span>${esc(p.name)}${p.priority==="side"?` <span class="pill info" title="Side agent: only uses the GPU while the main agent is idle">side</span>`:""}</div><div class="s">${t} · ${p.merged} features · ${p.backlog.pending||0} open</div></div>`}).join("")||(jobs?"":f?'<div class="hint" style="padding:10px">No project matches.</div>':'<div class="hint" style="padding:10px">No projects yet.</div>'));
 }
-function select(n){closeSb();view="project";sel=n;localStorage.setItem("sel",n);applyPref();tab=pref().start||"overview";dirty=false;detail=null;extra=null;diffView=null;codeView=null;codeOpen=new Set();codeInit=false;lastBody=lastHead=lastTabs="";renderList();refresh()}
+function select(n){if(chat.dock)setTimeout(sideOpen,0);closeSb();view="project";sel=n;localStorage.setItem("sel",n);applyPref();tab=pref().start||"overview";dirty=false;detail=null;extra=null;diffView=null;codeView=null;codeOpen=new Set();codeInit=false;lastBody=lastHead=lastTabs="";renderList();refresh()}
 function showTool(){closeSb();view="tool";tab="tool";toolTab_="tool";codeView=null;codeInit=false;codeOpen=new Set();dirty=false;extra=null;diffView=null;lastBody=lastHead=lastTabs="";renderList();refresh()}
 
 /* ---- live status panel (re-rendered every second from the last data) ---- */
@@ -184,7 +184,7 @@ function fileViewer(){
   if(v.binary)return `<div class="hint" style="padding:12px">${esc(v.path)}: binary file (${v.size} bytes)</div>`;
   const ch=new Set(v.changed),lines=v.text.split("\n");
   const body=lines.map((l,i)=>`<div class="cl ${ch.has(i+1)?"new":""}"><span class="ln">${i+1}</span><span class="ct">${esc(l)||" "}</span></div>`).join("");
-  return `<div class="cvh"><b>${esc(v.path)}</b> <span class="meta">${lines.length} lines · ${v.new_file?"new file":ch.size+" new/changed"}${v.truncated?" · truncated":""}</span></div><div class="code">${body}</div>`;
+  return `<div class="cvh"><b>${esc(v.path)}</b> ${view==="tool"?"":`<button class="small" onclick="setTab('editor');setTimeout(()=>edOpen('${jsq(v.path)}'),150)">Edit in editor</button>`} <span class="meta">${lines.length} lines · ${v.new_file?"new file":ch.size+" new/changed"}${v.truncated?" · truncated":""}</span></div><div class="code">${body}</div>`;
 }
 function codePanel(x){
   const root=buildTree(x.tree.files);
@@ -272,6 +272,22 @@ function toolStats(x){
   const avg=T.n?[dur(T.median_s),`avg per step (${dur(T.low)}–${dur(T.high)}, ${T.n} steps)`]:["–","avg per step (no data yet)"];
   return [["wps",v.wps],["tps",v.tps],["avg",avg],["tpm",v.tpm],["gpu",v.gpu],["tokens",v.tokens]].map(([k,c])=>`<div class="stat"><b>${c[0]}</b><span>${c[1]}</span></div>`).join("");
 }
+/* compact bar that stays at the top once the big header has scrolled away; it takes no space in the layout */
+let miniSeen=true,miniObs=null;
+function drawMini(d,c,t){
+  const m=$("#mini");if(!m)return;
+  const n=d.activity&&d.activity.now;
+  const html=`<div class="mini-bar ${miniSeen?"":"on"}"><b>${esc(d.name)}</b><span class="pill ${c==="run"?"ok":c==="stop"?"warn":""}">${t}</span>
+    <span class="mini-act">${d.running&&n?esc(n.phase)+(n.task?" · "+esc(n.task):""):d.running?"Starting…":""}</span><span class="spacer"></span>
+    ${d.running?`<button class="small danger" onclick="act('stop',{},'Will stop after the current task')" ${d.stopping?"disabled":""}>Stop</button>`:`<button class="small primary" onclick="act('start',{},'Agent started')">Start</button>`}
+    ${typeof sideToggle==="function"?`<button class="small" onclick="sideToggle()">Side chat</button>`:""}
+    <button class="small" onclick="$('#main').scrollTo({top:0,behavior:'smooth'})" title="Back to top">↑</button></div>`;
+  if(html!==m._h){m.innerHTML=html;m._h=html}
+  if(!miniObs&&window.IntersectionObserver){
+    miniObs=new IntersectionObserver(e=>{miniSeen=e[0].isIntersecting;const b=$("#mini .mini-bar");if(b)b.classList.toggle("on",!miniSeen)},{root:$("#main"),threshold:0});
+    miniObs.observe($("#head"));
+  }
+}
 function renderProject(){
   if(!sel){$("#head").innerHTML=`<div class="empty"><h2>No project selected</h2><p>Pick a project on the left or create one with <b>+ New idea</b>.</p></div>`;$("#tabs").innerHTML=$("#body").innerHTML="";return}
   if(!detail)return;
@@ -287,6 +303,7 @@ function renderProject(){
   </div></div>
   <div class="stats">${statCards(d)}</div>`;
   if(head!==lastHead){$("#head").innerHTML=head;lastHead=head}
+  drawMini(d,c,t);
   const hide=pref().hide,cur=GROUPS.find(g=>g[2].includes(tab))||GROUPS[0];lastLeaf[cur[0]]=tab;
   const tb=`<div class="tabs">${GROUPS.filter(g=>g===cur||!hide.includes(g[0])||g[0]==="customize").map(g=>`<div class="tab ${g===cur?"on":""}" onclick="setTab('${lastLeaf[g[0]]||g[2][0]}')">${g[1]}</div>`).join("")}</div>`+
     (cur[2].length>1?`<div class="subtabs">${cur[2].map(k=>`<div class="subtab ${tab===k?"on":""}" onclick="setTab('${k}')">${LEAF[k]}</div>`).join("")}</div>`:"");
@@ -300,7 +317,7 @@ function setBody(html){
   if(html===lastBody&&b.dataset.tab===tab)return;
   const keep=$("#main").scrollTop,h0=$("#main").scrollHeight,lb=$("#logbox"),stick=lb&&lb.scrollHeight-lb.scrollTop-lb.clientHeight<40;
   const anchored=tab==="reasoning"||(view==="tool"&&toolTab_==="reason");
-  b.innerHTML=html;b.dataset.tab=tab;lastBody=html;if(tab==="settings")loadModels();
+  b.innerHTML=html;b.dataset.tab=tab;lastBody=html;if(tab==="settings")loadModels();if(tab==="editor")edMount();
   b.querySelectorAll("details[data-k]").forEach(x=>{if(openKeys.has(x.dataset.k))x.open=true;x.addEventListener("toggle",()=>{x.open?openKeys.add(x.dataset.k):openKeys.delete(x.dataset.k)})});
   $("#main").scrollTop=anchored&&keep>20?keep+Math.max(0,$("#main").scrollHeight-h0):keep;
   const nb=$("#logbox");if(nb&&(stick||!lb))nb.scrollTop=nb.scrollHeight;
@@ -317,7 +334,7 @@ function projectBody(d){
     const rows=d.backlog_items.filter(i=>!((P.hideDone||P.showFeatures)&&i.status==="done")).map(i=>{
       const cur=i.id===liveId&&i.status!=="done"&&i.status!=="blocked";
       const prog=cur&&livePct!=null?pctBar(livePct):i.status==="done"?`<span class="meta">100%</span>`:`<span class="meta">-</span>`;
-      return `<tr><td>${esc(i.id)}</td><td>${i.layer!=null?`<span class="pill info" title="Build layer: lower layers are built first">L${i.layer}</span> `:""}${esc(i.title)}${i.source==="ideas"?' <span class="pill ok">from you</span>':i.source==="user"?' <span class="pill info">your task</span>':""}</td><td>${esc(i.type)}</td><td>${Math.round(i.priority*10)/10}</td><td><span class="pill ${i.status==="done"?"ok":i.status==="blocked"?"bad":""}">${esc(i.status)}</span>${(i.status==="blocked"||i.status==="cancelled")&&i.reason?`<div class="meta reason" title="${esc(i.reason)}">Why: ${esc(i.reason)}</div>`:""}</td><td style="min-width:90px">${prog}</td><td style="white-space:nowrap">${taskBtns(i)}</td></tr>`}).join("");
+      return `<tr><td>${esc(i.id)}</td><td>${i.layer!=null?`<span class="pill info" title="Build layer: lower layers are built first">L${i.layer}</span> `:""}${esc(i.title)}${i.source==="ideas"?' <span class="pill ok">from you</span>':i.source==="user"?' <span class="pill info">your task</span>':""}</td><td>${esc(i.type)}</td><td>${Math.round(i.priority*10)/10}</td><td><span class="pill ${i.status==="done"?"ok":i.status==="blocked"?"bad":""}">${esc(i.status)}</span>${(i.status==="blocked"||i.status==="cancelled")&&i.reason?`<div class="meta reason" title="${esc(i.reason)}">Why: ${esc(i.reason)}</div>`:""}</td><td style="min-width:90px">${prog}</td><td style="white-space:nowrap">${taskBtns(i,d.running)}</td></tr>`}).join("");
     const plan=(d.plan||[]).length?`<div class="panel" style="margin-bottom:16px"><h3>Build plan (core first)</h3>${d.plan.map(l=>`<div class="cap"><div><b>L${l.layer} ${esc(l.name)}</b> <span class="meta">${esc(l.goal)}</span></div><div style="min-width:140px">${pctBar(l.total?Math.round(100*l.done/l.total):0)} <span class="meta">${l.done}/${l.total}</span></div></div>`).join("")}</div>`:"";
     return plan+`<div class="${P.showFeatures?"grid2":""}"><div class="panel"><h3>Backlog</h3><table><tr><th>ID</th><th>Task</th><th>Type</th><th>Prio</th><th>Status</th><th>Progress</th><th></th></tr>${rows||'<tr><td colspan=7 class="hint">empty</td></tr>'}</table></div>
     ${P.showFeatures?finishedTasks(d):""}</div>`;
@@ -338,6 +355,7 @@ function projectBody(d){
     return `<p class="hint">Everything the model was asked and what it answered, newest first (the end of each prompt is shown). Roles: planner = plans and ideas, reviewer = reviews, summarizer = notes and docs.</p>`+
       (extra.entries.length?extra.entries.map((e,i)=>`<details data-k="llm-${esc(e.head)}"><summary><span class="pill info">${esc(e.head.replace(/^.*?\[/,"").replace(/\].*$/,""))}</span><span class="meta">${esc(e.head.replace(/\[.*$/,""))}</span></summary><div class="inner"><div class="hint">Prompt (end)</div><pre>${esc(e.prompt)}</pre><div class="hint" style="margin-top:10px">Answer</div><pre>${esc(e.answer)}</pre></div></details>`).join(""):'<div class="hint">No model calls recorded yet.</div>');
   }
+  if(tab==="editor")return '<div id="ed-root"></div>';
   if(tab==="changes"){
     if(!extra||extra.kind!=="changes")return `<div class="hint">Loading…</div>`;
     const x=extra;
@@ -364,7 +382,8 @@ function projectBody(d){
     <div class="row" style="justify-content:flex-end;margin-top:4px"><button class="primary" onclick="saveNotify()">Save</button></div></div>`;
   }
   if(tab==="testing"){
-    return `<div class="panel"><p class="hint">"Test now" lets the agent finish its current task, builds the last working state and shows here how to run it. Press Start afterwards to continue.</p>
+    return `<div class="panel"><h3>Unit tests <button class="small primary" onclick="runTestsTab()">Run tests</button></h3><div id="tests-out" class="${testsRes?"":"hint"}">${testsRes||"Runs the project's own test command on the current files."}</div></div>
+    <div class="panel" style="margin-top:16px"><p class="hint">"Test now" lets the agent finish its current task, builds the last working state and shows here how to run it. Press Start afterwards to continue.</p>
     ${d.testing?`<pre>${esc(d.testing)}</pre>`:'<div class="hint">No test version built yet.</div>'}${d.try_running||d.try_out?`<h4>Output</h4><pre>${esc(d.try_out)}</pre>`:""}</div>`;
   }
   if(tab==="log")return `<div class="loglegend"><span class="lg-step">step</span><span class="lg-ok">success</span><span class="lg-sec">security</span><span class="lg-warn">warning</span><span class="lg-err">error</span></div><pre id="logbox">${colorLog(d.log||"No log yet.")}${d.run_out&&/Traceback|Error/.test(d.run_out)?"\n\n--- run.out ---\n"+colorLog(d.run_out):""}${d.do_out&&/Traceback|Error/.test(d.do_out)?"\n\n--- do.out ---\n"+colorLog(d.do_out):""}</pre>`;
@@ -436,11 +455,12 @@ function customizeBody(d){
   <div class="panel" style="margin-top:16px"><h3>Pages</h3><p class="hint">Hide pages you do not need. They stay reachable while you are on them.</p>${GROUPS.filter(g=>g[0]!=="customize"&&g[0]!=="overview").map(g=>`<div class="cap"><div>${g[1]}</div>${chk(!P.hide.includes(g[0]),`togglePref('hide','${g[0]}')`)}</div>`).join("")}
     <div class="row" style="justify-content:flex-end;margin-top:10px"><button onclick="localStorage.removeItem('pref:'+sel);setPref('accent','')">Reset to defaults</button></div></div>`;
 }
-function taskBtns(i){
+function taskBtns(i,running){
   const b=(a,l,c)=>`<button class="small ${c||""}" onclick="taskAct('${a}','${esc(i.id)}')">${l}</button> `;
-  if(i.status==="pending")return b("task-top","Top")+b("task-cancel","Cancel");
+  if(i.status==="pending")return b("task-top","Top")+b("task-cancel","Cancel")+b("task-delete","Delete");
   if(i.status==="blocked")return b("task-reopen","Reopen")+b("task-cancel","Cancel")+b("task-delete","Delete");
   if(i.status==="cancelled")return b("task-reopen","Reopen")+b("task-delete","Delete");
+  if(i.status==="in_progress"&&!running)return b("task-delete","Delete");
   return "";
 }
 async function taskAct(a,id){if(a==="task-delete"&&!confirm("Delete this task for good?"))return;await act(a,{id})}
@@ -490,6 +510,11 @@ async function renameProject(){
 async function deleteProject(){
   const n=sel;if(!confirm(`Delete "${n}" and all its files permanently?`))return;
   try{await api(`/api/project/${n}/delete`,{confirm:$("#delconfirm").value});toast("Project deleted");sel=null;localStorage.removeItem("sel");tab="overview";dirty=false;detail=null;extra=null;lastBody=lastHead=lastTabs="";await refresh()}catch(e){toast(e.message,true)}
+}
+let testsRes="";
+async function runTestsTab(){
+  const o=$("#tests-out");o.textContent="Running…";
+  try{const r=await api(`/api/project/${encodeURIComponent(sel)}/editor`,{op:"run-tests"});o.className="";testsRes=`<div class="row"><code>${esc(r.cmd)}</code> <b class="${r.rc===0?"lg-ok":"lg-err"}">${r.rc===0?"passed":"failed (exit "+r.rc+")"}</b></div><pre>${colorLog(r.out||"(no output)")}</pre>`;o.innerHTML=testsRes}catch(e){o.textContent=e.message}
 }
 function setTab(k){if(k==="chat")return openProjectChat(sel);$("#main").scrollTop=0;LS=null;liveHtml="";tab=k;dirty=false;extra=null;lastBody="";$("#body").dataset.tab="";lastTabs="";renderProject();fetchExtra().then(renderProject)}
 async function fetchExtra(){
@@ -824,6 +849,7 @@ function palActions(){
   if(view==="project"&&sel){
     const d=detail||{};
     a.push(["Start/Stop agent",d.running?"Stop the running agent":"Start the agent",()=>act(d.running?"stop":"start",{},d.running?"Will stop after the current task":"Agent started")]);
+    a.push(["Side chat","Open or close the chat next to this project (Ctrl+J)",sideToggle]);
     GROUPS.forEach(g=>g[2].forEach(k=>a.push(["Go to: "+(LEAF[k]||g[1]),"on "+sel,()=>setTab(k)])));
   }
   return a;

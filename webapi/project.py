@@ -264,8 +264,11 @@ class ProjectMixin:
         if not item:
             raise UiError("Task not found", 404)
         if action == "task-delete":
-            if item["status"] not in ("blocked", "cancelled"):
-                raise UiError("Only blocked or cancelled tasks can be deleted")
+            running = bool(self.summary(ws)["running"])
+            if item["status"] == "in_progress" and running:
+                raise UiError("Stop the agent first: this task is being worked on right now")
+            if item["status"] not in ("blocked", "cancelled", "pending", "in_progress"):
+                raise UiError("Done tasks cannot be deleted")
             bl.items = [i for i in bl.items if i is not item]
             for i in bl.items:
                 if item["id"] in (i.get("depends_on") or []):

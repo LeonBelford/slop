@@ -2,6 +2,7 @@ import http.server
 import json
 import tempfile
 import threading
+import time
 import unittest
 from pathlib import Path
 
@@ -20,6 +21,22 @@ class Fake(http.server.BaseHTTPRequestHandler):
         self.send_header("Content-Type", "text/event-stream")
         self.end_headers()
         for w in ("Hel", "lo"):
+            self.wfile.write(b"data: " + json.dumps({"choices": [{"delta": {"content": w}}]}).encode() + b"\n\n")
+        self.wfile.write(b"data: [DONE]\n\n")
+
+
+class FakeThink(http.server.BaseHTTPRequestHandler):
+    """Reasons via an inline <think> block, then answers - like a local reasoning model."""
+
+    def log_message(self, *a):
+        pass
+
+    def do_POST(self):
+        self.rfile.read(int(self.headers["Content-Length"]))
+        self.send_response(200)
+        self.send_header("Content-Type", "text/event-stream")
+        self.end_headers()
+        for w in ("<think>I should", " say hi</think>", "Hi there"):
             self.wfile.write(b"data: " + json.dumps({"choices": [{"delta": {"content": w}}]}).encode() + b"\n\n")
         self.wfile.write(b"data: [DONE]\n\n")
 
@@ -66,6 +83,60 @@ class ChatTests(unittest.TestCase):
     def test_bad_id(self):
         with self.assertRaises(chat.ChatError):
             self.svc.chats.load("../../etc")
+
+    def test_thinking_is_split_from_the_answer_and_streamed_separately(self):
+        srv = http.server.ThreadingHTTPServer(("127.0.0.1", 0), FakeThink)
+        threading.Thread(target=srv.serve_forever, daemon=True).start()
+        old = webui.sa.DEFAULT_CONFIG["llm_api"]
+        webui.sa.DEFAULT_CONFIG["llm_api"] = f"http://127.0.0.1:{srv.server_address[1]}/v1/chat/completions"
+        try:
+            c = self.svc.chat_create({"projects": ["demo"], "model": "m"})
+            out = []
+            self.svc.chat_stream(c["id"], "Hi", out.append)
+        finally:
+            webui.sa.DEFAULT_CONFIG["llm_api"] = old
+            srv.shutdown()
+        self.assertEqual("".join(d["think"] for d in out if "think" in d), "I should say hi")
+        self.assertEqual("".join(d["delta"] for d in out if "delta" in d), "Hi there")
+        saved = self.svc.chats.load(c["id"])
+        self.assertEqual(saved["messages"][1]["content"], "Hi there")
+        self.assertEqual(saved["messages"][1]["thinking"], "I should say hi")
+
+    def test_model_warm_sends_an_empty_prompt_with_keep_alive(self):
+        seen = []
+
+        class Ollama(http.server.BaseHTTPRequestHandler):
+            def log_message(self, *a):
+                pass
+
+            def do_POST(self):
+                seen.append((self.path, json.loads(self.rfile.read(int(self.headers["Content-Length"])))))
+                self.send_response(200)
+                self.end_headers()
+                self.wfile.write(b"{}")
+        srv = http.server.ThreadingHTTPServer(("127.0.0.1", 0), Ollama)
+        threading.Thread(target=srv.serve_forever, daemon=True).start()
+        old = webui.sa.DEFAULT_CONFIG["llm_api"]
+        webui.sa.DEFAULT_CONFIG["llm_api"] = f"http://127.0.0.1:{srv.server_address[1]}/v1/chat/completions"
+        try:
+            self.assertTrue(self.svc.model_warm({"name": "qwen2.5-coder:14b", "keep_alive": "10m"})["ok"])
+            for _ in range(50):
+                if seen:
+                    break
+                time.sleep(0.05)
+            with self.assertRaises(webui.UiError):
+                self.svc.model_warm({"name": "m", "keep_alive": "forever; rm"})
+        finally:
+            webui.sa.DEFAULT_CONFIG["llm_api"] = old
+            srv.shutdown()
+        self.assertEqual(seen[0][0], "/api/generate")
+        self.assertEqual((seen[0][1]["prompt"], seen[0][1]["keep_alive"]), ("", "10m"))
+
+    def test_models_status(self):
+        st = self.svc.models_status()
+        self.assertIn("up", st)
+        self.assertIn("loaded", st)
+        self.assertIn("gpu", st)
 
 
 if __name__ == "__main__":

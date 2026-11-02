@@ -12,6 +12,7 @@ import threading
 import time
 import urllib.request
 
+from core.cfutil import _open_think, _strip_think
 from dash import chatagent, directtools, toolchat
 from infra import knowledge
 from pathlib import Path
@@ -190,32 +191,40 @@ def knowledge_context(ws: Path, query: str, api: str, key: str, embed_model: str
     return ("Knowledge base hits for the latest question:\n" + "\n".join(lines)) if lines else ""
 
 
-def build_messages(chat: dict, ws_of: Callable[[str], Path | None], api: str = "", key: str = "", tool_ctx: Callable[[str], str] | None = None, web_ctx: str = "") -> list[dict]:
+def build_messages(chat: dict, ws_of: Callable[[str], Path | None], api: str = "", key: str = "", tool_ctx: Callable[[str], str] | None = None,
+                   web_ctx: str = "", root: Path | None = None) -> list[dict]:
     last = next((m["content"] for m in reversed(chat["messages"]) if m["role"] == "user"), "")
     ctx = []
     for w in (ws_of(n) for n in chat["projects"]):
         if w:
             k = knowledge_context(w, last, api, key) if last else ""
             ctx.append(project_context(w) + ("\n\n" + k if k else ""))
-    if chat.get("tool") and tool_ctx:
+    is_tool = bool(chat.get("tool"))
+    if is_tool and tool_ctx:
         system = toolchat.SYSTEM + "\n\n" + tool_ctx(last)
     else:
         system = SYSTEM + ("\n\nLinked projects (current state):\n\n" + "\n\n".join(ctx) if ctx else "")
-    agent = chat.get("agent") and chat["projects"] and not chat.get("tool")
+    agent = chat.get("agent") and chat["projects"] and not is_tool
+    tool_direct = is_tool and chat.get("agent") and chat.get("route") == "direct" and root is not None
     if chat.get("project") and not agent:
         system += "\n\n" + PROJECT_ADDON
     if agent and chat.get("route") == "direct":
         system += "\n\n" + chatagent.DIRECT_ADDON
-        docs = [directtools.read_docs(w, 8000, 2500)[0] for w in (ws_of(n) for n in chat["projects"]) if w]
+        docs = [directtools.read_docs(w / "repo", 8000, 2500, goal=w / "agent" / "GOAL.md")[0] for w in (ws_of(n) for n in chat["projects"]) if w]
         if any(docs):
             system += "\n\nProject docs (already read for you):\n\n" + "\n\n".join(docs)
     elif agent:
         system += "\n\n" + chatagent.ADDON
+    elif tool_direct:
+        system += "\n\n" + chatagent.SELF_DIRECT_ADDON
+        doc_text = directtools.read_docs(root, 8000, 3000)[0]
+        if doc_text:
+            system += "\n\nCodeFactory's own docs (already read for you):\n\n" + doc_text
     if web_ctx:
         system += "\n\n" + web_ctx
     kept, used = [], 0
     for m in reversed(chat["messages"]):
-        content = m["content"] + (chatagent.results_text(m) if agent and m["role"] == "assistant" else "")
+        content = m["content"] + (chatagent.results_text(m) if (agent or tool_direct) and m["role"] == "assistant" else "")
         used += len(content)
         if used > HISTORY_CHARS and kept:
             break
@@ -223,11 +232,14 @@ def build_messages(chat: dict, ws_of: Callable[[str], Path | None], api: str = "
     return [{"role": "system", "content": system}] + kept[::-1]
 
 
-def stream_completion(api: str, key: str, model: str, messages: list[dict], timeout: int = 600) -> Iterator[str]:
-    """Yields text deltas from an OpenAI-compatible streaming endpoint."""
+def stream_completion(api: str, key: str, model: str, messages: list[dict], timeout: int = 600) -> Iterator[tuple[str, str]]:
+    """Yields (kind, text) pieces from an OpenAI-compatible streaming endpoint: kind is "think" for reasoning
+    (a separate reasoning/reasoning_content delta field, or <think>...</think> tags inline in content) and "content" for the
+    visible answer. Mirrors core/cfllm.py's split so chat answers show their reasoning the same way the agent does."""
     req = urllib.request.Request(
         api, data=json.dumps({"model": model, "messages": messages, "stream": True, "temperature": 0.5}).encode(),
         headers={"Content-Type": "application/json", "Authorization": "Bearer " + key})
+    raw_content, think_field, seen_visible, seen_think = "", "", 0, 0
     with urllib.request.urlopen(req, timeout=timeout) as r:
         for raw in r:
             line = raw.decode("utf-8", "replace").strip()
@@ -237,8 +249,17 @@ def stream_completion(api: str, key: str, model: str, messages: list[dict], time
             if data == "[DONE]":
                 return
             try:
-                delta = json.loads(data)["choices"][0].get("delta", {}).get("content")
+                delta = json.loads(data)["choices"][0].get("delta", {})
             except (ValueError, KeyError, IndexError):
                 continue
-            if delta:
-                yield delta
+            raw_content += delta.get("content") or ""
+            think_field += delta.get("reasoning") or delta.get("reasoning_content") or ""
+            if not (delta.get("content") or delta.get("reasoning") or delta.get("reasoning_content")):
+                continue
+            visible, think = _strip_think(raw_content), think_field + _open_think(raw_content)
+            if len(think) > seen_think:
+                yield "think", think[seen_think:]
+                seen_think = len(think)
+            if len(visible) > seen_visible:
+                yield "content", visible[seen_visible:]
+                seen_visible = len(visible)

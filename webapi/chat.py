@@ -88,11 +88,14 @@ class ChatMixin:
         web_ctx, sources = self.chat_web(chat, text or next((m["content"] for m in reversed(chat["messages"]) if m["role"] == "user"), ""))
         if sources:
             write({"sources": sources})
-        direct = bool(chat.get("agent") and chat["projects"] and not chat.get("tool") and chat.get("route") == "direct")
+        direct = bool(chat.get("agent") and chat.get("route") == "direct" and (chat["projects"] or chat.get("tool")))
+        self_mode = bool(chat.get("tool"))
         if direct and mode == "":
-            self._announce_docs(chat, write)
+            self._announce_docs(chat, write, self_mode)
         for step in range(MAX_STEPS if direct else 1):
-            msgs = chatlib.build_messages(chat, self.chat_ws, cfg["llm_api"], cfg["api_key"], self.tool_context, web_ctx)
+            if direct:
+                write({"status": "Reading the project and deciding the next step…" if step == 0 else f"Step {step + 1}/{MAX_STEPS}: continuing…"})
+            msgs = chatlib.build_messages(chat, self.chat_ws, cfg["llm_api"], cfg["api_key"], self.tool_context, web_ctx, root=common.ROOT)
             if mode == "continue" or step:
                 msgs.append({"role": "user", "content": "The results of your actions are above. Continue: take the next step, or if the job is done, answer with a short summary."})
             answer, err = self._stream_answer(chat, msgs, write, sources)
@@ -107,17 +110,22 @@ class ChatMixin:
             calls = chatagent.parse(answer)
             if not calls:
                 return
-            if not self._run_calls(chat, calls, write):
+            write({"status": f"Running {len(calls)} action{'s' if len(calls) != 1 else ''}…"})
+            if not self._run_calls(chat, calls, write, self_mode):
                 return
         write({"error": f"Stopped after {MAX_STEPS} steps. Say 'continue' to go on."})
 
-    def _announce_docs(self, chat: dict, write) -> None:
-        """Direct route: the docs of the linked projects are read first; the chat shows which ones."""
+    def _announce_docs(self, chat: dict, write, self_mode: bool = False) -> None:
+        """Direct route: the docs are read first (the linked projects', or CodeFactory's own for the self-improve chat); the chat shows which ones."""
+        write({"status": "Reading the docs (goal, README, architecture)…"})
         names = []
-        for n in chat["projects"]:
-            ws = self.chat_ws(n)
-            if ws:
-                names += [f"{n}: {x}" for x in directtools.read_docs(ws, 8000, 2500)[1]]
+        if self_mode:
+            names = [f"CodeFactory: {x}" for x in directtools.read_docs(common.ROOT, 8000, 2500)[1]]
+        else:
+            for n in chat["projects"]:
+                ws = self.chat_ws(n)
+                if ws:
+                    names += [f"{n}: {x}" for x in directtools.read_docs(ws / "repo", 8000, 2500, goal=ws / "agent" / "GOAL.md")[1]]
         if names:
             chat["messages"].append({"role": "assistant", "content": "Read first: " + ", ".join(names), "t": time.time(), "cmd": True, "ok": True, "tool": "read_docs"})
             self.chats.save(chat)
@@ -125,11 +133,15 @@ class ChatMixin:
 
     def _stream_answer(self, chat: dict, msgs: list[dict], write, sources: list) -> tuple[str, str]:
         cfg = sa.DEFAULT_CONFIG
-        answer, err = "", ""
+        answer, thinking, err = "", "", ""
         try:
-            for d in chatlib.stream_completion(cfg["llm_api"], cfg["api_key"], chat["model"], msgs):
-                answer += d
-                write({"delta": d})
+            for kind, d in chatlib.stream_completion(cfg["llm_api"], cfg["api_key"], chat["model"], msgs):
+                if kind == "think":
+                    thinking += d
+                    write({"think": d})
+                else:
+                    answer += d
+                    write({"delta": d})
         except OSError as e:  # includes a closed browser connection: keep the partial answer
             err = f"Model server not reachable or connection closed: {e}"
         except Exception as e:  # noqa: BLE001
@@ -137,18 +149,18 @@ class ChatMixin:
         finally:
             if answer:
                 chat["messages"].append({"role": "assistant", "content": answer, "t": time.time(), "model": chat["model"],
-                                         **({"sources": sources} if sources else {})})
+                                         **({"thinking": thinking} if thinking else {}), **({"sources": sources} if sources else {})})
                 chat["updated"] = time.time()
                 self.chats.save(chat)
         return answer, err
 
-    def _run_calls(self, chat: dict, calls: list[dict], write) -> bool:
+    def _run_calls(self, chat: dict, calls: list[dict], write, self_mode: bool = False) -> bool:
         """Runs the action blocks of the last answer in order and stores each result on its card. False when the browser went away."""
         msg = chat["messages"][-1]
         acts = msg.setdefault("acts", {})
         for k, call in enumerate(calls):
             try:
-                tool, args = chatagent.validate(call, chat["projects"])
+                tool, args = chatagent.validate(call, chat["projects"], self_mode)
                 acts[str(k)] = {"status": "done", "result": self._run_tool(tool, args, True), "t": time.time()}
             except (ValueError, UiError) as e:
                 acts[str(k)] = {"status": "failed", "result": str(e), "t": time.time()}

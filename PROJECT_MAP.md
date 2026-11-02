@@ -206,3 +206,9 @@ selftest self-improve e2e-setup`.
 | A new setting | `DEFAULT_CONFIG`, `webui.py` `save_settings` validation, settings form in `index.html`, docs |
 | A new language preset | `infra/stacks.py` |
 | Docs | `README.md`, `docs/*.md`, and this file |
+
+## Recent additions
+- `webapi/editor.py` + `web/editor.js`: in-browser code editor (tree, tabs, highlighting, find/replace, search, git, tests).
+- `web/sidechat.js`: collapsible side chat (Ctrl+J); sticky mini bar (`drawMini` in `web/app.js`).
+- `/api/models/status` (GPU/VRAM/boot state) and `/api/models/warm` (preload a model with keep_alive).
+- Self-improve chat has its own Direct mode (SELF_TOOLS) editing CodeFactory itself.

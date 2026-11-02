@@ -1,5 +1,5 @@
 /* ---- chat: conversations, agent mode with action cards, slash commands (own DOM, never re-rendered by the poll so streaming is not interrupted) ---- */
-let chat={list:[],models:[],def:"",cur:null,ctrl:null,q:"",brief:{},loop:0,listOpen:false,poll:null};
+let chat={dock:false,list:[],models:[],def:"",cur:null,ctrl:null,q:"",brief:{},loop:0,listOpen:false,poll:null};
 const RO=["list_dir","read_docs","status","search_code","list_tasks","show_task","read_file","health","timeline"];
 const ICON={list_dir:"📂",read_docs:"📚",edit_file:"✏️",delete_file:"🗑️",status:"📊",search_code:"🔎",list_tasks:"📋",read_file:"📄",show_task:"🔍",reopen_task:"↩",delete_task:"🗑",edit_task:"✏",feedback:"💬",design:"📐",run_command:"💻",health:"❤️",timeline:"🕒",add_task:"➕",start:"▶",stop:"⏹",pause:"⏸",resume:"⏯",step_mode:"👣",run_next:"⏭",set_priority:"⬆",cancel_task:"✖",hint:"📌",generate_tests:"🧪",create_project:"🆕",write_note:"📝",make_folder:"📁",write_file:"💾"};
 const CMDS=[
@@ -56,12 +56,14 @@ const stripActions=t=>t.replace(/```action[ \t]*\n[\s\S]*?```/g,"").replace(/```
 function taskBlocks(t){return[...t.matchAll(/```task[ \t]*\n([\s\S]*?)```/g)].map(m=>m[1].trim()).filter(x=>x.length>=10)}
 function actionBlocks(t){return[...t.matchAll(/```action[ \t]*\n([\s\S]*?)```/g)].map(m=>{try{const j=JSON.parse(m[1].trim());return j&&typeof j==="object"?j:null}catch(e){return null}}).filter(Boolean)}
 const hhmm=t=>t?new Date(t*1000).toLocaleTimeString([],{hour:"2-digit",minute:"2-digit"}):"";
-const isAgent=c=>!!(c&&c.agent&&c.projects.length&&!c.tool);
+const isAgent=c=>!!(c&&c.agent&&(c.tool?c.route==="direct":c.projects.length));
 const isDirect=c=>isAgent(c)&&c.route==="direct";
-const phText=c=>(isDirect(c)?"Tell me what to build or change: I read the docs and edit the project myself":isAgent(c)?"Tell the agent what to do, or type / for commands":"Message CodeFactory…")+"  (Enter sends, Shift+Enter: new line)";
+const phText=c=>(isDirect(c)&&c.tool?"Tell me what to change in CodeFactory itself: I read its docs and edit the repo myself"
+  :isDirect(c)?"Tell me what to build or change: I read the docs and edit the project myself":isAgent(c)?"Tell the agent what to do, or type / for commands":"Message CodeFactory…")+"  (Enter sends, Shift+Enter: new line)";
 
 /* ---- loading and the frame ---- */
 async function showChat(id,projects){
+  if(chat.dock)sideClose();
   closeSb();view="chat";tab="chat";dirty=false;extra=null;lastBody=lastHead=lastTabs="";renderList();
   $("#now").innerHTML="";$("#now").className="";$("#tabs").innerHTML="";$("#head").innerHTML="";
   try{
@@ -78,18 +80,20 @@ const SUGGEST_LINKED=["What should we build next?","Summarize the current state 
 const SUGGEST_TOOL=["How does the self-improve pipeline work, and where could it be better?","Look at web/app.js and suggest the safest small refactor","What failed in the last self-improve run?"];
 const SUGGEST_AGENT=["Show me the state and the open tasks","Which task should run next, and why?","Check the project health and queue the most valuable fix"];
 const SUGGEST_FREE=["Help me turn a rough idea into a project plan","Compare two tech stacks for a small web app","Review my architecture idea and find weak spots"];
+const chatOn=()=>view==="chat"||(chat.dock&&view==="project");
 function drawChat(){
-  const c=chat.cur,b=$("#body");b.dataset.tab="chat";
-  b.innerHTML=`<div class="cx${chat.listOpen?" list-open":""}">
+  const c=chat.cur,b=chat.dock?$("#dock"):$("#body");if(!chat.dock)b.dataset.tab="chat";
+  b.innerHTML=(chat.dock?`<div class="dock-h"><b>Side chat</b><span class="meta">${esc(sel||"")}</span><span class="spacer"></span><button class="small" onclick="sideNew()" title="New side chat">+ New</button><button class="small" onclick="sideClose()" title="Close (Ctrl+J)">×</button></div>`:"")+`<div class="cx${chat.listOpen?" list-open":""}">
     <div class="cx-list"><div class="cx-list-top"><input id="cxQ" type="search" placeholder="Search chats" value="${esc(chat.q)}" oninput="chat.q=this.value;drawList()"><button class="primary" onclick="newChat()">+ New</button></div><div id="cxItems"></div></div>
-    <section class="cx-main">${c?`<div id="cxBar"></div><div id="cxStatus"></div><div class="msgs" id="msgs"></div><div id="cxPal" class="pal" style="display:none"></div>
+    <section class="cx-main">${c?`<div id="cxBar"></div><div id="cxModelBar"></div><div id="cxStatus"></div><div class="msgs" id="msgs"></div><div id="cxPal" class="pal" style="display:none"></div>
       <div class="composer"><textarea id="chIn" rows="1" placeholder="${esc(phText(c))}" oninput="grow(this);chatInput()" onkeydown="chatKey(event)"></textarea>
         <button class="primary send" id="chSend" onclick="chatSend()" title="Send (Enter)">↑</button><button class="send" id="chStop" onclick="chat.ctrl&&chat.ctrl.abort()" title="Stop answering" style="display:none">■</button></div>`
       :`<div class="chat-empty"><div class="big">Start a conversation</div><button class="primary" onclick="newChat()">+ New chat</button></div>`}</section></div>`;
   drawList();if(!c)return;
-  drawBar();drawMsgs();drawStatus();
+  drawBar();drawMsgs();drawStatus();drawModelBar();
   const i=$("#chIn"),d=localStorage.getItem("cf.draft."+c.id);if(d){i.value=d;grow(i)}i.focus();
   clearInterval(chat.poll);chat.poll=setInterval(chatPoll,4000);chatPoll();
+  clearInterval(chat.mpoll);chat.mpoll=setInterval(modelPoll,4000);modelPoll();
 }
 function drawList(){
   const el=$("#cxItems");if(!el)return;
@@ -100,16 +104,16 @@ function drawList(){
 function drawBar(){
   const c=chat.cur,el=$("#cxBar");if(!el||!c)return;
   const names=list.projects.map(p=>p.name),models=[...new Set([c.model,...chat.models])];
-  const canAgent=!c.tool&&c.projects.length;
+  const canAgent=c.tool||c.projects.length;
   el.innerHTML=`<div class="cx-head">
     <button class="cx-toggle" onclick="chat.listOpen=!chat.listOpen;document.querySelector('.cx').classList.toggle('list-open')" title="Chats">☰</button>
     <div class="cx-title" onclick="renameChat()" title="Rename">${esc(c.title)}</div>
-    ${c.tool?"":`<div class="seg" title="Agent mode lets the model act on the linked projects (you confirm changes)"><button class="${isAgent(c)?"":"on"}" onclick="chatUpdate({agent:false})">Chat</button><button class="${isAgent(c)?"on":""}" ${canAgent?"":"disabled"} onclick="chatUpdate({agent:true})">Agent</button></div>`}
-    ${isAgent(c)?`<div class="seg" title="Pipeline: tasks go through plan, build, test and merge. Direct: the agent reads the docs and edits the project itself, step by step."><button class="${isDirect(c)?"":"on"}" onclick="chatUpdate({route:'pipeline'})">Pipeline</button><button class="${isDirect(c)?"on":""}" onclick="chatUpdate({route:'direct'})">Direct</button></div>`:""}
+    <div class="seg" title="${c.tool?"Direct mode lets the model read CodeFactory's own docs and edit its source straight away (you confirm changes)":"Agent mode lets the model act on the linked projects (you confirm changes)"}"><button class="${isAgent(c)?"":"on"}" onclick="chatUpdate({agent:false})">Chat</button><button class="${isAgent(c)?"on":""}" ${canAgent?"":"disabled"} onclick="chatUpdate(${c.tool?"{agent:true,route:'direct'}":"{agent:true}"})">${c.tool?"Direct":"Agent"}</button></div>
+    ${isAgent(c)&&!c.tool?`<div class="seg" title="Pipeline: tasks go through plan, build, test and merge. Direct: the agent reads the docs and edits the project itself, step by step."><button class="${isDirect(c)?"":"on"}" onclick="chatUpdate({route:'pipeline'})">Pipeline</button><button class="${isDirect(c)?"on":""}" onclick="chatUpdate({route:'direct'})">Direct</button></div>`:""}
     <select id="chModel" class="cx-model" onchange="chatUpdate({model:this.value})" title="Model of this chat">${models.map(m=>`<option ${m===c.model?"selected":""}>${esc(m)}</option>`).join("")}</select>
     <label class="cx-web" title="Searches the web for each question and gives the model the top pages."><input type="checkbox" ${c.web?"checked":""} onchange="chatUpdate({web:this.checked})"> Web</label>
     <button class="ghost" onclick="exportChat()" title="Download as Markdown">⤓</button><button class="ghost danger" onclick="delChat()" title="Delete this chat">🗑</button></div>
-  ${c.tool?`<div class="cx-note">Talks about CodeFactory itself. Proposed changes are built and tested on a separate branch; you try them in a preview and merge. <a href="#" onclick="showTool();return false">Open branches / preview / merge</a></div>`
+  ${c.tool?`<div class="cx-note">Talks about CodeFactory itself.${isDirect(c)?" Direct mode: changes are committed straight away, no review branch.":" Proposed changes are built and tested on a separate branch; you try them in a preview and merge."} <a href="#" onclick="showTool();return false">Open branches / preview / merge</a></div>`
    :c.project?"":`<div class="cx-note"><span class="lbl">Projects</span><div class="chips">${names.map(n=>`<span class="chip ${c.projects.includes(n)?"on":""}" onclick="toggleLink('${esc(n)}')">${esc(n)}</span>`).join("")||'<span class="hint" style="margin:0">no projects yet</span>'}</div>
      ${!isAgent(c)?`<label class="lbl">Answer buttons use <select id="chTarget">${c.projects.map(n=>`<option>${esc(n)}</option>`).join("")||"<option value=''>(link a project)</option>"}</select></label>`:""}</div>`}`;
 }
@@ -127,14 +131,37 @@ function drawStatus(){
     <div class="cs-auto"><label>Auto-run<select onchange="chatUpdate({auto:this.value})" title="Which actions run without a click"><option value="safe" ${c.auto==="safe"||!c.auto?"selected":""}>read-only</option><option value="all" ${c.auto==="all"?"selected":""}>everything</option><option value="off" ${c.auto==="off"?"selected":""}>nothing</option></select></label></div></div>`;
 }
 async function chatPoll(){
-  const c=chat.cur;if(view!=="chat"||!c){clearInterval(chat.poll);return}
+  const c=chat.cur;if(!chatOn()||!c){clearInterval(chat.poll);if(chat.dock&&view!=="project")sideClose();return}
   if(!isAgent(c))return;
   await Promise.all(c.projects.map(async n=>{try{chat.brief[n]=await api("/api/project/"+encodeURIComponent(n)+"/x/brief")}catch(e){}}));
-  if(view==="chat"&&chat.cur===c)drawStatus();
+  if(chatOn()&&chat.cur===c)drawStatus();
 }
 async function ctlBar(n,body){try{await api("/api/project/"+encodeURIComponent(n)+"/control",body);chatPoll()}catch(e){toast(e.message,true)}}
 async function projBar(n,a){try{await api("/api/project/"+encodeURIComponent(n)+"/"+a,{});setTimeout(chatPoll,800)}catch(e){toast(e.message,true)}}
 function openProject(n){clearInterval(chat.poll);select(n)}
+function drawModelBar(){
+  const c=chat.cur,el=$("#cxModelBar");if(!el||!c)return;
+  const s=chat.mstat;
+  if(!s){el.innerHTML="";return}
+  const loaded=(s.loaded||[]).find(m=>m.name===c.model);
+  const busy=!!chat.ctrl;
+  const st=!s.up?["off","offline"]:loaded?["on","active"]:busy?["boot","booting…"]:["idle","idle"];
+  const g=s.gpu;
+  el.innerHTML=`<div class="cx-modelbar">
+    <span class="mb-dot ${st[0]}"></span><span class="mb-t">${esc(c.model)}</span><span class="pill">${st[1]}</span>
+    ${g?`<span class="mb-gpu" title="GPU utilisation / VRAM / temperature">GPU ${g.util!=null?g.util+"%":"–"} · ${g.mem_used!=null?g.mem_used:"?"}/${g.mem_total!=null?g.mem_total:"?"} MB${g.temp!=null?" · "+g.temp+"°C":""}</span>`:""}
+    ${s.up&&!loaded&&!busy?`<button class="small" onclick="warmModel()" title="Load the model into VRAM now and keep it for 30 minutes">Warm up</button>`:""}
+    ${loaded&&loaded.vram_gb!=null?`<span class="hint" style="margin:0">${loaded.vram_gb} GB VRAM</span>`:""}
+  </div>`;
+}
+async function warmModel(){
+  try{await api("/api/models/warm",{name:chat.cur.model,keep_alive:"30m"});toast("Loading "+chat.cur.model+" into VRAM…");setTimeout(modelPoll,1500)}catch(e){toast(e.message,true)}
+}
+async function modelPoll(){
+  if(!chatOn()||!chat.cur){clearInterval(chat.mpoll);return}
+  try{chat.mstat=await api("/api/models/status")}catch(e){chat.mstat=null}
+  if(chatOn()&&chat.cur)drawModelBar();
+}
 
 /* ---- messages ---- */
 function drawMsgs(){
@@ -161,7 +188,8 @@ function msgHtml(m,i,isLast){
   const taskBtns=tool||pj?tasks.map((_,k)=>`<button class="small primary" onclick="${tool?"buildFromChat":"doFromChat"}(${i},${k})">${tool?"Build on test branch":"Do this in "+esc(pj)}${tasks.length>1?" #"+(k+1):""}</button>`).join(""):agent?"":`<button class="small ghost" onclick="fromChat(${i},'say')">Add to ideas</button><button class="small ghost" onclick="fromChat(${i},'do')">Run as task</button>`;
   const acts=m.acts||{},pend=calls.filter((_,k)=>!acts[k]||acts[k].status==="failed").length;
   const cards=calls.length?`<div class="acts-box">${calls.map((cl,k)=>actCard(i,k,cl,acts[k])).join("")}${calls.length>1&&pend>1?`<div class="acts-all"><button class="small primary" onclick="runAll(${i})">Run all ${pend}</button></div>`:""}${isLast&&!pend&&calls.some(cl=>!RO.includes(cl.tool))&&!chat.ctrl?`<div class="acts-all"><button class="small" onclick="chatContinue()" title="Send the results to the model so it can continue">Let the model continue ↵</button></div>`:""}</div>`:"";
-  return `<div class="msg assistant" data-i="${i}">${mdLite(text)}${cards}${m.sources&&m.sources.length?`<div class="meta" style="margin-top:6px">Sources: ${m.sources.map(x=>`<a href="${esc(x.url)}" target="_blank" rel="noopener noreferrer">${esc(x.title.slice(0,40))}</a>`).join(" · ")}</div>`:""}<div class="acts"><span class="mt">${esc(m.model||"")} ${when}</span><button class="small ghost" onclick="copyMsg(${i})">Copy</button>${isLast?`<button class="small ghost" onclick="chatRegen()">Regenerate</button>`:""}${taskBtns}</div></div>`;
+  const think=m.thinking?`<details class="think-box"><summary>🧠 Reasoning (${m.thinking.length} chars)</summary><pre>${esc(m.thinking)}</pre></details>`:"";
+  return `<div class="msg assistant" data-i="${i}">${think}${mdLite(text)}${cards}${m.sources&&m.sources.length?`<div class="meta" style="margin-top:6px">Sources: ${m.sources.map(x=>`<a href="${esc(x.url)}" target="_blank" rel="noopener noreferrer">${esc(x.title.slice(0,40))}</a>`).join(" · ")}</div>`:""}<div class="acts"><span class="mt">${esc(m.model||"")} ${when}</span><button class="small ghost" onclick="copyMsg(${i})">Copy</button>${isLast?`<button class="small ghost" onclick="chatRegen()">Regenerate</button>`:""}${taskBtns}</div></div>`;
 }
 async function runAction(i,k,skip){
   if(chat.ctrl)return;
@@ -280,13 +308,17 @@ async function chatSend(){
   if(isAgent(chat.cur)&&text.startsWith("/")&&await chatCommand(text))return;
   chat.loop=0;chatStream(text,"");
 }
+function chatLiveHtml(label){
+  return `<div class="msg assistant" id="live"><details class="think-box live" id="liveThink" style="display:none"><summary>🧠 Reasoning</summary><pre id="liveThinkTxt"></pre></details><div class="think"><span class="dots"><span></span><span></span><span></span></span><span id="thinkT">${label}</span></div><div id="liveAns"></div></div>`;
+}
 async function chatStream(text,mode){
   if(chat.ctrl)return;
   const box=$("#msgs"),em=box.querySelector(".chat-empty");if(em)em.remove();
   if(mode==="regen"){const l=box.querySelectorAll(".msg.assistant");if(l.length)l[l.length-1].remove()}
-  box.insertAdjacentHTML("beforeend",(text?`<div class="msg user">${esc(text)}</div>`:"")+`<div class="msg assistant" id="live"><div class="think"><span class="dots"><span></span><span></span><span></span></span><span id="thinkT">Thinking…</span></div></div>`);
-  let live=$("#live");box.scrollTop=box.scrollHeight;
-  const t0=Date.now(),timer=setInterval(()=>{const e=$("#thinkT");if(!e){clearInterval(timer);return}const s=Math.round((Date.now()-t0)/1000);e.textContent=`Thinking… ${s}s`+(s>=8?" (the model may still be loading)":"")},500);
+  box.insertAdjacentHTML("beforeend",(text?`<div class="msg user">${esc(text)}</div>`:"")+chatLiveHtml("Thinking…"));
+  let live=$("#live"),liveThink=$("#liveThink"),liveThinkTxt=$("#liveThinkTxt"),liveAns=$("#liveAns"),thinkAcc="";
+  box.scrollTop=box.scrollHeight;
+  const t0=Date.now(),timer=setInterval(()=>{const e=$("#thinkT");if(!e||e.dataset.status){clearInterval(timer);return}const s=Math.round((Date.now()-t0)/1000);e.textContent=`Thinking… ${s}s`+(s>=8?" (the model may still be loading)":"")},500);
   chat.ctrl=new AbortController();setBusy(true);
   const id=chat.cur.id;let acc="";
   try{
@@ -300,19 +332,21 @@ async function chatStream(text,mode){
         const ev=buf.slice(0,k).replace(/^data: /,"");buf=buf.slice(k+2);
         if(ev==="[DONE]")continue;
         const j=JSON.parse(ev);
-        if(j.delta){acc+=j.delta;live.classList.add("streaming");live.innerHTML=mdLite(isAgent(chat.cur)?stripActions(acc):acc)||'<span class="hint">…</span>';if(box.scrollHeight-box.scrollTop-box.clientHeight<140)box.scrollTop=box.scrollHeight}
+        if(j.think){thinkAcc+=j.think;liveThink.style.display="";liveThinkTxt.textContent=thinkAcc;if(box.scrollHeight-box.scrollTop-box.clientHeight<140)box.scrollTop=box.scrollHeight}
+        if(j.status){const e=$("#thinkT");if(e){e.textContent=j.status;e.dataset.status="1"}}
+        if(j.delta){acc+=j.delta;live.classList.add("streaming");liveAns.innerHTML=mdLite(isAgent(chat.cur)?stripActions(acc):acc)||'<span class="hint">…</span>';if(box.scrollHeight-box.scrollTop-box.clientHeight<140)box.scrollTop=box.scrollHeight}
         if(j.error)toast(j.error,true);
         if(j.reload){
           try{chat.cur=await api("/api/chat/"+id)}catch(e){}
-          drawMsgs();acc="";
-          box.insertAdjacentHTML("beforeend",`<div class="msg assistant" id="live"><div class="think"><span class="dots"><span></span><span></span><span></span></span><span id="thinkT">Working…</span></div></div>`);
-          live=$("#live");box.scrollTop=box.scrollHeight;
+          drawMsgs();acc="";thinkAcc="";
+          box.insertAdjacentHTML("beforeend",chatLiveHtml("Working…"));
+          live=$("#live");liveThink=$("#liveThink");liveThinkTxt=$("#liveThinkTxt");liveAns=$("#liveAns");box.scrollTop=box.scrollHeight;
         }
       }
     }
   }catch(e){if(e.name!=="AbortError")toast(e.message,true)}
   clearInterval(timer);chat.ctrl=null;setBusy(false);
-  if(view==="chat"&&chat.cur&&chat.cur.id===id){
+  if(chatOn()&&chat.cur&&chat.cur.id===id){
     try{chat.cur=await api("/api/chat/"+id);chat.list=(await api("/api/chats")).chats}catch(e){}
     drawList();drawMsgs();
     await autoRun();
