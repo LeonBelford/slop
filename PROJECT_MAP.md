@@ -39,6 +39,7 @@ Code lives in five places: the entry points in the root (`codefactory.py`, `webu
 | `core/cfa_conductor.py` | `ConductorMixin`: per-task pipeline profile from recent outcomes (`conducting`: fast/flow/careful, never disables correctness gates), task journal (`note`, shown to every prompt of the task), `replan_if_stuck` |
 | `core/cfa_write.py` | Last-resort writer: files the coder only printed in the chat are taken from its answer and written to disk (only allowed files) |
 | `core/cfa_handoff.py` | `HandoffMixin`: every step passes the next one a pinned instruction block (goal, decisions with reasons, do, do not, done when, open); it leads every coder prompt and model call of the task |
+| `core/cfa_priority.py` | `PriorityMixin.light_check`: light strategist priority check after every merge, changes logged with reasons; feature `triage_light` |
 | `core/cfa_triage.py` | `TriageMixin`: every iteration re-scores open tasks for the current project state (fan-out bonus, failure penalty, `dyn`) and lays the plan out again (strategist) when enough was merged or tasks lack a layer; feature `triage` |
 | `core/cfa_spike.py` | `SpikeMixin`: for uncertain tasks (revived, many risks or known consequences) a throwaway spike proves the approach before the real attempt; a failed spike triggers re-planning |
 | `core/cfa_milestone.py` | `MilestoneMixin`: after each finished layer the strategist checks the product against the vision, adds missing tasks, cancels obsolete ones and can schedule a re-plan |

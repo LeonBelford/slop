@@ -231,6 +231,9 @@ When a task keeps failing, the strategist first decides whether the project stan
 ## Strictly sequential build
 The blueprint is one linear chain: `blueprint.normalize` adds the direct predecessor to `depends_on`, and `Backlog.next` only starts a task once its dependencies are done or cancelled. Only a real deadlock (a blocked dependency) breaks the order, and it is logged. The planning prompt says what the task builds on.
 
+## Light priority check after every merge
+After each merge the strategist sees only open task titles, status and recent results and corrects priorities (`triage_light` flag); every change is stored with its reason and shown in the project dashboard under Triage. The dynamic priority also rewards essential tasks, `risk: high` tasks and small tasks.
+
 ## Self-Improve uses the same quality standard
 
 The self-improve pipeline shares the helpers of the project pipeline: pinned instruction blocks (`core/cfa_handoff.py`) in front of
