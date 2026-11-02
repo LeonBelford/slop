@@ -42,7 +42,7 @@ function renderList(){
   $("#plist").innerHTML=jobs+(projs.map(p=>{const[c,t]=statusOf(p);
     return `<div class="card ${view==="project"&&p.name===sel?"sel":""}" onclick="select('${esc(p.name)}')"><div class="n"><span class="dot ${c}"></span>${esc(p.name)}${p.priority==="side"?` <span class="pill info" title="Side agent: only uses the GPU while the main agent is idle">side</span>`:""}</div><div class="s">${t} · ${p.merged} features · ${p.backlog.pending||0} open</div></div>`}).join("")||(jobs?"":f?'<div class="hint" style="padding:10px">No project matches.</div>':'<div class="hint" style="padding:10px">No projects yet.</div>'));
 }
-function select(n){closeSb();view="project";sel=n;localStorage.setItem("sel",n);applyPref();tab=pref().start||"overview";dirty=false;detail=null;extra=null;diffView=null;codeView=null;codeOpen=new Set();codeInit=false;lastBody=lastHead=lastTabs="";renderList();refresh()}
+function select(n){if(chat.dock)setTimeout(sideOpen,0);closeSb();view="project";sel=n;localStorage.setItem("sel",n);applyPref();tab=pref().start||"overview";dirty=false;detail=null;extra=null;diffView=null;codeView=null;codeOpen=new Set();codeInit=false;lastBody=lastHead=lastTabs="";renderList();refresh()}
 function showTool(){closeSb();view="tool";tab="tool";toolTab_="tool";codeView=null;codeInit=false;codeOpen=new Set();dirty=false;extra=null;diffView=null;lastBody=lastHead=lastTabs="";renderList();refresh()}
 
 /* ---- live status panel (re-rendered every second from the last data) ---- */
@@ -272,6 +272,22 @@ function toolStats(x){
   const avg=T.n?[dur(T.median_s),`avg per step (${dur(T.low)}–${dur(T.high)}, ${T.n} steps)`]:["–","avg per step (no data yet)"];
   return [["wps",v.wps],["tps",v.tps],["avg",avg],["tpm",v.tpm],["gpu",v.gpu],["tokens",v.tokens]].map(([k,c])=>`<div class="stat"><b>${c[0]}</b><span>${c[1]}</span></div>`).join("");
 }
+/* compact bar that stays at the top once the big header has scrolled away; it takes no space in the layout */
+let miniSeen=true,miniObs=null;
+function drawMini(d,c,t){
+  const m=$("#mini");if(!m)return;
+  const n=d.activity&&d.activity.now;
+  const html=`<div class="mini-bar ${miniSeen?"":"on"}"><b>${esc(d.name)}</b><span class="pill ${c==="run"?"ok":c==="stop"?"warn":""}">${t}</span>
+    <span class="mini-act">${d.running&&n?esc(n.phase)+(n.task?" · "+esc(n.task):""):d.running?"Starting…":""}</span><span class="spacer"></span>
+    ${d.running?`<button class="small danger" onclick="act('stop',{},'Will stop after the current task')" ${d.stopping?"disabled":""}>Stop</button>`:`<button class="small primary" onclick="act('start',{},'Agent started')">Start</button>`}
+    ${typeof sideToggle==="function"?`<button class="small" onclick="sideToggle()">Side chat</button>`:""}
+    <button class="small" onclick="$('#main').scrollTo({top:0,behavior:'smooth'})" title="Back to top">↑</button></div>`;
+  if(html!==m._h){m.innerHTML=html;m._h=html}
+  if(!miniObs&&window.IntersectionObserver){
+    miniObs=new IntersectionObserver(e=>{miniSeen=e[0].isIntersecting;const b=$("#mini .mini-bar");if(b)b.classList.toggle("on",!miniSeen)},{root:$("#main"),threshold:0});
+    miniObs.observe($("#head"));
+  }
+}
 function renderProject(){
   if(!sel){$("#head").innerHTML=`<div class="empty"><h2>No project selected</h2><p>Pick a project on the left or create one with <b>+ New idea</b>.</p></div>`;$("#tabs").innerHTML=$("#body").innerHTML="";return}
   if(!detail)return;
@@ -287,6 +303,7 @@ function renderProject(){
   </div></div>
   <div class="stats">${statCards(d)}</div>`;
   if(head!==lastHead){$("#head").innerHTML=head;lastHead=head}
+  drawMini(d,c,t);
   const hide=pref().hide,cur=GROUPS.find(g=>g[2].includes(tab))||GROUPS[0];lastLeaf[cur[0]]=tab;
   const tb=`<div class="tabs">${GROUPS.filter(g=>g===cur||!hide.includes(g[0])||g[0]==="customize").map(g=>`<div class="tab ${g===cur?"on":""}" onclick="setTab('${lastLeaf[g[0]]||g[2][0]}')">${g[1]}</div>`).join("")}</div>`+
     (cur[2].length>1?`<div class="subtabs">${cur[2].map(k=>`<div class="subtab ${tab===k?"on":""}" onclick="setTab('${k}')">${LEAF[k]}</div>`).join("")}</div>`:"");
@@ -832,6 +849,7 @@ function palActions(){
   if(view==="project"&&sel){
     const d=detail||{};
     a.push(["Start/Stop agent",d.running?"Stop the running agent":"Start the agent",()=>act(d.running?"stop":"start",{},d.running?"Will stop after the current task":"Agent started")]);
+    a.push(["Side chat","Open or close the chat next to this project (Ctrl+J)",sideToggle]);
     GROUPS.forEach(g=>g[2].forEach(k=>a.push(["Go to: "+(LEAF[k]||g[1]),"on "+sel,()=>setTab(k)])));
   }
   return a;

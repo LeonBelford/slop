@@ -1,5 +1,5 @@
 /* ---- chat: conversations, agent mode with action cards, slash commands (own DOM, never re-rendered by the poll so streaming is not interrupted) ---- */
-let chat={list:[],models:[],def:"",cur:null,ctrl:null,q:"",brief:{},loop:0,listOpen:false,poll:null};
+let chat={dock:false,list:[],models:[],def:"",cur:null,ctrl:null,q:"",brief:{},loop:0,listOpen:false,poll:null};
 const RO=["list_dir","read_docs","status","search_code","list_tasks","show_task","read_file","health","timeline"];
 const ICON={list_dir:"📂",read_docs:"📚",edit_file:"✏️",delete_file:"🗑️",status:"📊",search_code:"🔎",list_tasks:"📋",read_file:"📄",show_task:"🔍",reopen_task:"↩",delete_task:"🗑",edit_task:"✏",feedback:"💬",design:"📐",run_command:"💻",health:"❤️",timeline:"🕒",add_task:"➕",start:"▶",stop:"⏹",pause:"⏸",resume:"⏯",step_mode:"👣",run_next:"⏭",set_priority:"⬆",cancel_task:"✖",hint:"📌",generate_tests:"🧪",create_project:"🆕",write_note:"📝",make_folder:"📁",write_file:"💾"};
 const CMDS=[
@@ -63,6 +63,7 @@ const phText=c=>(isDirect(c)&&c.tool?"Tell me what to change in CodeFactory itse
 
 /* ---- loading and the frame ---- */
 async function showChat(id,projects){
+  if(chat.dock)sideClose();
   closeSb();view="chat";tab="chat";dirty=false;extra=null;lastBody=lastHead=lastTabs="";renderList();
   $("#now").innerHTML="";$("#now").className="";$("#tabs").innerHTML="";$("#head").innerHTML="";
   try{
@@ -79,9 +80,10 @@ const SUGGEST_LINKED=["What should we build next?","Summarize the current state 
 const SUGGEST_TOOL=["How does the self-improve pipeline work, and where could it be better?","Look at web/app.js and suggest the safest small refactor","What failed in the last self-improve run?"];
 const SUGGEST_AGENT=["Show me the state and the open tasks","Which task should run next, and why?","Check the project health and queue the most valuable fix"];
 const SUGGEST_FREE=["Help me turn a rough idea into a project plan","Compare two tech stacks for a small web app","Review my architecture idea and find weak spots"];
+const chatOn=()=>view==="chat"||(chat.dock&&view==="project");
 function drawChat(){
-  const c=chat.cur,b=$("#body");b.dataset.tab="chat";
-  b.innerHTML=`<div class="cx${chat.listOpen?" list-open":""}">
+  const c=chat.cur,b=chat.dock?$("#dock"):$("#body");if(!chat.dock)b.dataset.tab="chat";
+  b.innerHTML=(chat.dock?`<div class="dock-h"><b>Side chat</b><span class="meta">${esc(sel||"")}</span><span class="spacer"></span><button class="small" onclick="sideNew()" title="New side chat">+ New</button><button class="small" onclick="sideClose()" title="Close (Ctrl+J)">×</button></div>`:"")+`<div class="cx${chat.listOpen?" list-open":""}">
     <div class="cx-list"><div class="cx-list-top"><input id="cxQ" type="search" placeholder="Search chats" value="${esc(chat.q)}" oninput="chat.q=this.value;drawList()"><button class="primary" onclick="newChat()">+ New</button></div><div id="cxItems"></div></div>
     <section class="cx-main">${c?`<div id="cxBar"></div><div id="cxModelBar"></div><div id="cxStatus"></div><div class="msgs" id="msgs"></div><div id="cxPal" class="pal" style="display:none"></div>
       <div class="composer"><textarea id="chIn" rows="1" placeholder="${esc(phText(c))}" oninput="grow(this);chatInput()" onkeydown="chatKey(event)"></textarea>
@@ -129,10 +131,10 @@ function drawStatus(){
     <div class="cs-auto"><label>Auto-run<select onchange="chatUpdate({auto:this.value})" title="Which actions run without a click"><option value="safe" ${c.auto==="safe"||!c.auto?"selected":""}>read-only</option><option value="all" ${c.auto==="all"?"selected":""}>everything</option><option value="off" ${c.auto==="off"?"selected":""}>nothing</option></select></label></div></div>`;
 }
 async function chatPoll(){
-  const c=chat.cur;if(view!=="chat"||!c){clearInterval(chat.poll);return}
+  const c=chat.cur;if(!chatOn()||!c){clearInterval(chat.poll);if(chat.dock&&view!=="project")sideClose();return}
   if(!isAgent(c))return;
   await Promise.all(c.projects.map(async n=>{try{chat.brief[n]=await api("/api/project/"+encodeURIComponent(n)+"/x/brief")}catch(e){}}));
-  if(view==="chat"&&chat.cur===c)drawStatus();
+  if(chatOn()&&chat.cur===c)drawStatus();
 }
 async function ctlBar(n,body){try{await api("/api/project/"+encodeURIComponent(n)+"/control",body);chatPoll()}catch(e){toast(e.message,true)}}
 async function projBar(n,a){try{await api("/api/project/"+encodeURIComponent(n)+"/"+a,{});setTimeout(chatPoll,800)}catch(e){toast(e.message,true)}}
@@ -152,9 +154,9 @@ function drawModelBar(){
   </div>`;
 }
 async function modelPoll(){
-  if(view!=="chat"||!chat.cur){clearInterval(chat.mpoll);return}
+  if(!chatOn()||!chat.cur){clearInterval(chat.mpoll);return}
   try{chat.mstat=await api("/api/models/status")}catch(e){chat.mstat=null}
-  if(view==="chat"&&chat.cur)drawModelBar();
+  if(chatOn()&&chat.cur)drawModelBar();
 }
 
 /* ---- messages ---- */
@@ -340,7 +342,7 @@ async function chatStream(text,mode){
     }
   }catch(e){if(e.name!=="AbortError")toast(e.message,true)}
   clearInterval(timer);chat.ctrl=null;setBusy(false);
-  if(view==="chat"&&chat.cur&&chat.cur.id===id){
+  if(chatOn()&&chat.cur&&chat.cur.id===id){
     try{chat.cur=await api("/api/chat/"+id);chat.list=(await api("/api/chats")).chats}catch(e){}
     drawList();drawMsgs();
     await autoRun();
