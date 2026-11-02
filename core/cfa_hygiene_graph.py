@@ -39,6 +39,16 @@ class HygieneGraphMixin:
                 item["bench"] = True  # accepted only if the benchmark does not get slower
             out.append(item)
             prev = [item["id"]]
+        if out:
+            done = [i for i in self.backlog.items if i["status"] == "done"]
+            last = self.backlog.by_id(getattr(self, "state", {}).get("last_done") or "") or (done[-1] if done else None)
+            for s in out:
+                s["process"] = kind
+                if last and last.get("layer") is not None:
+                    s["layer"] = last["layer"]
+            if last:
+                out[0]["depends_on"] = list(dict.fromkeys([last["id"]] + list(out[0].get("depends_on", []))))
+            self.splice_into_tree(out, last)
         if kind == "perf" and out and self.bench_cmd():
             self.bench_baseline()
         self.backlog.save()
@@ -91,7 +101,24 @@ class HygieneGraphMixin:
                 s["files"] = recent
             if n == 0 and last and last["id"] not in s.get("depends_on", []):
                 s["depends_on"] = [last["id"]] + list(s.get("depends_on", []))
-        self.log(f"Standard process '{proc['name']}' attached to the graph after {last['id'] if last else 'the start'} ({len(steps)} step(s))")
+        gated = self.splice_into_tree(steps, last)
+        self.log(f"Standard process '{proc['name']}' attached to the graph after {last['id'] if last else 'the start'} ({len(steps)} step(s)); {gated} later task(s) now wait for it")
+
+    def splice_into_tree(self, steps: list[dict], last: dict | None) -> int:
+        """Puts the steps into the flow instead of beside it: the tasks that were next in line (those that built on the last merged task,
+        otherwise the ready tasks of the lowest open layer) now also wait for the final step(s) of the new chain."""
+        ids = {s["id"] for s in steps}
+        tails = [s["id"] for s in steps if not any(s["id"] in (o.get("depends_on") or []) for o in steps)]
+        open_ = [i for i in self.backlog.items if i["status"] in ("pending", "blocked") and i["id"] not in ids and not i.get("process")
+                 and i.get("source") != "hygiene" and i["type"] != "bug"]
+        nxt = [i for i in open_ if last and last["id"] in (i.get("depends_on") or [])]
+        if not nxt:
+            ready = [i for i in open_ if all(self.backlog.satisfied(d) for d in i.get("depends_on", []))]
+            low = min((i["layer"] for i in ready if i.get("layer") is not None), default=None)
+            nxt = [i for i in ready if i.get("layer") == low and i.get("source") != "user"]
+        for i in nxt:
+            i["depends_on"] = list(dict.fromkeys(list(i.get("depends_on", [])) + tails))
+        return len(nxt)
 
     def run_due_processes(self, merged: int) -> None:
         """Standard processes with an interval (every N merged tasks) are added as a graph when due, never while an earlier run is still open."""

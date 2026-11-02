@@ -268,12 +268,11 @@ class ProjectMixin:
             running = bool(self.summary(ws)["running"])
             if item["status"] == "in_progress" and running:
                 raise UiError("Stop the agent first: this task is being worked on right now")
-            if item["status"] not in ("blocked", "cancelled", "pending", "in_progress"):
-                raise UiError("Done tasks cannot be deleted")
             bl.items = [i for i in bl.items if i is not item]
             for i in bl.items:
                 if item["id"] in (i.get("depends_on") or []):
-                    i["depends_on"] = [d for d in i["depends_on"] if d != item["id"]]
+                    # the tasks that built on it now build on what it built on, so the chain stays connected
+                    i["depends_on"] = list(dict.fromkeys(d for dep in i["depends_on"] for d in ((item.get("depends_on") or []) if dep == item["id"] else [dep])))
             bl.save()
         elif action == "task-cancel":
             if item["status"] not in ("pending", "blocked"):

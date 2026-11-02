@@ -468,13 +468,14 @@ function customizeBody(d){
 }
 function taskBtns(i,running){
   const b=(a,l,c)=>`<button class="small ${c||""}" onclick="taskAct('${a}','${esc(i.id)}')">${l}</button> `;
-  if(i.status==="pending")return b("task-top","Top")+b("task-cancel","Cancel")+b("task-delete","Delete");
-  if(i.status==="blocked")return b("task-reopen","Reopen")+b("task-cancel","Cancel")+b("task-delete","Delete");
-  if(i.status==="cancelled")return b("task-reopen","Reopen")+b("task-delete","Delete");
+  if(i.status==="pending")return b("task-top","Top")+b("task-cancel","Cancel")+b("task-delete","Delete","danger");
+  if(i.status==="blocked")return b("task-reopen","Reopen")+b("task-cancel","Cancel")+b("task-delete","Delete","danger");
+  if(i.status==="cancelled")return b("task-reopen","Reopen")+b("task-delete","Delete","danger");
   if(i.status==="in_progress"&&!running)return b("task-delete","Delete");
+  if(i.status==="done")return b("task-delete","Delete","danger");
   return "";
 }
-async function taskAct(a,id){if(a==="task-delete"&&!confirm("Delete this task for good?"))return;await act(a,{id})}
+async function taskAct(a,id){if(a==="task-delete"&&!confirm("Delete this task for good? Tasks that built on it will build on its dependencies instead."))return;await act(a,{id});if(typeof tgState!=="undefined"&&tgState.sel===id){tgState.sel=null;lastBody=""}}
 function settingsBody(d){
   const x=extra&&extra.kind==="settings"?extra:null;
   if(!x)return `<div class="hint">Loading…</div>`;

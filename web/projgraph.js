@@ -4,6 +4,11 @@
    No libraries: a small force simulation, drag, pan, zoom, search (also by file), chain highlight. Positions survive the live refresh. */
 const PG_PAL=["#6fa3d8","#b48ead","#d6a23c","#5fb3a8","#e06c75","#9ccc65","#f0a1a8","#8fbcbb"],PG_GAP=150;
 const pg={pos:{},view:{x:60,y:40,k:1},fitted:false,sig:"",sigDone:"",alpha:0,raf:0,hover:null,find:"",stage:null,drag:null,pan:null,m:null,plan:[],proj:null};
+const PG_TYPE={feature:"#6fa3d8",bug:"#e06c75",refactor:"#b48ead",test:"#5fb3a8",docs:"#d6a23c",perf:"#f0a45d"};
+const pgCust=()=>{try{return JSON.parse(localStorage.getItem("pgcol:"+sel)||"{}")}catch(e){return {}}};
+const pgFill=i=>pgCust()[i.id]||(i.process?"#9ccc65":PG_TYPE[i.type])||TG_COLORS[i.status]||"#888";
+function pgSetColor(id,c,keep){const o=pgCust();if(c)o[id]=c;else delete o[id];localStorage.setItem("pgcol:"+sel,JSON.stringify(o));
+  document.querySelectorAll(".pg-n").forEach(g=>{if(g.dataset.id===id&&pg.m)g.querySelector("circle").setAttribute("fill",pgFill(pg.m.by[id]))});if(!keep)pgInfo()}
 const pgCol=l=>l==null?"#888":PG_PAL[l%PG_PAL.length];
 const pgHash=s=>{let x=7;for(const c of s)x=(x*31+c.charCodeAt(0))>>>0;return x};
 const pgLayerName=l=>{const p=(pg.plan||[]).find(x=>x.layer===l);return p?p.name:""};
@@ -104,6 +109,21 @@ function pgMark(){
   svg.querySelectorAll(".pg-n").forEach(g=>{const id=g.dataset.id;g.classList.toggle("dim",!on(id));g.classList.toggle("sel",id===tgState.sel);g.classList.toggle("hot",!!(hit&&hit.has(id)))});
   svg.querySelectorAll(".pg-e").forEach(e=>{const lit=on(e.dataset.a)&&on(e.dataset.b);e.classList.toggle("dim",!lit);e.classList.toggle("lit",!!chain&&lit)});
 }
+function pgCard(id,e){
+  const m=pg.m,i=m&&m.by[id],wrap=document.querySelector(".pg-wrap");if(!i||!wrap)return;
+  let c=document.getElementById("pgCard");if(!c){c=document.createElement("div");c.id="pgCard";wrap.appendChild(c)}
+  if(c.dataset.id!==id){
+    const nm=x=>esc(m.by[x].id+" "+m.by[x].title.slice(0,34)),needs=m.deps[id],later=m.kids[id]||[],files=i.files||[];
+    c.dataset.id=id;
+    c.innerHTML=`<div class="pc-h"><i style="background:${pgFill(i)}"></i><b>${esc(i.id)}</b> <span class="pill ${i.status==="done"?"ok":i.status==="blocked"?"bad":""}">${esc(i.status.replace("_"," "))}</span>${i.layer!=null?` <span class="pill info">L${i.layer}</span>`:""}</div><div class="pc-t">${esc(i.title)}</div>
+    ${i.why?`<div class="meta">Why: ${esc(i.why.slice(0,160))}</div>`:""}${i.result?`<div class="meta">Result: ${esc(String(i.result).slice(0,140))}</div>`:""}
+    <div class="meta">Builds on: ${needs.length?needs.slice(0,4).map(nm).join(", ")+(needs.length>4?" …":""):"foundation"}</div><div class="meta">Unlocks: ${later.length?later.slice(0,4).map(nm).join(", ")+(later.length>4?" …":""):"nothing yet"}</div>
+    <div class="meta">Files: ${files.length?esc(files.slice(0,4).join(", "))+(files.length>4?" …":""):"not known yet"}</div>`;
+  }
+  const r=wrap.getBoundingClientRect(),x=e.clientX-r.left+16,y=e.clientY-r.top+16;
+  c.style.display="block";c.style.left=Math.max(4,Math.min(x,r.width-c.offsetWidth-4))+"px";c.style.top=Math.max(4,Math.min(y,r.height-c.offsetHeight-4))+"px";
+}
+function pgCardHide(){const c=document.getElementById("pgCard");if(c){c.style.display="none";c.dataset.id=""}}
 function pgInfo(){const i=document.getElementById("tgInfo");if(i)i.innerHTML=tgInfoText()}
 function pgSelect(id){tgState.sel=tgState.sel===id?null:id;tgState.edge=null;tgState.mode=null;pgMark();pgInfo()}
 function pgFind(v){pg.find=v;pgMark()}
@@ -114,7 +134,7 @@ function pgCycleDone(){setPref("doneMode",{auto:"all",all:"none",none:"auto"}[pr
 function tgInfoText(){
   const m=pg.m,i=tgState.sel&&m&&m.by[tgState.sel];
   if(tgState.edge)return `Link <b>${esc(tgState.edge.a)}</b> → <b>${esc(tgState.edge.b)}</b> <button class="small" onclick="gtEdge('${esc(tgState.edge.a)}','${esc(tgState.edge.b)}')">Remove link</button> <button class="small" onclick="tgState.edge=null;pgInfo()">Keep</button>`;
-  if(!i)return `<span class="hint">Click a bubble for its links, files and reason · hover shows its chain · drag a bubble or the background · wheel zooms · click a line to remove a link. Size = how many tasks build on it, ring = layer, orange line = critical path.</span>`;
+  if(!i)return `<span class="hint">Click a bubble for its links, files and reason · hover shows its chain · drag a bubble or the background · wheel zooms · click a line to remove a link. Fill = type (or your colour), ring = layer, small dot = status, size = how many tasks build on it, orange line = critical path.</span>`;
   const chip=id=>`<span class="pg-ch" onclick="pgSelect('${esc(id)}')" title="${esc(m.by[id].title)} · ${esc(m.by[id].status)}">${esc(id)} ${esc(m.by[id].title.length>30?m.by[id].title.slice(0,29)+"…":m.by[id].title)}</span>`;
   const needs=m.deps[i.id],later=m.kids[i.id]||[],files=i.files||[],ln=i.layer!=null?pgLayerName(i.layer):"";
   const st=`<span class="pill ${i.status==="done"?"ok":i.status==="blocked"?"bad":""}">${esc(i.status.replace("_"," "))}</span>`;
@@ -124,7 +144,7 @@ function tgInfoText(){
     <div class="pg-rows"><div><span class="meta">Builds on</span> ${needs.length?needs.map(chip).join(""):'<span class="meta">nothing: part of the foundation</span>'}</div>
     <div><span class="meta">Unlocks</span> ${later.length?later.map(chip).join(""):'<span class="meta">nothing yet</span>'}</div>
     <div><span class="meta">Files</span> ${files_}</div></div>
-    <div class="tg-row" style="margin-top:6px">${typeof gtTools==="function"?gtTools(i):""}${typeof taskBtns==="function"&&detail&&!tgState.mode?taskBtns(i,detail.running):""}</div></div>`;
+    <div class="tg-row" style="margin-top:6px"><label class="pg-pick" title="Colour of this bubble"><input type="color" value="${pgFill(i)}" oninput="pgSetColor('${esc(i.id)}',this.value,1)"> colour</label><button class="small" onclick="pgSetColor('${esc(i.id)}','')">Reset colour</button> ${typeof gtTools==="function"?gtTools(i):""}${typeof taskBtns==="function"&&detail&&!tgState.mode?taskBtns(i,detail.running):""}</div></div>`;
 }
 
 function pgBar(d,m){
@@ -151,8 +171,8 @@ function tgPanel(d){
   const edges=m.edges.map(([a,b])=>{const dn=m.by[a].status==="done"&&m.by[b].status==="done",cr=crit.edges.has(a+">"+b);
     return `<path class="pg-e${dn?" old":""}${cr?" crit":""}" data-a="${esc(a)}" data-b="${esc(b)}" marker-end="url(#pgA)"/><path class="pg-eh" data-a="${esc(a)}" data-b="${esc(b)}"/>`}).join("");
   const nodes=m.nodes.map(i=>{
-    const r=pgR(i),col=TG_COLORS[i.status]||"#888",t=i.title.length>30?i.title.slice(0,29)+"…":i.title,extra=(m.hid[i.id]?` ✓${m.hid[i.id]}`:"")+(blocks[i.id]?` ⛔${blocks[i.id]}`:"")+(crit.nodes.has(i.id)?" ★":"");
-    return `<g class="pg-n st-${esc(i.status)}${i.id===live&&i.status==="in_progress"?" pg-live":""}" data-id="${esc(i.id)}"><title>${esc(i.id+" · "+i.status+" · "+i.title+(i.why?"\nWhy: "+i.why:"")+((i.files||[]).length?"\nFiles: "+i.files.slice(0,5).join(", "):""))}</title><circle r="${r.toFixed(1)}" fill="${col}" fill-opacity="${i.status==="done"?.35:.8}" stroke="${pgCol(i.layer)}" stroke-width="2.5"/><text class="pg-l" y="${(r+13).toFixed(1)}" text-anchor="middle">${esc(t)}${extra}</text></g>`;
+    const r=pgR(i),col=pgFill(i),sc=TG_COLORS[i.status]||"#888",t=i.title.length>30?i.title.slice(0,29)+"…":i.title,extra=(m.hid[i.id]?` ✓${m.hid[i.id]}`:"")+(blocks[i.id]?` ⛔${blocks[i.id]}`:"")+(crit.nodes.has(i.id)?" ★":"");
+    return `<g class="pg-n st-${esc(i.status)}${i.id===live&&i.status==="in_progress"?" pg-live":""}" data-id="${esc(i.id)}"><circle r="${r.toFixed(1)}" fill="${col}" fill-opacity="${i.status==="done"?.35:.8}" stroke="${pgCol(i.layer)}" stroke-width="2.5"/><circle class="pg-sd" r="3.5" cx="${(r*.72).toFixed(1)}" cy="${(-r*.72).toFixed(1)}" fill="${sc}"/><text class="pg-l" y="${(r+13).toFixed(1)}" text-anchor="middle">${esc(t)}${extra}</text></g>`;
   }).join("");
   pg.sig=m.nodes.map(n=>n.id+n.status).join()+"|"+m.edges.map(e=>e.join(">")).join()+"|"+layers+"|"+m.mode;
   setTimeout(pgStart,0);
@@ -199,11 +219,16 @@ document.addEventListener("click",e=>{
   const eh=e.target.closest&&e.target.closest(".pg-eh");
   if(eh&&!(pg.pan&&pg.pan.moved)){tgState.edge={a:eh.dataset.a,b:eh.dataset.b};pgInfo()}
 });
-document.addEventListener("mouseover",e=>{const n=e.target.closest&&e.target.closest(".pg-n");if(n&&!pg.drag&&pg.hover!==n.dataset.id){pg.hover=n.dataset.id;pgMark()}});
-document.addEventListener("mouseout",e=>{const n=e.target.closest&&e.target.closest(".pg-n");if(n&&pg.hover){pg.hover=null;pgMark()}});
+document.addEventListener("mouseover",e=>{const n=e.target.closest&&e.target.closest(".pg-n");if(n&&!pg.drag&&pg.hover!==n.dataset.id){pg.hover=n.dataset.id;pgMark();pgCard(n.dataset.id,e)}});
+document.addEventListener("mouseout",e=>{const n=e.target.closest&&e.target.closest(".pg-n");if(n&&pg.hover){pg.hover=null;pgMark();pgCardHide()}});
+document.addEventListener("mousemove",e=>{if(pg.hover&&!pg.drag)pgCard(pg.hover,e);else if(pg.drag)pgCardHide()});
 document.addEventListener("wheel",e=>{
   const svg=e.target.closest&&e.target.closest("#pgSvg");if(!svg)return;
   e.preventDefault();
   const r=svg.getBoundingClientRect(),v=pg.view,k=Math.min(3,Math.max(.2,v.k*(e.deltaY<0?1.1:1/1.1))),mx=e.clientX-r.left,my=e.clientY-r.top;
   pg.view={k,x:mx-(mx-v.x)/v.k*k,y:my-(my-v.y)/v.k*k};pgApplyView(svg);
 },{passive:false});
+document.addEventListener("keydown",e=>{
+  if(e.key!=="Delete"||!tgState.sel||/INPUT|TEXTAREA|SELECT/.test((document.activeElement||{}).tagName||""))return;
+  if(typeof taskAct==="function")taskAct("task-delete",tgState.sel);
+});

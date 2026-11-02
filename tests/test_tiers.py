@@ -149,6 +149,17 @@ class TierTests(unittest.TestCase):
         self.assertEqual(made[1]["depends_on"], [made[0]["id"]])
         self.assertEqual(made[0]["files"], ["core/a.py"])
 
+    def test_process_is_spliced_between_last_task_and_its_successor(self):
+        ag = self.ag
+        done = ag.backlog.add("Built", "d", force=True, layer=1)
+        ag.backlog.set(done, status="done")
+        nxt = ag.backlog.add("Next feature", "d", force=True, layer=1, depends_on=[done["id"]])
+        ag.state["last_done"] = done["id"]
+        made = ag.run_process({"id": "p1", "name": "Docs", "steps": "Read\nUpdate", "sequential": True, "type": "refactor", "every": 3})
+        self.assertIn(made[-1]["id"], ag.backlog.by_id(nxt["id"])["depends_on"])
+        self.assertFalse(ag.backlog.ready([ag.backlog.by_id(nxt["id"])]))
+        self.assertEqual(ag.backlog.next()["id"], made[0]["id"])
+
 
 if __name__ == "__main__":
     unittest.main()
