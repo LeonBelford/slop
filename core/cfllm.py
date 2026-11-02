@@ -40,6 +40,13 @@ def fit_to_ctx(system: str, user: str, ctx: int) -> tuple[str, str]:
     return clip(system, max(sys_keep - margin, 200)), clip(user, max(budget - sys_keep - margin, 500))
 
 
+def scaled(llm, n: int, floor: float = 0.3) -> int:
+    """A prompt part of `n` characters, scaled down to the server's real context window (known after the first 400 error); full size when unknown.
+    Every prompt builder uses this, so small windows (4096 tokens) get small prompts instead of a rejected call and a blind retry."""
+    ctx = getattr(llm, "server_ctx", 0) or 0
+    return n if not ctx else max(int(n * floor), int(n * min(1.0, ctx * 1.8 / 25000)))
+
+
 def shrink(system: str, user: str, factor: float = 0.6) -> tuple[str, str]:
     """Cuts a prompt that the server rejected (usually too large): the user part loses most, the system part a little."""
     return clip(system, int(len(system) * (0.85 if len(system) > 3000 else 1))), clip(user, int(len(user) * factor))

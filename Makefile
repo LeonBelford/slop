@@ -1,7 +1,7 @@
 P ?=
 
 .DEFAULT_GOAL := help
-.PHONY: bench doctor update e2e-setup models ui-lan force-stop kill help setup selftest lint check init start run status stop list ui start-tmux tmux attach watch thinking logs task do self-improve improve test-build try feedback say
+.PHONY: cards watchdog bench doctor update e2e-setup models ui-lan force-stop kill help setup selftest lint check init start run status stop list ui start-tmux tmux attach watch thinking logs task do self-improve improve test-build try feedback say
 
 update:
 	@python3 -m infra.update
@@ -99,3 +99,10 @@ task do:
 # make bench LABEL=base [FEATURES=size_gate=false]   |   python3 bench/run.py --compare base other
 bench:
 	python3 bench/run.py --label $(or $(LABEL),bench) $(if $(FEATURES),--features $(FEATURES),)
+
+# module cards for small models (docs/MODULES.md); the watchdog checks the tool after a self-improve merge
+cards:
+	python3 dash/modcards.py
+
+watchdog:
+	python3 codefactory.py watchdog

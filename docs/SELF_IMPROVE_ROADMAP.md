@@ -45,9 +45,9 @@ request → requirements checklist → one small step per requirement → per st
 
 ## 4. Next
 
-- [ ] Benchmark set of fixed tasks run against a scratch copy; compare success rate before/after a change to self-improve
+- [x] Benchmark set of fixed tasks (`bench/`) and a merge gate (`SI_BENCH_GATE`, `dash/sigate.py`)
 - [ ] Queue: several wishes in a row, one branch each
-- [ ] Post-merge watchdog: if the UI or selftest fails after a merge, offer one-click rollback
-- [ ] Symbol index (ctags) for file selection instead of word counts
+- [x] Post-merge watchdog with rollback (`codefactory.py watchdog`, `dash/siwatch.py`); one-click button in the UI is still open (`webui.py` is protected)
+- [x] Symbol names in file selection (`dash/sifiles.py`); a full index is still open
 - [ ] Aider `--test-cmd` with the fast tests for in-session self-correction
 - [ ] Smarter model scheduling between planner, coder and reviewer on 12 GB VRAM

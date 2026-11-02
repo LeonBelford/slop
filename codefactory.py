@@ -590,6 +590,9 @@ def main() -> None:
     p_do.add_argument("--project")
     p_do.add_argument("--task", required=True)
     p_do.add_argument("--queue-only", action="store_true")
+    p_wd = sub.add_parser("watchdog", help="Check that the tool still works after a merge; --rollback reverts the last self-improve merge")
+    p_wd.add_argument("--rollback", action="store_true")
+    p_wd.add_argument("--install-hook", action="store_true", help="Run the check automatically after every git merge")
     p_rp = sub.add_parser("replay", help="Play a task again in a sandbox copy with another model or a hint")
     p_rp.add_argument("--projects-dir", default="projects")
     p_rp.add_argument("--project")
@@ -620,6 +623,9 @@ def main() -> None:
             selfimprove.directed(a.task, model=a.model)
             return
         return selfimprove.main(root, dry_run=a.dry_run, model=a.model)
+    if a.cmd == "watchdog":
+        from dash import siwatch
+        sys.exit(siwatch.cli(a, Path(__file__).resolve().parent))
     if a.cmd == "list":
         for p in list_projects(root):
             print(f"{p.name}: {Agent(p).status()}")

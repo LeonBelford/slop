@@ -156,7 +156,8 @@ function sectionSelfImp(){
   const cols=[{k:"id",l:"Run",v:r=>r.id,h:r=>esc(r.id)},{k:"kind",l:"Kind",v:r=>r.kind,h:r=>esc(r.kind||"")},{k:"st",l:"Status",v:r=>r.status,h:r=>`<span class="pill ${r.status==="done"?"ok":r.status==="failed"?"bad":"info"}">${esc(r.status||"")}</span>`},
     {k:"rt",l:"Runtime",v:r=>r.runtime_s,h:r=>dur(r.runtime_s)},{k:"kept",l:"Kept",v:r=>r.kept,h:r=>`${r.kept}/${r.proposals}`}];
   const bn=(T.bench||[]).map(b=>`<div class="cap"><div>${esc(b.label)} <span class="hint" style="margin:0">${esc(b.time||"")}</span></div><div class="meta">${b.passed}/${b.tasks} passed · ${dur(b.seconds)}</div></div>`).join("")||`<div class="hint">No benchmark run yet: <code>make bench LABEL=base</code></div>`;
-  return [`<b>Success per model</b>${mod}<b>Runs</b>${dtable("selfimp",cols,runs,"No runs yet.")}<b>Benchmark (merge evidence)</b>${bn}`,`${T.kept||0}/${T.proposals||0} steps kept`];
+  const wd=T.watchdog||{},wdh=wd.at?`<b>Watchdog (after a merge)</b><div class="cap"><div><span class="pill ${wd.ok?"ok":"bad"}">${wd.ok?"OK":"FAILED"}</span> ${esc(wd.at)} · ${esc(wd.head||"")}</div><div class="meta">${esc(wd.failed||"")}${wd.ok?"":" · python3 codefactory.py watchdog --rollback"}</div></div>`:"";
+  return [wdh+`<b>Success per model</b>${mod}<b>Runs</b>${dtable("selfimp",cols,runs,"No runs yet.")}<b>Benchmark (merge evidence)</b>${bn}`,`${T.kept||0}/${T.proposals||0} steps kept`];
 }
 const dq=n=>{if(!DIAG)return null;const p=n==="Self-improve"?{quality:(DIAG.tool||{}).quality}:DIAG.projects.find(x=>x.name===n);return p&&p.quality};
 function sectionProjects(d){
