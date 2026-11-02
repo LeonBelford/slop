@@ -766,7 +766,7 @@ setTimeout(()=>checkUpdate(false),1500);
 async function refresh(){
   try{
     list=await api("/api/projects");shownErr=false;applyChatToggle();
-    if(view==="dash"){await renderDash();return}
+    if(view==="dash"){renderList();await renderDash();return}
     if(view==="project"&&(!sel||!list.projects.some(p=>p.name===sel)))sel=list.projects[0]?.name||null;
     renderList();
     if(view==="project"&&sel)detail=await api("/api/project/"+encodeURIComponent(sel));
