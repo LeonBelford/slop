@@ -41,10 +41,11 @@ async function ctlAct(action, body) {
 function ctlControlBody(d) {
   const c = CTL.control; if (!c) return `<div class="hint">Loading…</div>`;
   const hints = (c.hints || []).map(h => `<li>${esc(h)}</li>`).join("");
+  const now = ctlNowBody(d);
   const spec = c.spec ? `<div class="panel" style="margin-top:16px"><h3>Spec waiting for your OK: ${esc(c.spec.title || "")}</h3>
     <pre>${esc(JSON.stringify(c.spec.files || c.spec, null, 2))}</pre>
     <div class="row" style="justify-content:flex-end;gap:6px"><button class="danger" onclick="ctlAct('spec-decide',{approve:false})">Reject</button><button class="primary" onclick="ctlAct('spec-decide',{approve:true})">Approve</button></div></div>` : "";
-  return ctlQueueBody(c) + `<div class="panel" style="margin-top:16px"><h3>Live control ${c.running ? '<span class="pill ok">running</span>' : '<span class="pill">stopped</span>'}</h3>
+  return now + ctlQueueBody(c) + `<div class="panel" style="margin-top:16px"><h3>Live control ${c.running ? '<span class="pill ok">running</span>' : '<span class="pill">stopped</span>'}</h3>
   <p class="hint">Pause waits after the current task; step mode stops after every task until you resume. Changes apply on the agent's next check (within a few seconds).</p>
   <div class="row" style="gap:8px;flex-wrap:wrap">
     <button class="${c.paused ? "primary" : ""}" onclick="ctlAct('control',{paused:${!c.paused}})" ${c.running ? "" : "disabled"}>${c.paused ? "Resume" : "Pause"}</button>
@@ -146,6 +147,19 @@ function ctlTimelineBody(d) {
   ${ev.length ? `<table><tr><th>Time</th><th>Kind</th><th>What</th></tr>${ev.slice().reverse().map(e => `<tr><td>${esc((e.time || "").slice(0, 16).replace("T", " "))}</td><td><span class="pill info">${esc(e.kind || "")}</span></td><td>${esc(e.text || e.detail || "")}</td></tr>`).join("")}</table>` : '<div class="hint">Nothing recorded yet.</div>'}</div>`;
 }
 
+/* what the agent is doing right now, inline in the Control tab: phase, current call, and the live reasoning/Aider/shell stream */
+function ctlNowBody(d) {
+  const a = (d && d.activity) || {}, n = a.now, t = Date.now() / 1000;
+  if (!a.running) return `<div class="panel"><h3>What it's doing</h3><div class="hint">Agent is not running.</div></div>`;
+  const call = a.cmd ? `Running <b class="lg-warn">${esc(a.cmd.name)}</b>: <code>${esc(a.cmd.cmd)}</code> · ${Math.round(t - a.cmd.since)}s`
+    : a.coder ? `Aider (<code>${esc(a.coder.model)}</code>) is editing ${esc(a.coder.files.join(", ") || "files")} for <b>${esc(a.coder.tag)}</b> · ${Math.round(t - a.coder.since)}s`
+    : a.llm ? `Thinking as <b>${esc(a.llm.role)}</b> (<code>${esc(a.llm.model)}</code>) on <b>${esc(a.llm.tag)}</b> · ${Math.round(t - a.llm.since)}s` : "Starting…";
+  return `<div class="panel"><h3>What it's doing now</h3>
+    <div class="sub">${n ? `${esc(n.phase)}${n.task ? ` · task ${esc(n.task)}` : ""}` : ""}</div>
+    <div class="call">${call}</div>
+    <div id="reasonlive"></div>
+    <p class="hint">Live reasoning, Aider output and shell output appear above while a call runs. <a href="#" onclick="setTab('reasoning');return false">Full history →</a></p></div>`;
+}
 /* task queue: every task with the actions that make sense for its status */
 const QSTAT = {pending: ["open", "info"], in_progress: ["doing", "ok"], blocked: ["blocked", "warn"], done: ["done", "ok"], cancelled: ["cancelled", ""]};
 function ctlQueueBody(c) {

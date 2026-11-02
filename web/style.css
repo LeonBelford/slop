@@ -38,7 +38,8 @@ aside header{padding:16px;font-weight:600;font-size:15px;letter-spacing:.04em;te
 .card .s{color:var(--mute);font-size:12px;margin-top:2px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .dot{width:8px;height:8px;border-radius:50%;background:#555;flex:none}
 .dot.run{background:var(--ok)}.dot.stop{background:var(--warn)}
-main{flex:1;overflow:auto;padding:26px 36px 50px;min-width:0;max-width:1500px}
+main{flex:0 1 80%;overflow:auto;padding:26px 36px 50px;min-width:0;margin:0 auto}
+@media(max-width:1300px){main{flex-basis:94%}}
 .empty{color:var(--mute);margin-top:15vh;text-align:center}
 .empty h2{color:var(--text);font-weight:600}
 .top{display:flex;justify-content:space-between;gap:20px;align-items:flex-start;flex-wrap:wrap}
@@ -219,7 +220,7 @@ th.sortable{cursor:pointer;user-select:none;white-space:nowrap}th.sortable:hover
   body.sb-open #sbBack{display:block}
   #sbOpen,body.sb-off #sbOpen{display:block}
   body.sb-open #sbOpen{display:none}
-  main,body.sb-off main{padding:62px 14px 40px}
+  main,body.sb-off main{padding:62px 14px 40px;flex-basis:100%;margin:0}
   button,.tab,select{min-height:40px}
   button.small{min-height:32px;padding:4px 10px}
   input,textarea,select{font-size:16px;padding:9px 10px}
