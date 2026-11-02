@@ -155,7 +155,8 @@ function sectionSelfImp(){
   const mod=ms.map(([m,v])=>`<div class="cap"><div>${esc(m)}</div><div class="meta">${v.ok}/${v.tries} ok (${pct(v.tries?v.ok/v.tries:null)})</div></div><div class="bar"><i style="width:${v.tries?Math.round(100*v.ok/v.tries):0}%"></i></div>`).join("")||`<div class="hint">No coder attempts recorded yet.</div>`;
   const cols=[{k:"id",l:"Run",v:r=>r.id,h:r=>esc(r.id)},{k:"kind",l:"Kind",v:r=>r.kind,h:r=>esc(r.kind||"")},{k:"st",l:"Status",v:r=>r.status,h:r=>`<span class="pill ${r.status==="done"?"ok":r.status==="failed"?"bad":"info"}">${esc(r.status||"")}</span>`},
     {k:"rt",l:"Runtime",v:r=>r.runtime_s,h:r=>dur(r.runtime_s)},{k:"kept",l:"Kept",v:r=>r.kept,h:r=>`${r.kept}/${r.proposals}`}];
-  return [`<b>Success per model</b>${mod}<b>Runs</b>${dtable("selfimp",cols,runs,"No runs yet.")}`,`${T.kept||0}/${T.proposals||0} steps kept`];
+  const bn=(T.bench||[]).map(b=>`<div class="cap"><div>${esc(b.label)} <span class="hint" style="margin:0">${esc(b.time||"")}</span></div><div class="meta">${b.passed}/${b.tasks} passed · ${dur(b.seconds)}</div></div>`).join("")||`<div class="hint">No benchmark run yet: <code>make bench LABEL=base</code></div>`;
+  return [`<b>Success per model</b>${mod}<b>Runs</b>${dtable("selfimp",cols,runs,"No runs yet.")}<b>Benchmark (merge evidence)</b>${bn}`,`${T.kept||0}/${T.proposals||0} steps kept`];
 }
 const dq=n=>{if(!DIAG)return null;const p=n==="Self-improve"?{quality:(DIAG.tool||{}).quality}:DIAG.projects.find(x=>x.name===n);return p&&p.quality};
 function sectionProjects(d){

@@ -11,7 +11,7 @@ import re
 import shutil
 import time
 from core import failures
-from core.cfa_flow import removed_test_names, removed_tests
+from core.cfa_flow import added_test_names, removed_test_names, removed_tests
 from core.cfllm import LLMError
 from core.cfa_write import extract_files, write_files
 from core.cfutil import PRESETS, clip, read_json, sh, sh_live, sha, tail, write_json, write_text
@@ -219,6 +219,13 @@ class BuildMixin:
                 gone = "; ".join(removed_test_names(self.git.diff()))
                 ok, report = False, ("[policy] The change deletes tests (more test definitions removed than added). Put these back "
                                      f"(rewriting is fine if the same cases are still tested): {gone or 'see git diff main'}. Fix the code, not the tests.")
+            if ok and self.feat("regression_tests") and item["type"] == "bug":
+                names = added_test_names(self.git.diff())
+                if not names:
+                    ok, report = False, ("[policy] A bug fix needs a regression test: add a test that fails without the fix and passes with it "
+                                         "(a new test function, not only a changed one).")
+                else:
+                    item["regression"] = names
             if ok and (bad := self.contract_violation(item)):
                 ok, report = False, bad
             if ok:
@@ -317,6 +324,9 @@ class BuildMixin:
                 estimate.record(self.dir / "durations.jsonl", item["title"], time.time() - t0, item["type"], item["attempts"], True,
                                 desc=item.get("description", ""))
                 self.backlog.set(item, status="done")
+                if item.get("regression"):
+                    with open(self.dir / "regressions.jsonl", "a", encoding="utf-8") as f:
+                        f.write(json.dumps({"item": item["id"], "title": item["title"], "tests": item["regression"], "time": time.strftime("%Y-%m-%d %H:%M:%S")}) + "\n")
                 self.layer_done(item)
                 self.drift_check(item)
                 self.force_heavy = False

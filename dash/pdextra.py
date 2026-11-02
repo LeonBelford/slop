@@ -7,7 +7,7 @@ import re
 from datetime import datetime
 from pathlib import Path
 
-from dash import diagnostics, history
+from dash import diagnostics, history, recommend
 
 TIMELINE_TASKS = 30
 MAX_GAP_S = 1800  # a pause longer than this between two events is not time spent in a step
@@ -67,12 +67,24 @@ def models(agent: Path) -> dict:
     return {k: v for k, v in roles.items() if v}
 
 
+def advice(agent: Path) -> list[dict]:
+    try:
+        cfg = json.loads((agent / "config.json").read_text("utf-8"))
+    except (OSError, ValueError):
+        cfg = {}
+    return recommend.coder_hint(cfg.get("coder_model", "")) + recommend.recommend(diagnostics._jsonl(agent / "thoughts.jsonl"))
+
+
+def regressions(agent: Path) -> list[dict]:
+    return diagnostics._jsonl(agent / "regressions.jsonl")[-20:]
+
+
 def extras(ws: Path, backlog: list[dict], state: dict) -> dict:
     a = ws / "agent"
     gates = state.get("layer_gates", {})
     return {"timeline": timeline(backlog), "causes": causes(a), "step_time": step_time(a), "daily": history.daily(a, 14),
             "role_models": models(a), "gates": [{"layer": int(k), **v} for k, v in sorted(gates.items(), key=lambda kv: int(kv[0]))],
-            "drift": state.get("drift", [])[:10]}
+            "drift": state.get("drift", [])[:10], "advice": advice(a), "regressions": regressions(a)}
 
 
 def task_detail(ws: Path, task_id: str) -> dict:
