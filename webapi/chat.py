@@ -5,11 +5,13 @@ import time
 from pathlib import Path
 
 import codefactory as sa
-from dash import chat as chatlib, chatweb, toolchat, toolmodels
+from dash import chat as chatlib, chatagent, chatweb, directtools, toolchat, toolmodels
 from infra.webaccess import Web
 
 from webapi import common
 from webapi.common import UiError
+
+MAX_STEPS = 14  # model turns of one direct-route run
 
 
 class ChatMixin:
@@ -86,9 +88,43 @@ class ChatMixin:
         web_ctx, sources = self.chat_web(chat, text or next((m["content"] for m in reversed(chat["messages"]) if m["role"] == "user"), ""))
         if sources:
             write({"sources": sources})
-        msgs = chatlib.build_messages(chat, self.chat_ws, cfg["llm_api"], cfg["api_key"], self.tool_context, web_ctx)
-        if mode == "continue":
-            msgs.append({"role": "user", "content": "The results of your actions are above. Continue: answer the user, or take the next step."})
+        direct = bool(chat.get("agent") and chat["projects"] and not chat.get("tool") and chat.get("route") == "direct")
+        if direct and mode == "":
+            self._announce_docs(chat, write)
+        for step in range(MAX_STEPS if direct else 1):
+            msgs = chatlib.build_messages(chat, self.chat_ws, cfg["llm_api"], cfg["api_key"], self.tool_context, web_ctx)
+            if mode == "continue" or step:
+                msgs.append({"role": "user", "content": "The results of your actions are above. Continue: take the next step, or if the job is done, answer with a short summary."})
+            answer, err = self._stream_answer(chat, msgs, write, sources)
+            if err:
+                try:
+                    write({"error": err})
+                except OSError:
+                    pass
+                return
+            if not (direct and answer):
+                return
+            calls = chatagent.parse(answer)
+            if not calls:
+                return
+            if not self._run_calls(chat, calls, write):
+                return
+        write({"error": f"Stopped after {MAX_STEPS} steps. Say 'continue' to go on."})
+
+    def _announce_docs(self, chat: dict, write) -> None:
+        """Direct route: the docs of the linked projects are read first; the chat shows which ones."""
+        names = []
+        for n in chat["projects"]:
+            ws = self.chat_ws(n)
+            if ws:
+                names += [f"{n}: {x}" for x in directtools.read_docs(ws, 8000, 2500)[1]]
+        if names:
+            chat["messages"].append({"role": "assistant", "content": "Read first: " + ", ".join(names), "t": time.time(), "cmd": True, "ok": True, "tool": "read_docs"})
+            self.chats.save(chat)
+            write({"reload": True})
+
+    def _stream_answer(self, chat: dict, msgs: list[dict], write, sources: list) -> tuple[str, str]:
+        cfg = sa.DEFAULT_CONFIG
         answer, err = "", ""
         try:
             for d in chatlib.stream_completion(cfg["llm_api"], cfg["api_key"], chat["model"], msgs):
@@ -104,9 +140,23 @@ class ChatMixin:
                                          **({"sources": sources} if sources else {})})
                 chat["updated"] = time.time()
                 self.chats.save(chat)
-        if err:
-            try:
-                write({"error": err})
-            except OSError:
-                pass
+        return answer, err
 
+    def _run_calls(self, chat: dict, calls: list[dict], write) -> bool:
+        """Runs the action blocks of the last answer in order and stores each result on its card. False when the browser went away."""
+        msg = chat["messages"][-1]
+        acts = msg.setdefault("acts", {})
+        for k, call in enumerate(calls):
+            try:
+                tool, args = chatagent.validate(call, chat["projects"])
+                acts[str(k)] = {"status": "done", "result": self._run_tool(tool, args, True), "t": time.time()}
+            except (ValueError, UiError) as e:
+                acts[str(k)] = {"status": "failed", "result": str(e), "t": time.time()}
+            except Exception as e:  # noqa: BLE001 - a tool crash must not end the whole run
+                acts[str(k)] = {"status": "failed", "result": f"{type(e).__name__}: {e}", "t": time.time()}
+        self.chats.save(chat)
+        try:
+            write({"reload": True})
+        except OSError:
+            return False
+        return True

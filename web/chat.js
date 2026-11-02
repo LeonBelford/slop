@@ -1,7 +1,7 @@
 /* ---- chat: conversations, agent mode with action cards, slash commands (own DOM, never re-rendered by the poll so streaming is not interrupted) ---- */
 let chat={list:[],models:[],def:"",cur:null,ctrl:null,q:"",brief:{},loop:0,listOpen:false,poll:null};
-const RO=["status","search_code","list_tasks","show_task","read_file","health","timeline"];
-const ICON={status:"📊",search_code:"🔎",list_tasks:"📋",read_file:"📄",show_task:"🔍",reopen_task:"↩",delete_task:"🗑",edit_task:"✏",feedback:"💬",design:"📐",run_command:"💻",health:"❤️",timeline:"🕒",add_task:"➕",start:"▶",stop:"⏹",pause:"⏸",resume:"⏯",step_mode:"👣",run_next:"⏭",set_priority:"⬆",cancel_task:"✖",hint:"📌",generate_tests:"🧪",create_project:"🆕",write_note:"📝",make_folder:"📁",write_file:"💾"};
+const RO=["list_dir","read_docs","status","search_code","list_tasks","show_task","read_file","health","timeline"];
+const ICON={list_dir:"📂",read_docs:"📚",edit_file:"✏️",delete_file:"🗑️",status:"📊",search_code:"🔎",list_tasks:"📋",read_file:"📄",show_task:"🔍",reopen_task:"↩",delete_task:"🗑",edit_task:"✏",feedback:"💬",design:"📐",run_command:"💻",health:"❤️",timeline:"🕒",add_task:"➕",start:"▶",stop:"⏹",pause:"⏸",resume:"⏯",step_mode:"👣",run_next:"⏭",set_priority:"⬆",cancel_task:"✖",hint:"📌",generate_tests:"🧪",create_project:"🆕",write_note:"📝",make_folder:"📁",write_file:"💾"};
 const CMDS=[
   ["status","","Agent state and task counts",a=>({tool:"status"})],
   ["tasks","[open|doing|done|blocked]","List tasks with their ids",a=>({tool:"list_tasks",filter:a})],
@@ -57,6 +57,8 @@ function taskBlocks(t){return[...t.matchAll(/```task[ \t]*\n([\s\S]*?)```/g)].ma
 function actionBlocks(t){return[...t.matchAll(/```action[ \t]*\n([\s\S]*?)```/g)].map(m=>{try{const j=JSON.parse(m[1].trim());return j&&typeof j==="object"?j:null}catch(e){return null}}).filter(Boolean)}
 const hhmm=t=>t?new Date(t*1000).toLocaleTimeString([],{hour:"2-digit",minute:"2-digit"}):"";
 const isAgent=c=>!!(c&&c.agent&&c.projects.length&&!c.tool);
+const isDirect=c=>isAgent(c)&&c.route==="direct";
+const phText=c=>(isDirect(c)?"Tell me what to build or change: I read the docs and edit the project myself":isAgent(c)?"Tell the agent what to do, or type / for commands":"Message CodeFactory…")+"  (Enter sends, Shift+Enter: new line)";
 
 /* ---- loading and the frame ---- */
 async function showChat(id,projects){
@@ -81,7 +83,7 @@ function drawChat(){
   b.innerHTML=`<div class="cx${chat.listOpen?" list-open":""}">
     <div class="cx-list"><div class="cx-list-top"><input id="cxQ" type="search" placeholder="Search chats" value="${esc(chat.q)}" oninput="chat.q=this.value;drawList()"><button class="primary" onclick="newChat()">+ New</button></div><div id="cxItems"></div></div>
     <section class="cx-main">${c?`<div id="cxBar"></div><div id="cxStatus"></div><div class="msgs" id="msgs"></div><div id="cxPal" class="pal" style="display:none"></div>
-      <div class="composer"><textarea id="chIn" rows="1" placeholder="${isAgent(c)?"Tell the agent what to do, or type / for commands":"Message CodeFactory…"}  (Enter sends, Shift+Enter: new line)" oninput="grow(this);chatInput()" onkeydown="chatKey(event)"></textarea>
+      <div class="composer"><textarea id="chIn" rows="1" placeholder="${esc(phText(c))}" oninput="grow(this);chatInput()" onkeydown="chatKey(event)"></textarea>
         <button class="primary send" id="chSend" onclick="chatSend()" title="Send (Enter)">↑</button><button class="send" id="chStop" onclick="chat.ctrl&&chat.ctrl.abort()" title="Stop answering" style="display:none">■</button></div>`
       :`<div class="chat-empty"><div class="big">Start a conversation</div><button class="primary" onclick="newChat()">+ New chat</button></div>`}</section></div>`;
   drawList();if(!c)return;
@@ -103,6 +105,7 @@ function drawBar(){
     <button class="cx-toggle" onclick="chat.listOpen=!chat.listOpen;document.querySelector('.cx').classList.toggle('list-open')" title="Chats">☰</button>
     <div class="cx-title" onclick="renameChat()" title="Rename">${esc(c.title)}</div>
     ${c.tool?"":`<div class="seg" title="Agent mode lets the model act on the linked projects (you confirm changes)"><button class="${isAgent(c)?"":"on"}" onclick="chatUpdate({agent:false})">Chat</button><button class="${isAgent(c)?"on":""}" ${canAgent?"":"disabled"} onclick="chatUpdate({agent:true})">Agent</button></div>`}
+    ${isAgent(c)?`<div class="seg" title="Pipeline: tasks go through plan, build, test and merge. Direct: the agent reads the docs and edits the project itself, step by step."><button class="${isDirect(c)?"":"on"}" onclick="chatUpdate({route:'pipeline'})">Pipeline</button><button class="${isDirect(c)?"on":""}" onclick="chatUpdate({route:'direct'})">Direct</button></div>`:""}
     <select id="chModel" class="cx-model" onchange="chatUpdate({model:this.value})" title="Model of this chat">${models.map(m=>`<option ${m===c.model?"selected":""}>${esc(m)}</option>`).join("")}</select>
     <label class="cx-web" title="Searches the web for each question and gives the model the top pages."><input type="checkbox" ${c.web?"checked":""} onchange="chatUpdate({web:this.checked})"> Web</label>
     <button class="ghost" onclick="exportChat()" title="Download as Markdown">⤓</button><button class="ghost danger" onclick="delChat()" title="Delete this chat">🗑</button></div>
@@ -180,7 +183,7 @@ async function afterActions(i){
   if(!open&&calls.some(cl=>RO.includes(cl.tool))&&chat.loop<6)chatContinue();
 }
 async function autoRun(){
-  const c=chat.cur;if(!isAgent(c)||c.auto==="off")return;
+  const c=chat.cur;if(!isAgent(c)||isDirect(c)||c.auto==="off")return;
   const i=c.messages.length-1,m=c.messages[i];if(!m||m.role!=="assistant"||m.cmd)return;
   const calls=actionBlocks(m.content);
   for(let k=0;k<calls.length;k++){
@@ -255,7 +258,7 @@ async function chatUpdate(b){
     chat.cur=await api(`/api/chat/${chat.cur.id}/update`,b);
     const x=chat.list.find(v=>v.id===chat.cur.id);if(x){x.title=chat.cur.title;x.projects=chat.cur.projects}
     drawBar();drawList();drawStatus();drawMsgs();chatPoll();
-    const ci=$("#chIn");if(ci)ci.placeholder=(isAgent(chat.cur)?"Tell the agent what to do, or type / for commands":"Message CodeFactory…")+"  (Enter sends, Shift+Enter: new line)";
+    const ci=$("#chIn");if(ci)ci.placeholder=phText(chat.cur);
   }catch(e){toast(e.message,true)}
 }
 function renameChat(){const t=prompt("Chat name",chat.cur.title);if(t&&t.trim())chatUpdate({title:t.trim()})}
@@ -282,7 +285,7 @@ async function chatStream(text,mode){
   const box=$("#msgs"),em=box.querySelector(".chat-empty");if(em)em.remove();
   if(mode==="regen"){const l=box.querySelectorAll(".msg.assistant");if(l.length)l[l.length-1].remove()}
   box.insertAdjacentHTML("beforeend",(text?`<div class="msg user">${esc(text)}</div>`:"")+`<div class="msg assistant" id="live"><div class="think"><span class="dots"><span></span><span></span><span></span></span><span id="thinkT">Thinking…</span></div></div>`);
-  const live=$("#live");box.scrollTop=box.scrollHeight;
+  let live=$("#live");box.scrollTop=box.scrollHeight;
   const t0=Date.now(),timer=setInterval(()=>{const e=$("#thinkT");if(!e){clearInterval(timer);return}const s=Math.round((Date.now()-t0)/1000);e.textContent=`Thinking… ${s}s`+(s>=8?" (the model may still be loading)":"")},500);
   chat.ctrl=new AbortController();setBusy(true);
   const id=chat.cur.id;let acc="";
@@ -299,6 +302,12 @@ async function chatStream(text,mode){
         const j=JSON.parse(ev);
         if(j.delta){acc+=j.delta;live.classList.add("streaming");live.innerHTML=mdLite(isAgent(chat.cur)?stripActions(acc):acc)||'<span class="hint">…</span>';if(box.scrollHeight-box.scrollTop-box.clientHeight<140)box.scrollTop=box.scrollHeight}
         if(j.error)toast(j.error,true);
+        if(j.reload){
+          try{chat.cur=await api("/api/chat/"+id)}catch(e){}
+          drawMsgs();acc="";
+          box.insertAdjacentHTML("beforeend",`<div class="msg assistant" id="live"><div class="think"><span class="dots"><span></span><span></span><span></span></span><span id="thinkT">Working…</span></div></div>`);
+          live=$("#live");box.scrollTop=box.scrollHeight;
+        }
       }
     }
   }catch(e){if(e.name!=="AbortError")toast(e.message,true)}
