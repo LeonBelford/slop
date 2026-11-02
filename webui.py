@@ -220,6 +220,8 @@ class Service(ProjectMixin, GraphEditMixin, DashboardMixin, ToolMixin, ModelsMix
         elif action == "goal":
             sa.write_text(a / "GOAL.md", str(body.get("text", "")))
         elif action == "ideas":
+            if (ws / "IDEAS.md").exists():
+                sa.write_text(a / "ideas_backup.md", (ws / "IDEAS.md").read_text("utf-8"))  # the last version stays recoverable
             sa.write_text(ws / "IDEAS.md", str(body.get("text", "")))
         elif action == "sources":
             sa.write_text(ws / "SOURCES.md", str(body.get("text", "")))
