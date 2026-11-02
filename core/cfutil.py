@@ -225,15 +225,45 @@ def write_text(path: Path, text: str) -> None:
 
 
 def parse_json(text: str):
-    """Finds and decodes the first JSON object/array inside `text` (models often wrap JSON in prose)."""
+    """Finds and decodes the first JSON object/array inside `text` (models often wrap JSON in prose); an answer cut off by the token limit is repaired."""
     dec = json.JSONDecoder()
     for i, ch in enumerate(text):
         if ch in "{[":
             try:
                 return dec.raw_decode(text[i:])[0]
             except ValueError:
-                continue
+                fixed = _close_truncated(text[i:]) if ch == "{" else None
+                if isinstance(fixed, dict) and fixed:
+                    return fixed
     raise ValueError("no JSON found")
+
+
+def _close_truncated(text: str):
+    """An answer cut off by the token limit: drops the unfinished last item and closes the open brackets (None if nothing usable is left)."""
+    stack, in_str, esc, cuts = [], False, False, []
+    for i, ch in enumerate(text):
+        if in_str:
+            esc, in_str = (not esc and ch == "\\"), not (ch == '"' and not esc)
+            continue
+        if ch == '"':
+            in_str = True
+        elif ch in "{[":
+            stack.append((ch, i))
+        elif ch in "}]":
+            if not stack:
+                break
+            stack.pop()
+            cuts.append((i + 1, [c for c, _ in stack]))
+        elif ch == ",":
+            cuts.append((i, [c for c, _ in stack]))
+    for pos, open_ in reversed(cuts):
+        if not open_:
+            continue
+        try:
+            return json.loads(text[:pos] + "".join("}" if c == "{" else "]" for c in reversed(open_)))
+        except ValueError:
+            continue
+    return None
 
 
 def sh(cmd, cwd: Path, timeout: int = 900, shell: bool = False, env: dict | None = None):

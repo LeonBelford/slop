@@ -177,6 +177,8 @@ class PlanMixin:
             f"{clip(arch.read_text('utf-8') if arch.exists() else '', int(2500 * share))}\nCode map:\n{clip(self.mem.render_codemap(), int(5000 * share))}\n"
             f"Current state of the project:\n{state_note or '-'}\n{self.custom_note()}\nDependency graphs now:\n{graph}\nTasks: {json.dumps(rows)}\n3 to 5 layers. Schema: " + REEVAL_SCHEMA)
         self._review_reason = reason
+        if isinstance(data, dict) and not data.get("layers") and old:  # a cut-off answer: keep the layers we have
+            data["layers"] = [{"name": ly["name"], "goal": ly.get("goal", "")} for ly in old["layers"]]
         self.store_ideas(data.get("graph_ideas"), self.backlog.items)
         res = blueprint.normalize_reevaluation(data, items)
         self._reeval_note(data, res, by_title={i["id"]: i["title"] for i in items})

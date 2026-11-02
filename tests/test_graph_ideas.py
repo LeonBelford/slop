@@ -31,6 +31,16 @@ class IdeaNormalizeTests(unittest.TestCase):
             graph_ideas.norm_process({"name": "", "steps": "a"}, "P2")
 
 
+class TruncatedJsonTests(unittest.TestCase):
+    def test_cut_off_answer_is_repaired(self):
+        from core.cfutil import parse_json
+        t = '```json\n{"keep_plan": false, "assign": [{"id": "T1", "layer": 0}, {"id": "T2", "why": "UI needed"}, { "'
+        self.assertEqual(parse_json(t)["assign"][1]["id"], "T2")
+        self.assertEqual(parse_json('x {"a": 1} y'), {"a": 1})
+        with self.assertRaises(ValueError):
+            parse_json("no json {")
+
+
 class AgentTests(unittest.TestCase):
     def setUp(self):
         self.tmp = tempfile.TemporaryDirectory()

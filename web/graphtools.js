@@ -61,10 +61,6 @@ function gtStats(d,items){
   const pill=(n,l,c)=>`<span class="tg-pill${c?" "+c:""}"><b>${n}</b> ${l}</span>`;
   return `<div class="tg-stats">${pill(tgComps(items).length,"graphs")}${pill(open,"open")}${blocked?pill(blocked,"blocked","bad"):""}${eta?pill("~"+gtEta(eta),"critical path","warn"):""}</div>`;
 }
-async function gtTemplate(){
-  const name=prompt("What is it about (e.g. the endpoint or screen name)?");if(!name||!name.trim())return;
-  await gtAct("graph-template",{template:$("#tplSel").value,name:name.trim()},"Graph added");
-}
 function proposalCard(d){
   const p=d.proposal;if(!p)return "";
   return `<div class="panel" style="border-color:#d6a23c"><h3>Plan proposal <span class="meta">${esc(p.reason||"")} · nothing is applied until you confirm</span></h3>
@@ -118,7 +114,7 @@ function prForm(){
     <div class="tg-row"><button class="small primary" onclick="prSave()">Save</button><button class="small" onclick="prDraft=null;lastBody='';renderProject()">Cancel</button></div></div>`;
 }
 function ideasPanel(d){
-  const ideas=d.ideas||[];
+  const ideas=d.graph_ideas||[];
   return `<div class="panel tg-half"><h3>Ideas from the AI <span class="meta">made at every re-plan from your goal and the features built so far</span></h3>${ideas.length?ideas.map(i=>`<div class="tg-card"><div><b>${esc(i.title)}</b><div class="hint">${esc(i.why||"")}</div>
     <ol class="hint tg-steps">${i.steps.map(s=>`<li>${esc(s.title)}</li>`).join("")}</ol></div><div class="tg-act"><button class="small primary" onclick="gtAct('idea-add',{id:'${esc(i.id)}'},'Graph added')">Add as graph</button><button class="small" onclick="gtAct('idea-dismiss',{id:'${esc(i.id)}'},'Dismissed')">Dismiss</button></div></div>`).join(""):'<div class="hint">No ideas yet. They appear after the next re-plan.</div>'}</div>`;
 }
