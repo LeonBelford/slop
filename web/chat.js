@@ -56,8 +56,9 @@ const stripActions=t=>t.replace(/```action[ \t]*\n[\s\S]*?```/g,"").replace(/```
 function taskBlocks(t){return[...t.matchAll(/```task[ \t]*\n([\s\S]*?)```/g)].map(m=>m[1].trim()).filter(x=>x.length>=10)}
 function actionBlocks(t){return[...t.matchAll(/```action[ \t]*\n([\s\S]*?)```/g)].map(m=>{try{const j=JSON.parse(m[1].trim());return j&&typeof j==="object"?j:null}catch(e){return null}}).filter(Boolean)}
 const hhmm=t=>t?new Date(t*1000).toLocaleTimeString([],{hour:"2-digit",minute:"2-digit"}):"";
-const isAgent=c=>!!(c&&c.agent&&(c.tool?c.route==="direct":c.projects.length));
-const isDirect=c=>isAgent(c)&&c.route==="direct";
+const routeOf=c=>c.route||(c.tool?"pipeline":"direct");
+const isAgent=c=>!!(c&&c.agent&&(c.tool?routeOf(c)==="direct":c.projects.length));
+const isDirect=c=>isAgent(c)&&routeOf(c)==="direct";
 const phText=c=>(isDirect(c)&&c.tool?"Tell me what to change in CodeFactory itself: I read its docs and edit the repo myself"
   :isDirect(c)?"Tell me what to build or change: I read the docs and edit the project myself":isAgent(c)?"Tell the agent what to do, or type / for commands":"Message CodeFactory…")+"  (Enter sends, Shift+Enter: new line)";
 
@@ -83,11 +84,11 @@ const SUGGEST_FREE=["Help me turn a rough idea into a project plan","Compare two
 const chatOn=()=>view==="chat"||(chat.dock&&view==="project");
 function drawChat(){
   const c=chat.cur,b=chat.dock?$("#dock"):$("#body");if(!chat.dock)b.dataset.tab="chat";
-  b.innerHTML=(chat.dock?`<div class="dock-h"><b>Side chat</b><span class="meta">${esc(sel||"")}</span><span class="spacer"></span><button class="small" onclick="sideNew()" title="New side chat">+ New</button><button class="small" onclick="sideClose()" title="Close (Ctrl+J)">×</button></div>`:"")+`<div class="cx${chat.listOpen?" list-open":""}">
+  b.innerHTML=(chat.dock?`<div class="dock-grip" onpointerdown="dockResize(event)" ondblclick="dockWidth(440);localStorage.setItem('cf.dockw',440)" title="Drag to resize"></div><div class="dock-h"><b>Side chat</b><span class="meta">${esc(sel||"")}</span><span class="spacer"></span><button class="small" onclick="sideNew()" title="New side chat">+ New</button><button class="small" onclick="sideClose()" title="Close (Ctrl+J)">×</button></div>`:"")+`<div class="cx${chat.listOpen?" list-open":""}">
     <div class="cx-list"><div class="cx-list-top"><input id="cxQ" type="search" placeholder="Search chats" value="${esc(chat.q)}" oninput="chat.q=this.value;drawList()"><button class="primary" onclick="newChat()">+ New</button></div><div id="cxItems"></div></div>
     <section class="cx-main">${c?`<div id="cxBar"></div><div id="cxModelBar"></div><div id="cxStatus"></div><div class="msgs" id="msgs"></div><div id="cxPal" class="pal" style="display:none"></div>
       <div class="composer"><textarea id="chIn" rows="1" placeholder="${esc(phText(c))}" oninput="grow(this);chatInput()" onkeydown="chatKey(event)"></textarea>
-        <button class="primary send" id="chSend" onclick="chatSend()" title="Send (Enter)">↑</button><button class="send" id="chStop" onclick="chat.ctrl&&chat.ctrl.abort()" title="Stop answering" style="display:none">■</button></div>`
+        <button class="ghost send" id="chMac" onclick="macroMenu()" title="Saved prompts (macros)">★</button><button class="primary send" id="chSend" onclick="chatSend()" title="Send (Enter)">↑</button><button class="send" id="chStop" onclick="chat.ctrl&&chat.ctrl.abort()" title="Stop answering" style="display:none">■</button></div>`
       :`<div class="chat-empty"><div class="big">Start a conversation</div><button class="primary" onclick="newChat()">+ New chat</button></div>`}</section></div>`;
   drawList();if(!c)return;
   drawBar();drawMsgs();drawStatus();drawModelBar();
@@ -171,11 +172,30 @@ function drawMsgs(){
   box.innerHTML=c.messages.map((m,i)=>msgHtml(m,i,i===last)).join("")||`<div class="chat-empty"><div class="big">${isAgent(c)?"What should the agent do?":"What are we working on?"}</div><div class="hint">${isAgent(c)?"It can look at the project, queue and reorder tasks, pause the agent and more. Type / for direct commands.":"Ask anything. Link a project and the model knows its goal, backlog and recent work."}</div><div class="suggs">${sug}</div></div>`;
   box.classList.toggle("busy",!!chat.ctrl);box.scrollTop=box.scrollHeight;
 }
+const WRITES=["write_file","edit_file","delete_file"];
+chat.prev=chat.prev||{};
+function diffHtml(t){return `<pre class="diff">${esc(t).split("\n").map(l=>`<span class="${l[0]==="+"&&!l.startsWith("+++")?"d-add":l[0]==="-"&&!l.startsWith("---")?"d-del":l[0]==="@"?"d-hunk":""}">${l||" "}</span>`).join("\n")}</pre>`}
+function ckHtml(i,k,t,a){const d=chat.prev[i+"_"+k];return d?`<div class="ck-diff">${diffHtml(d)}</div>`:""}
+function ckBtns(i,k,t,a){
+  if(!WRITES.includes(t))return "";
+  if(!a||a.status==="pending")return `<button class="small ghost" onclick="ckOp(${i},${k},'preview')" title="Show exactly what would change">Preview</button>`;
+  if(a.sha)return a.undone?`<span class="pill">undone</span>`:`<button class="small ghost" onclick="ckOp(${i},${k},'show')">Diff</button><button class="small" onclick="ckOp(${i},${k},'undo')" title="Revert this change (new commit)">Undo</button>`;
+  return "";
+}
+async function ckOp(i,k,op){
+  const key=i+"_"+k;
+  if(op!=="undo"&&chat.prev[key]){delete chat.prev[key];drawMsgs();return}
+  try{
+    const r=await api(`/api/chat/${chat.cur.id}/checkpoint`,{msg:i,k,op});
+    if(op==="undo"){chat.cur=r.chat;delete chat.prev[key];toast("Change undone")}else chat.prev[key]=r.diff;
+    drawMsgs();
+  }catch(e){toast(e.message,true)}
+}
 function actCard(i,k,call,a){
   const t=String(call.tool),st=a?a.status:"pending",d=call.text||call.command||call.title||(t==="design"?(call.approve?"approve":"reject"):"")||call.idea||call.query||call.task&&(call.task+(call.priority?" → "+call.priority:""))||call.file||call.path||call.filter||(t==="step_mode"?(call.on===false?"off":"on"):"");
   const ro=RO.includes(t),btns=st==="pending"?`<button class="small primary" onclick="runAction(${i},${k})">${ro?"Run":"Approve"}</button><button class="small ghost" onclick="runAction(${i},${k},true)">Skip</button>`
     :st==="failed"?`<span class="pill bad">failed</span><button class="small" onclick="runAction(${i},${k})">Retry</button>`:`<span class="pill ${st==="done"?"ok":""}">${st}</span>`;
-  return `<div class="act st-${st}"><span class="act-ic">${ICON[t]||"⚙"}</span><div class="act-b"><div><b>${esc(t.replace(/_/g," "))}</b>${call.project?` <span class="pill">${esc(call.project)}</span>`:""}${ro?` <span class="act-ro">read-only</span>`:""}</div>${d?`<div class="act-d">${esc(String(d).slice(0,300))}</div>`:""}${a&&a.result?`<details ${st==="failed"||a.result.length<160?"open":""}><summary>Result</summary><pre>${esc(a.result)}</pre></details>`:""}</div><div class="act-r">${btns}</div></div>`;
+  return `<div class="act st-${st}"><span class="act-ic">${ICON[t]||"⚙"}</span><div class="act-b"><div><b>${esc(t.replace(/_/g," "))}</b>${call.project?` <span class="pill">${esc(call.project)}</span>`:""}${ro?` <span class="act-ro">read-only</span>`:""}</div>${d?`<div class="act-d">${esc(String(d).slice(0,300))}</div>`:""}${a&&a.result?`<details ${st==="failed"||a.result.length<160?"open":""}><summary>Result</summary><pre>${esc(a.result)}</pre></details>`:""}${ckHtml(i,k,t,a)}</div><div class="act-r">${btns}${ckBtns(i,k,t,a)}</div></div>`;
 }
 function msgHtml(m,i,isLast){
   const when=hhmm(m.t);
@@ -229,14 +249,51 @@ function chatInput(){
   const i=$("#chIn"),c=chat.cur;if(!i||!c)return;
   localStorage.setItem("cf.draft."+c.id,i.value);
   const m=i.value.match(/^\/(\w*)$/),pal=$("#cxPal");
-  if(!m||!isAgent(c)){pal.style.display="none";return}
+  if(!m||!isAgent(c)){mentionInput(i,c,pal);return}
   chat.pal=CMDS.filter(x=>x[0].startsWith(m[1].toLowerCase()));chat.palI=0;drawPal();
+}
+async function mentionData(n){
+  chat.ment=chat.ment||{};
+  if(!chat.ment[n])chat.ment[n]=api("/api/project/"+encodeURIComponent(n)+"/editor/mentions").catch(()=>({files:[],tasks:[]}));
+  return chat.ment[n];
+}
+async function mentionInput(i,c,pal){
+  const m=i.value.slice(0,i.selectionStart).match(/(^|\s)@([\w./-]*)$/);
+  if(!m||!c.projects.length||i.value.startsWith("/")){pal.style.display="none";chat.pal=null;return}
+  const q=m[2].toLowerCase(),rows=[];
+  for(const n of c.projects){
+    const d=await mentionData(n);
+    d.tasks.filter(t=>!q||t.id.toLowerCase().startsWith(q)||t.title.toLowerCase().includes(q)).slice(0,4).forEach(t=>rows.push({m:1,ins:t.id,label:t.id,desc:`${t.status} · ${t.title}`,s:0}));
+    d.files.filter(f=>f.toLowerCase().includes(q)).forEach(f=>rows.push({m:1,ins:f,label:f,desc:c.projects.length>1?n:"",s:f.split("/").pop().toLowerCase().startsWith(q)?0:1}));
+  }
+  if(i.value.slice(0,i.selectionStart).match(/(^|\s)@([\w./-]*)$/)?.[2].toLowerCase()!==q)return;
+  chat.pal=rows.sort((a,b)=>a.s-b.s).slice(0,8);chat.palI=0;drawPal();
 }
 function drawPal(){
   const pal=$("#cxPal");if(!chat.pal||!chat.pal.length){pal.style.display="none";return}
-  pal.style.display="";pal.innerHTML=chat.pal.map((x,k)=>`<div class="pal-i ${k===chat.palI?"on":""}" onmousedown="event.preventDefault();palPick(${k})"><b>/${x[0]}</b> <span class="hint" style="margin:0">${esc(x[1])}</span><span>${esc(x[2])}</span></div>`).join("");
+  pal.style.display="";pal.innerHTML=chat.pal.map((x,k)=>x.m?`<div class="pal-i ${k===chat.palI?"on":""}" onmousedown="event.preventDefault();palPick(${k})"><b>@${esc(x.label)}</b><span>${esc(x.desc)}</span></div>`:`<div class="pal-i ${k===chat.palI?"on":""}" onmousedown="event.preventDefault();palPick(${k})"><b>/${x[0]}</b> <span class="hint" style="margin:0">${esc(x[1])}</span><span>${esc(x[2])}</span></div>`).join("");
 }
-function palPick(k){const i=$("#chIn"),x=chat.pal[k];i.value="/"+x[0]+(x[1]?" ":"");chat.pal=null;$("#cxPal").style.display="none";i.focus();grow(i);chatInput();if(!x[1])chatSend()}
+function palPick(k){const i=$("#chIn"),x=chat.pal[k];
+  if(x.m){const pos=i.selectionStart,head=i.value.slice(0,pos).replace(/@[\w./-]*$/,"@"+x.ins+" ");i.value=head+i.value.slice(pos);i.selectionStart=i.selectionEnd=head.length;chat.pal=null;$("#cxPal").style.display="none";i.focus();grow(i);chatInput();return}
+i.value="/"+x[0]+(x[1]?" ":"");chat.pal=null;$("#cxPal").style.display="none";i.focus();grow(i);chatInput();if(!x[1])chatSend()}
+/* saved prompts: stored in the browser, inserted into the composer; {sel} style placeholders are not needed, edit after inserting */
+const macros=()=>{try{return JSON.parse(localStorage.getItem("cf.macros")||"[]")}catch(e){return[]}};
+const MACRO_DEFAULTS=[["Review my changes","Review the last changes in this project: list bugs, risky spots and missing tests, most important first."],["Add tests","Read the existing tests, then add missing tests for the most important untested code. Run them."],["Refactor","Find the messiest module and propose a small, safe refactoring. Do it in steps."]];
+function macroMenu(){
+  const pal=$("#cxPal"),list=macros().length?macros():MACRO_DEFAULTS.map(([n,t])=>({n,t,d:1})),i=$("#chIn");
+  if(pal.dataset.macro==="1"){pal.style.display="none";pal.dataset.macro="";return}
+  pal.dataset.macro="1";pal.style.display="";
+  pal.innerHTML=list.map((m,k)=>`<div class="pal-i" onmousedown="event.preventDefault();macroUse(${k})"><b>${esc(m.n)}</b><span>${esc(m.t.slice(0,60))}</span></div>`).join("")
+   +`<div class="pal-i" onmousedown="event.preventDefault();macroSave()"><b>＋ Save current text as prompt</b>${macros().length?`<span onmousedown="event.stopPropagation();event.preventDefault();macroDel()">delete last</span>`:""}</div>`;
+  chat.macroList=list;
+}
+function macroUse(k){const i=$("#chIn"),m=chat.macroList[k];i.value=(i.value?i.value+"\n":"")+m.t;$("#cxPal").style.display="none";$("#cxPal").dataset.macro="";i.focus();grow(i);chatInput()}
+function macroSave(){
+  const t=$("#chIn").value.trim();if(!t){toast("Type the prompt into the box first",true);return}
+  const n=prompt("Name of this prompt",t.slice(0,24));if(!n)return;
+  localStorage.setItem("cf.macros",JSON.stringify([...macros(),{n:n.slice(0,40),t}]));$("#cxPal").style.display="none";$("#cxPal").dataset.macro="";toast("Prompt saved")
+}
+function macroDel(){const a=macros();a.pop();localStorage.setItem("cf.macros",JSON.stringify(a));$("#cxPal").style.display="none";$("#cxPal").dataset.macro=""}
 function chatKey(e){
   const pal=$("#cxPal");
   if(pal&&pal.style.display!=="none"&&chat.pal&&chat.pal.length){

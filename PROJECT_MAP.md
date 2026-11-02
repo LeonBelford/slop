@@ -212,3 +212,6 @@ selftest self-improve e2e-setup`.
 - `web/sidechat.js`: collapsible side chat (Ctrl+J); sticky mini bar (`drawMini` in `web/app.js`).
 - `/api/models/status` (GPU/VRAM/boot state) and `/api/models/warm` (preload a model with keep_alive).
 - Self-improve chat has its own Direct mode (SELF_TOOLS) editing CodeFactory itself.
+- `dash/checkpoints.py`: preview/show/undo of direct chat edits (each write is a commit); `/api/chat/<id>/checkpoint`.
+- `@file` / `@T0001` mentions in chat (`dash/chat.py` `mention_context`, autocomplete via `editor/mentions`); repo map (`codesearch.repo_map`) in chat context.
+- `web/taskgraph.js`: task dependency graph (Overview > Task graph). Editor Terminal panel: editor op `exec`.

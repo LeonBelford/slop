@@ -88,7 +88,7 @@ class ChatMixin:
         web_ctx, sources = self.chat_web(chat, text or next((m["content"] for m in reversed(chat["messages"]) if m["role"] == "user"), ""))
         if sources:
             write({"sources": sources})
-        direct = bool(chat.get("agent") and chat.get("route") == "direct" and (chat["projects"] or chat.get("tool")))
+        direct = bool(chat.get("agent") and chatlib.route_of(chat) == "direct" and (chat["projects"] or chat.get("tool")))
         self_mode = bool(chat.get("tool"))
         if direct and mode == "":
             self._announce_docs(chat, write, self_mode)
@@ -98,6 +98,7 @@ class ChatMixin:
             msgs = chatlib.build_messages(chat, self.chat_ws, cfg["llm_api"], cfg["api_key"], self.tool_context, web_ctx, root=common.ROOT)
             if mode == "continue" or step:
                 msgs.append({"role": "user", "content": "The results of your actions are above. Continue: take the next step, or if the job is done, answer with a short summary."})
+                msgs = msgs[:1] + chatlib.merge_turns(msgs[1:])
             answer, err = self._stream_answer(chat, msgs, write, sources)
             if err:
                 try:
@@ -161,7 +162,8 @@ class ChatMixin:
         for k, call in enumerate(calls):
             try:
                 tool, args = chatagent.validate(call, chat["projects"], self_mode)
-                acts[str(k)] = {"status": "done", "result": self._run_tool(tool, args, True), "t": time.time()}
+                text, ck = self._run_ck(chat, tool, args, True)
+                acts[str(k)] = {"status": "done", "result": text, "t": time.time(), **ck}
             except (ValueError, UiError) as e:
                 acts[str(k)] = {"status": "failed", "result": str(e), "t": time.time()}
             except Exception as e:  # noqa: BLE001 - a tool crash must not end the whole run

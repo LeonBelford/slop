@@ -132,6 +132,65 @@ class ChatTests(unittest.TestCase):
         self.assertEqual(seen[0][0], "/api/generate")
         self.assertEqual((seen[0][1]["prompt"], seen[0][1]["keep_alive"]), ("", "10m"))
 
+    def test_at_mentions_inline_repo_files_and_block_traversal(self):
+        ws = Path(tempfile.mkdtemp())
+        (ws / "repo").mkdir()
+        (ws / "repo" / "a.py").write_text("x=1")
+        out = chat.mention_context("see @a.py and @../../etc/passwd.x", [ws])
+        self.assertIn("x=1", out)
+        self.assertNotIn("root:", out)
+
+    def test_history_is_sanitised_for_strict_servers(self):
+        out = chat.merge_turns([{"role": "user", "content": "a"}, {"role": "user", "content": " "}, {"role": "user", "content": "b"},
+                                {"role": "assistant", "content": "c"}])
+        self.assertEqual([m["role"] for m in out], ["user", "assistant"])
+        self.assertEqual(out[0]["content"], "a\n\nb")
+
+    def test_http_errors_show_the_server_message(self):
+        class Bad(http.server.BaseHTTPRequestHandler):
+            def log_message(self, *a):
+                pass
+
+            def do_POST(self):
+                self.send_response(400)
+                self.end_headers()
+                self.wfile.write(b'{"error":"context too long"}')
+        srv = http.server.ThreadingHTTPServer(("127.0.0.1", 0), Bad)
+        threading.Thread(target=srv.serve_forever, daemon=True).start()
+        try:
+            with self.assertRaises(RuntimeError) as cm:
+                list(chat.stream_completion(f"http://127.0.0.1:{srv.server_address[1]}/v1/chat/completions", "k", "m", []))
+        finally:
+            srv.shutdown()
+        self.assertIn("400", str(cm.exception))
+        self.assertIn("context too long", str(cm.exception))
+
+    def test_task_mentions_and_mention_list(self):
+        ws = Path(tempfile.mkdtemp())
+        (ws / "agent").mkdir()
+        (ws / "agent" / "backlog.json").write_text('[{"id": "T0007", "title": "Fix login", "status": "pending", "description": "Users cannot log in"}]')
+        out = chat.mention_context("please look at @T0007", [ws])
+        self.assertIn("Fix login", out)
+        self.assertIn("cannot log in", out)
+
+    def test_repo_map_ranks_files_matching_the_question(self):
+        import subprocess
+        ws = Path(tempfile.mkdtemp())
+        (ws / "repo").mkdir()
+        (ws / "repo" / "auth.py").write_text("def login():\n    pass\n\nclass Session:\n    pass\n")
+        (ws / "repo" / "util.py").write_text("def helper():\n    pass\n")
+        subprocess.run(["git", "init", "-q"], cwd=ws / "repo", check=True)
+        subprocess.run(["git", "add", "-A"], cwd=ws / "repo", check=True)
+        m = chat.repo_map_context(ws, "fix the login flow")
+        self.assertTrue(m.splitlines()[1].startswith("auth.py: login, Session"))
+        self.assertIn("util.py: helper", m)
+
+    def test_read_docs_note_never_reaches_the_model(self):
+        c = {"projects": [], "messages": [{"role": "user", "content": "build x", "t": 1},
+                                          {"role": "assistant", "content": "Read first: demo: GOAL.md", "t": 2, "cmd": True, "tool": "read_docs"}]}
+        msgs = chat.build_messages(c, lambda n: None)
+        self.assertEqual([m["role"] for m in msgs], ["system", "user"])
+
     def test_models_status(self):
         st = self.svc.models_status()
         self.assertIn("up", st)

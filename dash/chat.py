@@ -8,12 +8,14 @@ from __future__ import annotations
 import json
 import re
 import secrets
+import subprocess
 import threading
 import time
+import urllib.error
 import urllib.request
 
 from core.cfutil import _open_think, _strip_think
-from dash import chatagent, directtools, toolchat
+from dash import chatagent, codesearch, directedit, directtools, toolchat
 from infra import knowledge
 from pathlib import Path
 from collections.abc import Callable, Iterator
@@ -191,6 +193,45 @@ def knowledge_context(ws: Path, query: str, api: str, key: str, embed_model: str
     return ("Knowledge base hits for the latest question:\n" + "\n".join(lines)) if lines else ""
 
 
+def repo_map_context(ws: Path, question: str) -> str:
+    """Symbol map of the project's repo (names only), so the model knows where things live without whole files in the prompt."""
+    try:
+        m = codesearch.repo_map(ws / "repo", 3000, question)
+    except (OSError, subprocess.SubprocessError):
+        return ""
+    return "Repo map (file: symbols; read_file for details):\n" + m if m else ""
+
+
+def route_of(chat: dict) -> str:
+    """Direct is the default for project chats; the self-improve chat stays on the reviewed pipeline unless switched."""
+    return chat.get("route") or ("pipeline" if chat.get("tool") else "direct")
+
+
+def mention_context(text: str, workspaces: list[Path], limit: int = 4000) -> str:
+    """Inlines files the user referenced as @path/to/file (relative to a linked project's repo)."""
+    out, seen = [], set()
+    for rel in re.findall(r"(?<![\w@])@([\w./-]+\.\w+)", text or ""):
+        for w in workspaces:
+            try:
+                f = directedit._safe(w / "repo", rel)
+                if f.is_file() and (w.name, rel) not in seen:
+                    seen.add((w.name, rel))
+                    out.append(f"### @{rel} ({w.name})\n```\n{clip(f.read_text('utf-8', 'replace'), limit)}\n```")
+                    break
+            except Exception:  # noqa: BLE001
+                continue
+    for tid in dict.fromkeys(re.findall(r"(?<![\w@])@(T\d{3,})\b", text or "")):
+        for w in workspaces:
+            try:
+                t = next((i for i in json.loads((w / "agent" / "backlog.json").read_text("utf-8")) if i["id"] == tid), None)
+            except (OSError, ValueError, KeyError):
+                continue
+            if t:
+                out.append(f"### @{tid} ({w.name}) [{t['status']}]\n{t['title']}\n{clip(str(t.get('description', '')), 1200)}")
+                break
+    return "Files and tasks the user mentioned:\n\n" + "\n\n".join(out[:8]) if out else ""
+
+
 def build_messages(chat: dict, ws_of: Callable[[str], Path | None], api: str = "", key: str = "", tool_ctx: Callable[[str], str] | None = None,
                    web_ctx: str = "", root: Path | None = None) -> list[dict]:
     last = next((m["content"] for m in reversed(chat["messages"]) if m["role"] == "user"), "")
@@ -198,17 +239,18 @@ def build_messages(chat: dict, ws_of: Callable[[str], Path | None], api: str = "
     for w in (ws_of(n) for n in chat["projects"]):
         if w:
             k = knowledge_context(w, last, api, key) if last else ""
-            ctx.append(project_context(w) + ("\n\n" + k if k else ""))
+            rm = repo_map_context(w, last)
+            ctx.append(project_context(w) + ("\n\n" + rm if rm else "") + ("\n\n" + k if k else ""))
     is_tool = bool(chat.get("tool"))
     if is_tool and tool_ctx:
         system = toolchat.SYSTEM + "\n\n" + tool_ctx(last)
     else:
         system = SYSTEM + ("\n\nLinked projects (current state):\n\n" + "\n\n".join(ctx) if ctx else "")
     agent = chat.get("agent") and chat["projects"] and not is_tool
-    tool_direct = is_tool and chat.get("agent") and chat.get("route") == "direct" and root is not None
+    tool_direct = is_tool and chat.get("agent") and route_of(chat) == "direct" and root is not None
     if chat.get("project") and not agent:
         system += "\n\n" + PROJECT_ADDON
-    if agent and chat.get("route") == "direct":
+    if agent and route_of(chat) == "direct":
         system += "\n\n" + chatagent.DIRECT_ADDON
         docs = [directtools.read_docs(w / "repo", 8000, 2500, goal=w / "agent" / "GOAL.md")[0] for w in (ws_of(n) for n in chat["projects"]) if w]
         if any(docs):
@@ -220,16 +262,34 @@ def build_messages(chat: dict, ws_of: Callable[[str], Path | None], api: str = "
         doc_text = directtools.read_docs(root, 8000, 3000)[0]
         if doc_text:
             system += "\n\nCodeFactory's own docs (already read for you):\n\n" + doc_text
+    mentions = mention_context(last, [w for w in (ws_of(n) for n in chat["projects"]) if w])
+    if mentions:
+        system += "\n\n" + mentions
     if web_ctx:
         system += "\n\n" + web_ctx
     kept, used = [], 0
     for m in reversed(chat["messages"]):
+        if m.get("tool") == "read_docs":  # a UI-only note: the docs are already in the system prompt
+            continue
         content = m["content"] + (chatagent.results_text(m) if (agent or tool_direct) and m["role"] == "assistant" else "")
         used += len(content)
         if used > HISTORY_CHARS and kept:
             break
         kept.append({"role": m["role"], "content": content})
-    return [{"role": "system", "content": system}] + kept[::-1]
+    return [{"role": "system", "content": system}] + merge_turns(kept[::-1])
+
+
+def merge_turns(msgs: list[dict]) -> list[dict]:
+    """Drops empty messages and merges neighbours with the same role: some servers answer HTTP 400 to either."""
+    out: list[dict] = []
+    for m in msgs:
+        if not str(m["content"]).strip():
+            continue
+        if out and out[-1]["role"] == m["role"]:
+            out[-1] = {"role": m["role"], "content": out[-1]["content"] + "\n\n" + m["content"]}
+        else:
+            out.append(dict(m))
+    return out
 
 
 def stream_completion(api: str, key: str, model: str, messages: list[dict], timeout: int = 600) -> Iterator[tuple[str, str]]:
@@ -240,7 +300,12 @@ def stream_completion(api: str, key: str, model: str, messages: list[dict], time
         api, data=json.dumps({"model": model, "messages": messages, "stream": True, "temperature": 0.5}).encode(),
         headers={"Content-Type": "application/json", "Authorization": "Bearer " + key})
     raw_content, think_field, seen_visible, seen_think = "", "", 0, 0
-    with urllib.request.urlopen(req, timeout=timeout) as r:
+    try:
+        r = urllib.request.urlopen(req, timeout=timeout)
+    except urllib.error.HTTPError as e:
+        body = e.read(600).decode("utf-8", "replace")
+        raise RuntimeError(f"Model server answered HTTP {e.code}: {body}") from e
+    with r:
         for raw in r:
             line = raw.decode("utf-8", "replace").strip()
             if not line.startswith("data:"):

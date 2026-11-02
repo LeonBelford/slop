@@ -37,6 +37,7 @@ DEFAULT_CONFIG = {
         "max_hours": 24,
         "max_attempts_per_task": 3,
         "max_task_minutes": 120,  # after this much time on one task no further attempts; it is split into smaller slices instead
+        "max_task_tokens": 0,  # 0 = unlimited; otherwise no further attempts once one task used this many generated tokens
         "max_debug_rounds": 3,
         "max_consecutive_failures": 5,
         "coder_timeout": 1500,

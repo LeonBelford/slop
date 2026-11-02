@@ -113,6 +113,7 @@ function edBar(){
     <button class="small" onclick="edFind(true)" ${d&&!d.binary?"":"disabled"}>Find (Ctrl+F)</button>
     <button class="small" onclick="edPanel('diff')" ${d&&!d.binary?"":"disabled"}>Diff</button>
     <button class="small" onclick="edRunTests()">Run tests</button>
+    <button class="small" onclick="edPanel('term')" title="Run a command in the project repo (Ctrl+\`)">Terminal</button>
     <button class="small primary" onclick="edSaveFile()" ${edDirty(d)?"":"disabled"}>Save (Ctrl+S)</button>
     <button class="small" onclick="edSide('git')" title="Uncommitted files">${n?`Changes <b>${n}</b>`:"Changes"}</button>`;
 }
@@ -288,6 +289,7 @@ async function edSearch(){
 function edPanel(kind){
   const p=$("#ed-panel");if(!p)return;if(ED.panel===kind&&kind!=="tests"){ED.panel="";p.hidden=true;return}
   ED.panel=kind;p.hidden=false;
+  if(kind==="term"){edTermDraw();return}
   if(kind==="tests"){const o=ED.out;p.innerHTML=`<div class="ed-ph"><b>Tests</b>${o?`<span class="meta"><code>${esc(o.cmd)}</code></span><span class="${o.rc===0?"lg-ok":"lg-err"}">${o.rc===0?"passed":"failed (exit "+o.rc+")"}</span>`:""}<span class="spacer"></span><button class="small" onclick="edRunTests()">Run again</button><button class="small" onclick="edPanel('')">×</button></div><pre>${o?colorLog(o.out||"(no output)"):"Running…"}</pre>`;return}
   const d=edDoc();if(!d)return;
   const n=d.text.split("\n"),o=d.head==null?[]:d.head.split("\n");let a=0;while(a<o.length&&a<n.length&&o[a]===n[a])a++;
@@ -295,6 +297,22 @@ function edPanel(kind){
   const del=o.slice(a,o.length-b),add=n.slice(a,n.length-b),pre=n.slice(Math.max(0,a-3),a),post=n.slice(n.length-b,n.length-b+3);
   const body=!del.length&&!add.length?"No changes compared with the last commit.":[...pre.map(l=>"  "+l),...del.map(l=>"-"+l),...add.map(l=>"+"+l),...post.map(l=>"  "+l)].map(l=>`<div class="${l[0]==="+"?"df-a":l[0]==="-"?"df-d":""}">${esc(l)||" "}</div>`).join("");
   p.innerHTML=`<div class="ed-ph"><b>Diff vs. last commit</b><span class="meta">${esc(ED.active)} · line ${a+1} · +${add.length} −${del.length}</span><span class="spacer"></span><button class="small" onclick="edPanel('')">×</button></div><pre class="df">${body}</pre>`;
+}
+function edTermDraw(){
+  const p=$("#ed-panel"),h=ED.term||(ED.term=[]);
+  p.innerHTML=`<div class="ed-ph"><b>Terminal</b><span class="meta">runs in the repo root, one command at a time</span><span class="spacer"></span><button class="small" onclick="ED.term=[];edTermDraw()">Clear</button><button class="small" onclick="edPanel('')">×</button></div>
+  <pre id="ed-termout">${h.map(r=>`<span class="lg-info">$ ${esc(r.cmd)}</span>\n${colorLog(r.out||"")}${r.rc?`<span class="lg-err">[exit ${r.rc}]</span>\n`:""}`).join("")}</pre>
+  <div class="ed-term-in"><span>$</span><input id="ed-termin" autocomplete="off" spellcheck="false" placeholder="e.g. python app.py, npm run build, git log --oneline" onkeydown="edTermKey(event)"></div>`;
+  const o=$("#ed-termout");o.scrollTop=o.scrollHeight;$("#ed-termin").focus();
+}
+async function edTermKey(e){
+  const i=e.target,h=ED.term;
+  if(e.key==="ArrowUp"&&h.length){ED.ti=Math.max(0,(ED.ti??h.length)-1);i.value=h[ED.ti].cmd;e.preventDefault();return}
+  if(e.key!=="Enter"||!i.value.trim())return;
+  const cmd=i.value;i.value="";i.disabled=true;ED.ti=null;
+  try{h.push(await api(`/api/project/${edProj()}/editor`,{op:"exec",cmd}))}catch(er){h.push({cmd,rc:-1,out:er.message})}
+  if(ED.panel==="term")edTermDraw();
+  edLoadTree();
 }
 async function edRunTests(){
   ED.out=null;edPanel("tests");

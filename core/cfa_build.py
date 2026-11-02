@@ -302,6 +302,7 @@ class BuildMixin:
             self.cur_task, self.cur_attempt = "", 0
             self.phase("Task split before the start (too large)", None, item["title"])
             return False
+        tokens0 = read_json(self.dir / "metrics.json", {}).get("tokens", 0)
         for attempt in range(1, self.lim["max_attempts_per_task"] + 1):
             self.cur_attempt = attempt
             self.backlog.set(item, attempts=item["attempts"] + 1)
@@ -364,6 +365,11 @@ class BuildMixin:
                 previous.append("The same failure repeated. Do NOT repeat the previous approach; change the approach fundamentally.")
             if time.time() - t0 > self.lim.get("max_task_minutes", 120) * 60 and attempt < self.lim["max_attempts_per_task"]:
                 self.log(f"{item['id']} took over {self.lim.get('max_task_minutes', 120)} min: no more attempts of the same kind")
+                break
+            budget = self.lim.get("max_task_tokens", 0)
+            used = read_json(self.dir / "metrics.json", {}).get("tokens", 0) - tokens0
+            if budget and used > budget and attempt < self.lim["max_attempts_per_task"]:
+                self.log(f"{item['id']} used {used} tokens (budget {budget}): no more attempts of the same kind")
                 break
             if same >= 2:
                 self.log("Three identical failures: stopping this task instead of repeating it")

@@ -11,6 +11,8 @@ from pathlib import Path
 
 import codefactory as sa
 from core import control
+from dash.chat import route_of
+from dash import checkpoints
 from dash import adrs, chatagent, codesearch, directedit, directtools, events, refactor, review, roles, sandbox, testgen
 from infra import ctxtune
 from webapi import common
@@ -202,11 +204,11 @@ class ExtMixin:
             call = body["call"]
             try:
                 tool, args = chatagent.validate(call, chat["projects"], self_mode)
-                text, ok = self._run_tool(tool, args, chat.get("route") == "direct"), True
+                (text, ck), ok = self._run_ck(chat, tool, args, route_of(chat) == "direct"), True
             except (ValueError, UiError) as e:
-                text, ok, tool, args = str(e), False, str(call.get("tool", "")), call
+                text, ok, tool, args, ck = str(e), False, str(call.get("tool", "")), call, {}
             chat["messages"] += [{"role": "user", "content": str(body.get("text") or chatagent.describe(tool, args)), "t": now, "cmd": True},
-                                 {"role": "assistant", "content": text, "t": now, "cmd": True, "ok": ok, "tool": tool}]
+                                 {"role": "assistant", "content": text, "t": now, "cmd": True, "ok": ok, "tool": tool, "args": args, **ck}]
         else:
             try:
                 msg = chat["messages"][int(body["msg"])]
@@ -222,12 +224,64 @@ class ExtMixin:
             else:
                 try:
                     tool, args = chatagent.validate(call, chat["projects"], self_mode)
-                    text, ok = self._run_tool(tool, args, chat.get("route") == "direct"), True
+                    (text, ck), ok = self._run_ck(chat, tool, args, route_of(chat) == "direct"), True
                 except (ValueError, UiError) as e:
-                    text, ok = str(e), False
-                acts[k] = {"status": "done" if ok else "failed", "result": text, "t": now}
+                    text, ok, ck = str(e), False, {}
+                acts[k] = {"status": "done" if ok else "failed", "result": text, "t": now, **ck}
         self.chats.save(chat)
         return {"ok": ok, "result": text, "chat": chat}
+
+    def _ck_repo(self, chat: dict, args: dict) -> Path | None:
+        if chat.get("tool"):
+            return common.ROOT
+        ws = self.chat_ws(str(args.get("project", "")))
+        return ws / "repo" if ws else None
+
+    def _run_ck(self, chat: dict, tool: str, args: dict, direct: bool) -> tuple[str, dict]:
+        """Runs a tool; for file writes also returns the checkpoint (commit + where) so the chat can show and undo it."""
+        repo = self._ck_repo(chat, args) if tool in checkpoints.WRITE_TOOLS else None
+        before = checkpoints.head(repo) if repo else ""
+        text = self._run_tool(tool, args, direct)
+        after = checkpoints.head(repo) if repo else ""
+        return text, ({"sha": after, "scope": args.get("project") or "self"} if after and after != before else {})
+
+    def chat_checkpoint(self, cid: str, body: dict) -> dict:
+        """{op: preview|show|undo, msg, k?}: preview a pending write, show a done one, or undo it."""
+        chat = self.chats.load(cid)
+        try:
+            msg = chat["messages"][int(body["msg"])]
+            op = str(body.get("op"))
+            if body.get("k") is None:
+                holder, call = msg, {"tool": msg.get("tool"), **(msg.get("args") or {})}
+            else:
+                k = str(int(body["k"]))
+                holder = msg.setdefault("acts", {}).setdefault(k, {})
+                call = chatagent.parse(msg["content"])[int(k)]
+        except (IndexError, KeyError, ValueError, TypeError):
+            raise UiError("Action not found", 404) from None
+        try:
+            tool, args = chatagent.validate(call, chat["projects"], bool(chat.get("tool")))
+            repo = self._ck_repo(chat, args)
+            if repo is None:
+                raise ValueError("Project not found")
+            if op == "preview":
+                return {"diff": checkpoints.preview(repo, tool, args)}
+            if not holder.get("sha"):
+                raise ValueError("This action has no checkpoint")
+            if op == "show":
+                return {"diff": checkpoints.show(repo, holder["sha"])}
+            if op == "undo":
+                if holder.get("undone"):
+                    raise ValueError("Already undone")
+                if common.alive(args["project"] if args.get("project") else "tool"):
+                    raise ValueError("The agent is running on this project; stop it before undoing")
+                checkpoints.undo(repo, holder["sha"])
+                holder["undone"] = True
+                self.chats.save(chat)
+                return {"ok": True, "chat": chat}
+        except (ValueError, UiError) as e:
+            raise UiError(str(e)) from None
+        raise UiError("Unknown operation")
 
     def _run_tool(self, tool: str, args: dict, direct: bool = False) -> str:
         if tool in chatagent.SELF_TOOLS and not args.get("project"):

@@ -475,6 +475,9 @@ def make_handler(svc: Service, port: int, token: str | None = None):
                     return svc.chat_create(body)
                 if path == "/api/ext/ctx-write":
                     return svc.ext_global("ctx-write", body)
+                m = re.fullmatch(r"/api/chat/([a-f0-9]{12})/checkpoint", path)
+                if m:
+                    return svc.chat_checkpoint(m.group(1), body)
                 m = re.fullmatch(r"/api/chat/([a-f0-9]{12})/action", path)
                 if m:
                     return svc.chat_action(m.group(1), body)

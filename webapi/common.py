@@ -18,7 +18,7 @@ FEATURE_KEYS = {"cleanup_pass": "bool", "require_tests": "bool", "plan_critique"
                 "test_first": ("auto", "on", "off"), "step_by_step": ("auto", "on", "off"), "acceptance_check": "bool", "retry_replan": "bool", "protect_tests": "bool",
                 "targeted_tests": "bool", "flaky_retry": "bool", "verify_cache": "bool", "coverage_gate": ("off", "50", "70", "90"), "mutation_check": "bool"}
 SETTING_LIMITS = {"max_hours": (1, 720), "max_iterations": (1, 5000), "max_attempts_per_task": (1, 8),
-                  "max_debug_rounds": (1, 8), "max_consecutive_failures": (1, 20), "min_review_score": (1, 10)}
+                  "max_task_minutes": (5, 1440), "max_task_tokens": (0, 50_000_000), "max_debug_rounds": (1, 8), "max_consecutive_failures": (1, 20), "min_review_score": (1, 10)}
 NAME_RE = re.compile(r"^[a-z0-9][a-z0-9-]{0,60}$")
 EMPTY_TREE = "4b825dc642cb6eb9a060e54bf8d69288fbee4904"
 MAX_FILE = 400_000
