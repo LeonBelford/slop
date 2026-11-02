@@ -10,7 +10,7 @@ from infra import perf
 import re
 import shutil
 import time
-from core import failures
+from core import failures, graphctx
 from core.cfa_flow import added_test_names, removed_test_names, removed_tests
 from core.cfllm import LLMError
 from core.cfa_write import extract_files, write_files
@@ -128,7 +128,7 @@ class BuildMixin:
     # ---- Planning
     def impact_analysis(self, item: dict, previous: list[str]) -> dict:
         self.phase("Planning: analysing the codebase and the impact of the change", "plan")
-        cands = self.mem.select_candidates(item)
+        cands = graphctx.prefer_files(graphctx.context_pack(self.backlog.items, item)["files"], self.mem.select_candidates(item), lambda f: (self.repo / f).exists())
         ctx = self.mem.context_pack(item, cands)
         src = "\n\n".join(f"### {f}\n```\n{clip((self.repo / f).read_text('utf-8', 'replace'), self.cfg['context']['file_clip'])}\n```"
                           for f in (cands + self.mem.neighbors(cands))[:10] if (self.repo / f).exists())
@@ -515,6 +515,7 @@ class BuildMixin:
         shutil.rmtree(snap, ignore_errors=True)
         self.git.run("branch", "-D", branch)
         self.drop_wip(item)
+        self.backlog.set(item, files=sorted(changed_all)[:30], result=clip(str(review.get("summary") or ""), 200))
         self.state["merged"] += 1
         self.metric(item=item["id"], title=item["title"], type=item["type"], attempts=item["attempts"],
                     review_score=review.get("score"), files=len(changed_all), loc=sum(e.get("loc", 0) for e in self.mem.codemap.values()))

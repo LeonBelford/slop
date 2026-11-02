@@ -143,7 +143,8 @@ def normalize_reevaluation(data: dict, items: list[dict]) -> dict:
                     "acceptance": [_s(a) for a in (t.get("acceptance") or []) if a][:6], "layer": lay(t.get("layer")), "why": _s(t.get("why"), 200),
                     "type": t.get("type") if t.get("type") in ("feature", "refactor", "test", "docs") else "feature",
                     "priority": _num(t.get("value"), 5) * 2 - _num(t.get("effort"), 5),
-                    "depends_on": [d for d in (t.get("depends_on") or []) if isinstance(d, str) and (d in ids or d in keys) and d != key]})
+                    "depends_on": [d for d in (t.get("depends_on") or []) if isinstance(d, str) and (d in ids or d in keys) and d != key],
+                    "files": [_s(f, 120) for f in (t.get("files") or []) if isinstance(f, str) and f.strip()][:6]})
     protected = {i["id"] for i in items if i.get("source") in ("user", "ideas")}
     cancel = []
     for c in data.get("cancel", []):

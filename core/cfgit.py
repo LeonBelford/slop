@@ -157,6 +157,11 @@ class Backlog:
             return None
         ready = self.ready(p)
         self.deadlock = not ready  # strictly sequential: only a real deadlock (a blocked dependency) may break the order
+        # layer barrier: no higher layer (ui, features) starts while a lower one (foundation, base functions) still has open work
+        low = min((i["layer"] for i in p if i.get("layer") is not None), default=None)
+        if low is not None and ready:
+            held = [i for i in ready if i.get("source") == "user" or i["type"] == "bug" or (i.get("layer") is not None and i["layer"] <= low)]
+            ready = held or ready
         p = ready or p
 
         def key(i):

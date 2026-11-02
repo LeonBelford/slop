@@ -56,6 +56,8 @@ class TriageMixin(PriorityMixin):
             changed = self.light_check()
             changed = self._rescore() or changed
             relaid = self.graph_review()
+            if self.link_foundation():
+                relaid = True
             if relaid:
                 self.backlog.reload()
                 changed = self._rescore() or changed

@@ -53,6 +53,15 @@ class ChainTests(unittest.TestCase):
             self.assertEqual(b.next()["id"], other["id"])
             self.assertEqual(b.next(chain_from=done["id"])["id"], follow["id"])
 
+    def test_higher_layer_waits_for_open_lower_layer(self):
+        with tempfile.TemporaryDirectory() as d:
+            b = Backlog(Path(d) / "b.json")
+            base = b.add("Base", "d", priority=3, force=True, layer=0)
+            ui = b.add("UI", "d", priority=9, force=True, layer=2)
+            self.assertEqual(b.next()["id"], base["id"])
+            b.set(base, status="done")
+            self.assertEqual(b.next()["id"], ui["id"])
+
     def test_scout_finds_files_and_symbols(self):
         with tempfile.TemporaryDirectory() as d:
             repo = Path(d)

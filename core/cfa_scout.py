@@ -41,6 +41,8 @@ class ScoutMixin:
                 hints = list(pool.map(lambda i: scout_task(self.repo, self.mem.codemap, i), todo))
             for i, h in zip(todo, hints, strict=True):
                 i["scout"] = h
+                if not i.get("files"):
+                    i["files"] = [p.split(" (")[0] for p in h.split("; ") if p][:4]
             self.backlog.save()
             return len(todo)
         except Exception as e:  # noqa: BLE001  (look-ahead only)
