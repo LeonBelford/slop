@@ -195,6 +195,7 @@ class BuildMixin:
                       f"Risks: {plan.get('risks')}\nSecurity impact: {plan.get('security_impact')}\nKnown consequences (earlier decisions/lessons): {plan.get('known_consequences')}\n"
                       f"Affected callers: {plan.get('affected_dependents')}\n"
                       f"Tests to write: {plan.get('tests_to_add')}\nNew files: {plan.get('new_files')}\n"
+                      + (f"Design (follow it): {plan['spec']}\n" if plan.get("spec") else "")
                       + (f"Tests already written for this task (make them pass, change them only if they are wrong): {tests}\n" if tests else "")
                       + f"{part}\n{self.RULES}")
             self.code("implement" if len(groups) == 1 else f"implement{n}", edit, read + tests, prompt)
@@ -218,6 +219,8 @@ class BuildMixin:
                 gone = "; ".join(removed_test_names(self.git.diff()))
                 ok, report = False, ("[policy] The change deletes tests (more test definitions removed than added). Put these back "
                                      f"(rewriting is fine if the same cases are still tested): {gone or 'see git diff main'}. Fix the code, not the tests.")
+            if ok and (bad := self.contract_violation(item)):
+                ok, report = False, bad
             if ok:
                 return True, report
             self.log(f"Debug round {n}: {report.splitlines()[0]}")
@@ -282,6 +285,16 @@ class BuildMixin:
         if est["seconds"]:
             self.log(f"estimate: ~{round(est['seconds'] / 60)} min ({est['basis']}, {est['n']} comparable tasks)")
             self.backlog.set(item, estimate_s=est["seconds"])
+        try:
+            split = self.size_gate(item)
+        except LLMError:
+            self.backlog.set(item, status="pending")
+            self.cur_task, self.cur_attempt = "", 0
+            raise
+        if split:
+            self.cur_task, self.cur_attempt = "", 0
+            self.phase("Task split before the start (too large)", None, item["title"])
+            return False
         for attempt in range(1, self.lim["max_attempts_per_task"] + 1):
             self.cur_attempt = attempt
             self.backlog.set(item, attempts=item["attempts"] + 1)
@@ -305,6 +318,7 @@ class BuildMixin:
                                 desc=item.get("description", ""))
                 self.backlog.set(item, status="done")
                 self.layer_done(item)
+                self.drift_check(item)
                 self.force_heavy = False
                 self.last_light = item["type"] in ("docs", "test")
                 self.cur_task, self.cur_attempt = "", 0
@@ -394,6 +408,7 @@ class BuildMixin:
                       + "\n".join(previous[-3:]) + f"\n\n{self.RULES}")
         else:
             plan = self.impact_analysis(item, previous)
+            self.make_spec(item, plan)
             if self.spike_due(item, plan):
                 worked, finding = self.spike(item, plan)
                 if not worked:

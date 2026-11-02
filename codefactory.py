@@ -101,9 +101,11 @@ from core.cfa_milestone import MilestoneMixin
 from core.cfa_rules import RulesMixin
 from core.cfa_spike import SpikeMixin
 from core.cfa_triage import TriageMixin
+from core.cfa_quality import QualityMixin
+from core.cfa_gates import GateMixin
 
 
-class Agent(BuildMixin, FlowMixin, VerifyMixin, SecurityMixin, ResearchMixin, OpsMixin, PlanMixin, SplitMixin, ConductorMixin, SpikeMixin, MilestoneMixin, RulesMixin, HandoffMixin, TriageMixin):
+class Agent(BuildMixin, FlowMixin, VerifyMixin, SecurityMixin, ResearchMixin, OpsMixin, PlanMixin, SplitMixin, ConductorMixin, SpikeMixin, MilestoneMixin, RulesMixin, HandoffMixin, TriageMixin, QualityMixin, GateMixin):
     def __init__(self, ws: Path, cfg: dict | None = None):
         self.ws = ws.resolve()
         self.repo, self.dir = self.ws / "repo", self.ws / "agent"
@@ -487,6 +489,7 @@ def selftest() -> None:
     cfg["src_dirs"] = PRESETS["minimal"]["src_dirs"]
     cfg["web"]["mode"] = "open"
     cfg["limits"]["max_iterations"] = 6
+    cfg["features"].update(skeleton=False, dependency_plan=False, contracts_code=False)  # keeps the selftest to its 6 iterations
     cfg["limits"]["reflect_every"] = 2
     cfg["limits"]["architecture_refresh_every"] = 1
     a = Agent(ws, cfg)
@@ -495,7 +498,8 @@ def selftest() -> None:
     a.web.mock_search = lambda q: [("https://example.com/found", "Found")]
     a.init("demo idea")
     seeded = [i for i in a.backlog.items if i["source"] == "blueprint"]
-    assert [i["layer"] for i in seeded] == [0, 1] and seeded[1]["depends_on"] == [seeded[0]["id"]], "blueprint must seed layered tasks"
+    assert [i["layer"] for i in seeded] == sorted(i["layer"] for i in seeded) and seeded[-1]["layer"] == 1 \
+        and seeded[-1]["depends_on"] == [seeded[-2]["id"]], "blueprint must seed layered tasks as one chain"
     assert a.backlog.next()["id"] == seeded[0]["id"], "the core layer is built first"
     assert (a.repo / "docs" / "BLUEPRINT.md").exists()
     stats = a.reevaluate()
