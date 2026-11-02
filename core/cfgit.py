@@ -96,7 +96,7 @@ class Backlog:
         return False
 
     def add(self, title, description, type_="feature", priority=5.0, acceptance=None, rationale="",
-            source="ideation", extra_titles=None, force=False, layer=None, depends_on=None):
+            source="ideation", extra_titles=None, force=False, layer=None, depends_on=None, why=""):
         """Appends a new backlog item and saves, or returns `None` if it looks like a duplicate (unless `force`)."""
         if not force and self.is_dup(title, extra_titles):
             return None
@@ -108,6 +108,8 @@ class Backlog:
             item["layer"] = int(layer)
         if depends_on:
             item["depends_on"] = list(depends_on)
+        if why:
+            item["why"] = str(why)[:200]
         self.items.append(item)
         self.save()
         return item

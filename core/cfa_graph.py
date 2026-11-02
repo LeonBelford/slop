@@ -4,7 +4,6 @@ from __future__ import annotations
 from core import taskgraph
 from core.cfutil import clip
 
-MIN_OPEN = 3  # a start-of-run re-plan needs at least this many open tasks
 
 
 class GraphMixin:
@@ -46,16 +45,16 @@ class GraphMixin:
         return ids
 
     def graph_replan_start(self) -> bool:
-        """Once at the start of a run: lays the open tasks out as a graph again, but only if the backlog changed since the last plan
-        (new, finished or cancelled tasks), so an unchanged project does not spend a model call."""
+        """Once at the start of a run: the re-evaluation always reviews the graphs (sound steps? missing steps? still needed?).
+        It changes nothing without a valid reason (keep_plan)."""
         if getattr(self, "_graph_started", False) or not self.feat("graph_replan"):
             return False
         self._graph_started = True
         self.backlog.reload()
         open_ = [i for i in self.backlog.items if i["status"] in ("pending", "blocked")]
-        if len(open_) < MIN_OPEN or taskgraph.signature(self.backlog.items) == self.state.get("graph_sig"):
+        if not open_:
             return False
-        self.log(f"Graph plan: the backlog changed since the last plan, laying out the {len(open_)} open task(s) as a graph")
+        self.log(f"Graph review at the start of the run: {len(open_)} open task(s)")
         try:
             self.reevaluate(requeue=False, state_note=self._state_note())
         except Exception as e:  # noqa: BLE001

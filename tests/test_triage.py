@@ -47,7 +47,7 @@ class TriageTests(unittest.TestCase):
     def tearDown(self):
         self.tmp.cleanup()
 
-    def test_graph_replan_runs_once_at_the_start_and_only_for_a_changed_backlog(self):
+    def test_graph_review_runs_once_at_every_start(self):
         self.ag.cfg["features"]["graph_replan"] = True
         for n in range(3):
             self.ag.backlog.add(f"Task {n}", "d", priority=5, force=True, layer=0)
@@ -55,11 +55,9 @@ class TriageTests(unittest.TestCase):
         self.assertEqual(len(self.calls), 1)
         self.ag.triage()
         self.assertEqual(len(self.calls), 1)  # only once per run
-        from core import taskgraph
-        self.ag.state["graph_sig"] = taskgraph.signature(self.ag.backlog.items)
-        self.ag._graph_started = False
+        self.ag._graph_started = False  # a new run reviews the graphs again, even when nothing changed
         self.ag.triage()
-        self.assertEqual(len(self.calls), 1)  # nothing changed since the last plan
+        self.assertEqual(len(self.calls), 2)
 
     def test_dyn_changes_the_pick(self):
         a = self.ag.backlog.add("Base", "d", priority=5, force=True, layer=0)

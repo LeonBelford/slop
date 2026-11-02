@@ -36,7 +36,7 @@ class ProjectMixin:
                 "activity": self.activity(ws), "log": tail(a / "agent.log"), "run_out": tail(a / "run.out", 15), "do_out": tail(a / "do.out", 15), "try_out": tail(a / "try.out", 15),
                 "features": [{"id": k, "title": v.get("title", k)} if isinstance(v, dict) else {"id": k, "title": str(v)}
                              for k, v in feats.items()],
-                "backlog_items": [{k: i.get(k) for k in ("id", "title", "type", "priority", "status", "source", "attempts", "layer", "reason", "runtime_s", "estimate_s", "depends_on")}
+                "backlog_items": [{k: i.get(k) for k in ("id", "title", "type", "priority", "status", "source", "attempts", "layer", "reason", "runtime_s", "estimate_s", "depends_on", "why")}
                                   for i in backlog],
                 "has_ui": self.project_has_ui(ws),
                 "plan": blueprint.progress(blueprint.load(a / "blueprint.json"), backlog)}

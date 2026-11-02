@@ -86,11 +86,7 @@ class ResearchMixin:
         if merged - self.state["last_refactor_at"] >= self.lim["refactor_every"]:
             churn = self.git.churn()
             ranked = sorted(self.mem.codemap, key=lambda r: -(self.mem.codemap[r].get("loc", 0) * churn.get(r, 1)))[:3]
-            if ranked:
-                self.backlog.add(f"Refactor hotspots: {', '.join(ranked)}",
-                                 "Simplify the largest/most frequently changed files: split functions, remove duplicates, "
-                                 "improve names, without changing behavior. Tests must stay green.",
-                                 "refactor", 4.0, ["Build and tests green", "no behavior change"], "Hygiene", "hygiene")
+            self.schedule_quality(ranked, merged)
             self.state["last_refactor_at"] = merged
         if merged - self.state["last_coverage_at"] >= self.lim["coverage_every"]:
             dirs = tuple("" if d == "." else d for d in self.cfg["src_dirs"])

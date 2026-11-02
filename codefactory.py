@@ -103,11 +103,12 @@ from core.cfa_rules import RulesMixin
 from core.cfa_spike import SpikeMixin
 from core.cfa_triage import TriageMixin
 from core.cfa_quality import QualityMixin
+from core.cfa_hygiene_graph import HygieneGraphMixin
 from core.cfa_ext import ExtMixin
 from core.cfa_gates import GateMixin
 
 
-class Agent(BuildMixin, FlowMixin, VerifyMixin, SecurityMixin, ResearchMixin, OpsMixin, PlanMixin, GraphMixin, SplitMixin, ConductorMixin, SpikeMixin, MilestoneMixin, RulesMixin, HandoffMixin, TriageMixin, QualityMixin, GateMixin, ExtMixin):
+class Agent(BuildMixin, FlowMixin, VerifyMixin, SecurityMixin, ResearchMixin, OpsMixin, PlanMixin, GraphMixin, HygieneGraphMixin, SplitMixin, ConductorMixin, SpikeMixin, MilestoneMixin, RulesMixin, HandoffMixin, TriageMixin, QualityMixin, GateMixin, ExtMixin):
     def __init__(self, ws: Path, cfg: dict | None = None):
         self.ws = ws.resolve()
         self.repo, self.dir = self.ws / "repo", self.ws / "agent"

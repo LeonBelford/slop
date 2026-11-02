@@ -56,7 +56,7 @@ function tgLayout(items){
 function tgInfoText(){
   const i=tgState.sel&&tgItems[tgState.sel];
   if(!i)return "Hover or click a task to highlight its chain. Ctrl+scroll to zoom, drag to pan.";
-  return `<b>${esc(i.id)}</b> ${esc(i.title)} <span class="meta">· click again or on empty space to clear</span> ${typeof taskBtns==="function"&&detail?taskBtns(i,detail.running):""}`;
+  return `<b>${esc(i.id)}</b> ${esc(i.title)}${i.why?` <span class="meta reason">Why: ${esc(i.why)}</span>`:""} <span class="meta">· click again or on empty space to clear</span> ${typeof taskBtns==="function"&&detail?taskBtns(i,detail.running):""}`;
 }
 function tgPanel(d){
   const P=pref(),all=tgLive(d.backlog_items||[]),vis=tgVisible(all,P.showDone),items=all.filter(i=>vis.has(i.id));
@@ -76,7 +76,7 @@ function tgPanel(d){
   })).join("");
   const nodes=items.map(i=>{
     const p=L.pos[i.id],c=TG_COLORS[i.status]||"#888",t=i.title.length>26?i.title.slice(0,25)+"…":i.title,dim=on&&!on.has(i.id);
-    return `<g class="tg-n${i.id===live&&i.status==="in_progress"?" tg-live":""}" data-id="${esc(i.id)}" transform="translate(${p.x},${p.y})" style="opacity:${dim?.25:1}${i.id===tgState.sel?";filter:brightness(1.4)":""}"><title>${esc(i.id+" · "+i.status+" · "+i.title)}</title><rect width="${L.W}" height="${L.H}" rx="8" fill="#1c1c1c" stroke="${c}" stroke-width="1.5"/><rect width="5" height="${L.H}" rx="2" fill="${c}"/><text x="14" y="19" fill="#aaa" font-size="11">${esc(i.id)} · ${esc(i.status.replace("_"," "))}${i.layer!=null?" · L"+i.layer:""}</text><text x="14" y="36" fill="#eee" font-size="12.5">${esc(t)}</text></g>`;
+    return `<g class="tg-n${i.id===live&&i.status==="in_progress"?" tg-live":""}" data-id="${esc(i.id)}" transform="translate(${p.x},${p.y})" style="opacity:${dim?.25:1}${i.id===tgState.sel?";filter:brightness(1.4)":""}"><title>${esc(i.id+" · "+i.status+" · "+i.title+(i.why?"\nWhy: "+i.why:""))}</title><rect width="${L.W}" height="${L.H}" rx="8" fill="#1c1c1c" stroke="${c}" stroke-width="1.5"/><rect width="5" height="${L.H}" rx="2" fill="${c}"/><text x="14" y="19" fill="#aaa" font-size="11">${esc(i.id)} · ${esc(i.status.replace("_"," "))}${i.layer!=null?" · L"+i.layer:""}</text><text x="14" y="36" fill="#eee" font-size="12.5">${esc(t)}</text></g>`;
   }).join("");
   const n=edges?edges.split("<path").length-1:0,z=tgState.z;
   return `<div class="panel">${bar}

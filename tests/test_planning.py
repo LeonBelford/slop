@@ -41,7 +41,7 @@ class ReevaluationTests(unittest.TestCase):
             "layers": [{"name": "Core", "goal": "g"}, {"name": "UI", "goal": "g"}],
             "assign": [{"id": "T2", "layer": 9}, {"id": "nope", "layer": 0}],
             "new_tasks": [{"key": "a", "title": "Base", "layer": -3, "depends_on": ["T2", "zzz"]}],
-            "cancel": [{"id": "T1"}, {"id": "T2"}, {"id": "ghost"}]}, items)
+            "cancel": [{"id": "T1"}, {"id": "T2", "why": "obsolete"}, {"id": "ghost"}]}, items)
         self.assertEqual(list(r["assign"]), ["T2"])
         self.assertEqual(r["assign"]["T2"]["layer"], 1)
         self.assertEqual((r["new"][0]["layer"], r["new"][0]["depends_on"]), (0, ["T2"]))
