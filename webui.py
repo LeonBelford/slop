@@ -478,7 +478,7 @@ def make_handler(svc: Service, port: int, token: str | None = None):
                 m = re.fullmatch(r"/api/chat/([a-f0-9]{12})/action", path)
                 if m:
                     return svc.chat_action(m.group(1), body)
-                if path in ("/api/models/pull", "/api/models/delete", "/api/models/cancel"):
+                if path in ("/api/models/pull", "/api/models/delete", "/api/models/cancel", "/api/models/warm"):
                     return getattr(svc, "model_" + path.rsplit("/", 1)[1])(body)
                 m = re.fullmatch(r"/api/chat/([a-f0-9]{12})/(update|delete)", path)
                 if m:

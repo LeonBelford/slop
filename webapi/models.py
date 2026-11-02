@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import json
+import re
 import threading
 import urllib.error
 import urllib.parse
@@ -96,6 +97,23 @@ class ModelsMixin:
             st["error"] = f"Model server not reachable or download interrupted: {e}"[:300]
         st["active"] = False
         self._ms = None
+
+    def model_warm(self, body: dict) -> dict:
+        """Loads a model into VRAM now (empty prompt) and keeps it there, so the first chat message or task does not wait for the load."""
+        name = self.model_name(body.get("name"))
+        keep = str(body.get("keep_alive") or "30m")
+        if not re.fullmatch(r"\d{1,4}[smh]|-1", keep):
+            raise UiError("Invalid keep_alive")
+        req = urllib.request.Request(self.ollama_base() + "/api/generate", data=json.dumps({"model": name, "prompt": "", "keep_alive": keep, "stream": False}).encode(),
+                                     headers={"Content-Type": "application/json"})
+
+        def go():
+            try:
+                urllib.request.urlopen(req, timeout=300).close()
+            except Exception:  # noqa: BLE001  (a warm-up is best effort)
+                pass
+        threading.Thread(target=go, daemon=True).start()
+        return {"ok": True, "model": name, "keep_alive": keep}
 
     def model_cancel(self, body: dict) -> dict:
         PULL_CANCEL.add(self.model_name(body.get("name")))

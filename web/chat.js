@@ -150,8 +150,12 @@ function drawModelBar(){
   el.innerHTML=`<div class="cx-modelbar">
     <span class="mb-dot ${st[0]}"></span><span class="mb-t">${esc(c.model)}</span><span class="pill">${st[1]}</span>
     ${g?`<span class="mb-gpu" title="GPU utilisation / VRAM / temperature">GPU ${g.util!=null?g.util+"%":"–"} · ${g.mem_used!=null?g.mem_used:"?"}/${g.mem_total!=null?g.mem_total:"?"} MB${g.temp!=null?" · "+g.temp+"°C":""}</span>`:""}
+    ${s.up&&!loaded&&!busy?`<button class="small" onclick="warmModel()" title="Load the model into VRAM now and keep it for 30 minutes">Warm up</button>`:""}
     ${loaded&&loaded.vram_gb!=null?`<span class="hint" style="margin:0">${loaded.vram_gb} GB VRAM</span>`:""}
   </div>`;
+}
+async function warmModel(){
+  try{await api("/api/models/warm",{name:chat.cur.model,keep_alive:"30m"});toast("Loading "+chat.cur.model+" into VRAM…");setTimeout(modelPoll,1500)}catch(e){toast(e.message,true)}
 }
 async function modelPoll(){
   if(!chatOn()||!chat.cur){clearInterval(chat.mpoll);return}
