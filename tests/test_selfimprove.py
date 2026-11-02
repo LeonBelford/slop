@@ -60,7 +60,7 @@ class SelfImproveTest(unittest.TestCase):
                 res = selfimprove.main(tmp / "projects", repo=repo, coder=coder, log=lambda m: None)
             finally:
                 sa.LLM.mock = None
-            self.assertEqual(res["kept"], ["Good"])
+            self.assertEqual(res.get("kept"), ["Good"], res)
             diff = subprocess.run(["git", "diff", "--name-only", f"HEAD...{res['branch']}"], cwd=repo, capture_output=True, text=True).stdout
             self.assertEqual(sorted(diff.split()), ["README.md", "codefactory.py", "docs/MODULES.md", "docs/SELF_IMPROVEMENTS.md"])
             self.assertTrue((repo / "self_improve").glob("proposals-*.md"))

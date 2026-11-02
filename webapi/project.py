@@ -260,7 +260,15 @@ class ProjectMixin:
         item = next((i for i in bl.items if i["id"] == body.get("id")), None)
         if not item:
             raise UiError("Task not found", 404)
-        if action == "task-cancel":
+        if action == "task-delete":
+            if item["status"] not in ("blocked", "cancelled"):
+                raise UiError("Only blocked or cancelled tasks can be deleted")
+            bl.items = [i for i in bl.items if i is not item]
+            for i in bl.items:
+                if item["id"] in (i.get("depends_on") or []):
+                    i["depends_on"] = [d for d in i["depends_on"] if d != item["id"]]
+            bl.save()
+        elif action == "task-cancel":
             if item["status"] not in ("pending", "blocked"):
                 raise UiError("Only open tasks can be cancelled")
             bl.set(item, status="cancelled", notes=item.get("notes", []) + ["cancelled by you in the UI"], reason="cancelled by you in the UI")

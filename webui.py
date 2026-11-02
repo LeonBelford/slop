@@ -168,7 +168,7 @@ class Service(ProjectMixin, DashboardMixin, ToolMixin, ModelsMixin, ChatMixin, E
             if not msg:
                 raise UiError("Message is empty")
             sa.Agent(ws).add_feedback(msg)
-        elif action in ("task-cancel", "task-reopen", "task-top"):
+        elif action in ("task-cancel", "task-reopen", "task-top", "task-delete"):
             self.backlog_edit(ws, action, body)
         elif action == "replay":
             try:

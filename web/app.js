@@ -437,11 +437,11 @@ function customizeBody(d){
 function taskBtns(i){
   const b=(a,l,c)=>`<button class="small ${c||""}" onclick="taskAct('${a}','${esc(i.id)}')">${l}</button> `;
   if(i.status==="pending")return b("task-top","Top")+b("task-cancel","Cancel");
-  if(i.status==="blocked")return b("task-reopen","Reopen")+b("task-cancel","Cancel");
-  if(i.status==="cancelled")return b("task-reopen","Reopen");
+  if(i.status==="blocked")return b("task-reopen","Reopen")+b("task-cancel","Cancel")+b("task-delete","Delete");
+  if(i.status==="cancelled")return b("task-reopen","Reopen")+b("task-delete","Delete");
   return "";
 }
-async function taskAct(a,id){await act(a,{id})}
+async function taskAct(a,id){if(a==="task-delete"&&!confirm("Delete this task for good?"))return;await act(a,{id})}
 function settingsBody(d){
   const x=extra&&extra.kind==="settings"?extra:null;
   if(!x)return `<div class="hint">Loading…</div>`;

@@ -117,11 +117,9 @@ class Agent(BuildMixin, FlowMixin, VerifyMixin, SecurityMixin, ResearchMixin, Op
             if k in TUNABLE:
                 self.lim[k] = max(TUNABLE[k][0], min(TUNABLE[k][1], int(v)))
         self.llm = LLM(self.cfg, self.log)
-        self.llm.trace, self.llm.roles = self.dir / "llm.log", self.dir / "roles.json"
-        self.llm.live = self.dir / "llm_now.json"
-        self.llm.thoughts = self.dir / "thoughts.jsonl"
+        self.llm.trace, self.llm.roles, self.llm.live = self.dir / "llm.log", self.dir / "roles.json", self.dir / "llm_now.json"
+        self.llm.thoughts, self.llm.stream = self.dir / "thoughts.jsonl", self.dir / "llm_stream.json"
         self.llm.load_ctx(self.dir / "llm_ctx.json")
-        self.llm.stream = self.dir / "llm_stream.json"
         self.llm.ctx = lambda: self.cur_task
         self.llm.sched = gpusched.make(self.cfg, self.ws.name, self.log, self.dir / "sched.json")
         self.cur_task, self.cur_attempt = "", 0
