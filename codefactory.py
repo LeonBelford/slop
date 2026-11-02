@@ -116,6 +116,7 @@ class Agent(BuildMixin, FlowMixin, VerifyMixin, SecurityMixin, ResearchMixin, Op
         self.llm.trace = self.dir / "llm.log"
         self.llm.live = self.dir / "llm_now.json"
         self.llm.thoughts = self.dir / "thoughts.jsonl"
+        self.llm.load_ctx(self.dir / "llm_ctx.json")
         self.llm.stream = self.dir / "llm_stream.json"
         self.llm.ctx = lambda: self.cur_task
         self.llm.sched = gpusched.make(self.cfg, self.ws.name, self.log, self.dir / "sched.json")

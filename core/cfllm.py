@@ -19,6 +19,7 @@ class LLMError(RuntimeError):
         self.status = status
 
 
+CTX_MEMORY_SECONDS = 4 * 3600
 CHARS_PER_TOKEN = 3.0
 ANSWER_SHARE = 0.4  # of a small context window kept free for the answer (reasoning models think before they answer)
 
@@ -34,8 +35,9 @@ def fit_to_ctx(system: str, user: str, ctx: int) -> tuple[str, str]:
     budget = int(ctx * (1 - ANSWER_SHARE) * CHARS_PER_TOKEN)
     if len(system) + len(user) <= budget:
         return system, user
+    margin = 60  # clip() adds a truncation marker
     sys_keep = min(len(system), budget // 3)
-    return clip(system, sys_keep), clip(user, max(budget - sys_keep, 500))
+    return clip(system, max(sys_keep - margin, 200)), clip(user, max(budget - sys_keep - margin, 500))
 
 
 def shrink(system: str, user: str, factor: float = 0.6) -> tuple[str, str]:
@@ -192,6 +194,23 @@ class LLM:
         self.log(f"Model server OK, models available: {', '.join(sorted(need))}. "
                  "The first answer can take several minutes while the model loads (see `ollama ps`).")
 
+    def load_ctx(self, path: Path) -> None:
+        """Remembers the server's context window across restarts, so the first call after a start is not rejected again."""
+        self.ctx_file = path
+        try:
+            d = json.loads(path.read_text("utf-8"))
+            # forgotten after a few hours, so a raised server window is noticed
+            self.server_ctx = int(d.get("ctx", 0)) if time.time() - float(d.get("at", 0)) < CTX_MEMORY_SECONDS else 0
+        except (OSError, ValueError, AttributeError):
+            self.server_ctx = 0
+        if self.server_ctx:
+            self.log(f"Model server context window known from an earlier run: {self.server_ctx} tokens, prompts are cut to fit it.")
+
+    def save_ctx(self) -> None:
+        f = getattr(self, "ctx_file", None)
+        if f:
+            write_json(f, {"ctx": self.server_ctx, "at": time.time()})
+
     def _answer_tokens(self) -> int:
         cap = int(self.cfg["limits"].get("max_answer_tokens", 6000))
         return min(cap, int(self.server_ctx * ANSWER_SHARE)) if self.server_ctx else cap
@@ -267,11 +286,10 @@ class LLM:
                     ctx = server_ctx(detail)
                     if ctx and ctx != self.server_ctx:
                         self.server_ctx = ctx
+                        self.save_ctx()
                         self.log(f"The model server only has a context window of {ctx} tokens. Prompts are cut to fit it; for good results raise it "
                                  f"(Ollama: OLLAMA_CONTEXT_LENGTH=16384, or a Modelfile with num_ctx, see scripts/Modelfile.qwen-coder-14b).")
                     system, user = fit_to_ctx(system, user, ctx) if ctx else shrink(system, user)
-                    if ctx and len(system) + len(user) > int(ctx * (1 - ANSWER_SHARE) * CHARS_PER_TOKEN):
-                        system, user = shrink(system, user)
                     body = json.dumps({**json.loads(body), "max_tokens": self._answer_tokens(),
                                        "messages": [{"role": "system", "content": system}, {"role": "user", "content": user}]}).encode()
                     self.log(f"LLM error ({tag}): retrying with a smaller prompt ({len(system) + len(user)} chars)")
