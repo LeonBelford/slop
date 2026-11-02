@@ -26,7 +26,8 @@ import time
 from pathlib import Path
 
 import codefactory as sa
-from core import progress
+from core import cfa_handoff, cfa_write, failures, progress
+from core.cfa_flow import removed_test_names, removed_tests
 from dash import estimate, toolmodels
 from infra import models
 from infra import perf
@@ -213,6 +214,11 @@ def _git(repo: Path, *args: str) -> tuple[int, str]:
     return sa.sh(["git", *args], repo, 120)
 
 
+def _pin(p: dict, frm: str, to: str, do=(), do_not=(), done_when=(), decided=(), open_=()) -> str:
+    """The same pinned instruction block the project pipeline puts in front of every coder prompt."""
+    return cfa_handoff.render(to, frm, goal=p["title"], decided=decided, do=do, do_not=do_not, done_when=done_when, open_=open_) + "\n\n"
+
+
 def _tests_green(work: Path, timeout: int) -> tuple[bool, str]:
     for cmd in (["python3", "codefactory.py", "selftest"], ["python3", "-m", "unittest", "discover", "-s", "tests"]):
         STATE.mkdir(exist_ok=True)
@@ -220,12 +226,34 @@ def _tests_green(work: Path, timeout: int) -> tuple[bool, str]:
         rc, out = sa.sh_live(cmd, work, timeout, STATE / "cmd_live.txt")
         (STATE / "cmd_now.json").unlink(missing_ok=True)
         if rc != 0:
-            return False, sa.tail(out, 1500)
+            return False, failures.focus(out, 1500)
     return True, "ok"
+
+
+def _fingerprint(work: Path, files: list[str]) -> str:
+    return "|".join(f"{f}:{hash((work / f).read_bytes())}" if (work / f).is_file() else f"{f}:-" for f in files)
+
+
+def _write_guard(work: Path, edit: list[str], before: str, answer: str, cmd: list[str], pf: Path, prompt: str, timeout: int) -> str:
+    """Same guard as the project coder: when Aider changed no file, take complete files from its chat answer, else ask once more in
+    whole-file mode. Returns extra output to append."""
+    if not edit or _fingerprint(work, edit) != before:
+        return ""
+    if cfa_write.write_files(work, cfa_write.extract_files(answer, edit)):
+        return "\n[write guard] files written from the chat answer"
+    pf.write_text(prompt + "\n\nIMPORTANT: your last answer changed NO file. Do not explain and do not only show code in the chat. "
+                  "Output the complete updated content of every file you must change so that it is written to disk.", "utf-8")
+    rc, out = sa.sh_live(cmd + ["--edit-format", "whole"], work, timeout, STATE / "coder_live.txt",
+                         env={"OLLAMA_API_BASE": sa.os.getenv("OLLAMA_API_BASE", "http://localhost:11434"), "PYTHONUNBUFFERED": "1"}, idle=True)
+    if _fingerprint(work, edit) == before:
+        cfa_write.write_files(work, cfa_write.extract_files(out, edit))
+    return "\n" + out
 
 
 def _aider(model: str, timeout: int):
     def run(work: Path, files: list[str], prompt: str) -> str:
+        if "qwen3" in model.lower() and sa.DEFAULT_CONFIG["features"].get("coder_no_think") and not prompt.startswith("/no_think"):
+            prompt = "/no_think\n" + prompt  # Qwen3 switch: write code instead of reasoning for minutes
         pf = work / ".improve_prompt.md"
         pf.write_text(prompt, "utf-8")
         cmd = ["aider", "--yes-always", "--no-auto-commits", "--no-pretty", "--no-check-update",
@@ -234,13 +262,15 @@ def _aider(model: str, timeout: int):
             cmd += ["--read", MAP_FILE]  # the coder sees the whole-project map for every edit
         cmd += perf.aider_args(model, STATE)
         cmd += ["--edit-format", sa.os.getenv("AIDER_EDIT_FORMAT", "diff"), "--map-tokens", "1024"]  # diff: the model writes only the changed parts
-        cmd += files if prompt.startswith("Documentation update") else _fit(work, files)
+        edit = files if prompt.startswith("Documentation update") else _fit(work, files)
+        cmd += edit
         STATE.mkdir(exist_ok=True)
         sa.write_json(STATE / "coder_now.json", {"tag": "self-change", "files": files[:12], "model": model, "since": time.time()})
-        t0 = time.time()
+        t0, before = time.time(), _fingerprint(work, edit)
         rc, out = sa.sh_live(cmd, work, timeout, STATE / "coder_live.txt",
                              env={"OLLAMA_API_BASE": sa.os.getenv("OLLAMA_API_BASE", "http://localhost:11434"), "PYTHONUNBUFFERED": "1"},
                              idle=True)  # the timeout only counts silence: Aider is never cut off while it is still writing
+        out += _write_guard(work, edit, before, out, cmd, pf, prompt, timeout)
         for f in ("coder_now.json", "coder_live.txt"):
             (STATE / f).unlink(missing_ok=True)
         pf.unlink(missing_ok=True)
@@ -570,6 +600,10 @@ def _gates(work: Path, p: dict, files: list[str], llm, coder, log, ledger, pi: i
     if not changes:
         out = sa.tail(str(state.get("coder_out") or ""), 700).strip()
         return False, "the coder made no usable edit" + (f". Last Aider output: {out}" if out else ""), "implement"
+    dropped = removed_tests(_git(work, "diff", "--cached", "HEAD")[1])
+    if dropped > 0:
+        names = removed_test_names(_git(work, "diff", "--cached", "HEAD")[1])
+        return False, f"[policy] the change deletes {dropped} test(s): {names}. Restore them; fix the code, not the tests.", "policy"
     code, has_tests = _needs_tests(changes)
     if code and not has_tests and not state["tests_round"]:
         state["tests_round"] = True
@@ -626,7 +660,9 @@ def _work_on(work: Path, p: dict, files: list[str], impact: str, llm, coder, log
     prompt = (f"{p['change']}\n\nRationale: {p.get('rationale', '')}\n{impact}\n"
               "Write secure code: validate input, no shell injection, no secrets, never disable or loosen a safeguard. "
               f"Keep the change focused. {test_rule}{('Lessons from earlier failed attempts (avoid repeating them):\\n' + _lessons() + chr(10)) if _lessons() else ''}Standard library only. Documentation is updated in a separate step afterwards.")
-    ok, report, stage, last = False, "", "", None
+    prompt = _pin(p, "plan", "implement", do=[p["change"]], do_not=["modify protected files", "delete or loosen tests", "remove or loosen a safeguard"],
+                  done_when=["selftest and all unit tests pass", "new behavior is covered by a new test"]) + prompt
+    ok, report, stage, last, tried = False, "", "", None, []
     for rnd in range(FIX_ROUNDS + 1):
         _phase("implement", p["title"] if rnd == 0 else f"{p['title']} (repair round {rnd}: {stage})")
         ledger.stage(pi, "implement", "running")
@@ -651,8 +687,14 @@ def _work_on(work: Path, p: dict, files: list[str], impact: str, llm, coder, log
             ledger.stage(pi, "implement", "failed", report)
         ledger.d["proposals"][pi]["rounds"] = rnd + 1
         ledger.proposal(pi, note=f"round {rnd + 1} failed at {stage}: {report[:300]}")
+        sig = failures.signature(report)
+        stalled = bool(tried) and tried[-1] == sig
+        tried.append(sig)
         if rnd == FIX_ROUNDS:
             break
+        if stalled:
+            log(f"  repair stalled: round {rnd + 1} failed exactly like the one before, demanding a different approach")
+            report += "\nThe previous round failed in exactly this way. Do NOT repeat that approach; change strategy."
         log(f"  round {rnd + 1} failed at {stage}; diagnosing and repairing ({rnd + 1}/{FIX_ROUNDS})")
         _phase("implement", f"Diagnosing the failure ({stage})")
         diag = _diagnose(llm, p, stage, report, work)
@@ -664,6 +706,8 @@ def _work_on(work: Path, p: dict, files: list[str], impact: str, llm, coder, log
                   "Never remove or loosen a safeguard to make a check pass. Standard library only."
                   + (" Your last answer changed no file: reply only with edit blocks in the requested format, no explanations, "
                      "and copy the SEARCH lines exactly from the file." if stage == "implement" else ""))
+        prompt = _pin(p, "debug", "implement", do=[f"fix the '{stage}' failure", p["change"]], do_not=["repeat what already failed", "delete or loosen tests"],
+                      done_when=["every check passes"], open_=[f"already failed: {t}" for t in tried[-3:]]) + prompt
     if last and ok:
         _remember(*last, fixed=True)
     elif last:

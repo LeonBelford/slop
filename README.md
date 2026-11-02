@@ -222,6 +222,13 @@ tasks that keep failing sink (`dyn` correction, free, no model call). After 3 me
 lays the plan out again with a note on what was merged, what fails and what is blocked; failures only log and are not retried
 every iteration. User tasks are never touched. Switch off with `features.triage: false`.
 
+## Self-Improve uses the same quality standard
+
+The self-improve pipeline shares the helpers of the project pipeline: pinned instruction blocks (`core/cfa_handoff.py`) in front of
+every coder and repair prompt, the write guard (complete files from the chat answer, then one whole-file retry), `/no_think` for
+qwen3 coders, `failures.focus` for test reports, stall detection by failure signature (the same failure twice ends the repair rounds)
+and the policy gate that rejects a change which deletes tests.
+
 ## Handoffs between steps
 
 Every step ends with a structured instruction for the next one: goal, decisions with reasons, what to do, what not to do, when it is done and what is still open. Plan → implement, implement → debug, each debug round (with a list of what was already tried), review → fix, acceptance, security and a failed attempt → next attempt all use it. The block is pinned in front of every coder prompt and model call of the task and stored at the top of `journal.md`, so reasoning is not lost between fresh chats.
