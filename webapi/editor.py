@@ -12,6 +12,7 @@ import subprocess
 from pathlib import Path
 
 import codefactory as sa
+from core import filegraph
 from dash.directedit import _safe
 from webapi.common import MAX_FILE, UiError, git
 
@@ -57,6 +58,15 @@ class EditorMixin:
             tasks = [{"id": t["id"], "title": t["title"], "status": t["status"]}
                      for t in sa.read_json(repo.parent / "agent" / "backlog.json", [])][:300]
             return {"files": files, "tasks": tasks}
+        if what == "filegraph":
+            files = [f for f in git(repo, "ls-files").splitlines() if f and not f.startswith(("node_modules/", ".venv"))][:600]
+
+            def read(f: str) -> str:
+                try:
+                    return (repo / f).read_text("utf-8")[:60000]
+                except (OSError, UnicodeDecodeError):
+                    return ""
+            return filegraph.build(files, read, sa.read_json(repo.parent / "agent" / "backlog.json", []))
         if what == "head":
             _, rel = self._rel(repo, q.get("path", ""))
             rc, out = _git_rc(repo, "show", f"HEAD:{rel}")
