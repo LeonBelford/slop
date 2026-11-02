@@ -161,7 +161,8 @@ class ProjectMixin:
         return {"settings": {"models": eff["models"], "coder_model": eff["coder_model"],
                              "limits": {k: eff["limits"][k] for k in SETTING_LIMITS}, "web_mode": eff["web"]["mode"], "scheduler": eff["scheduler"], "run": eff["run"],
                              "doc_language": eff["doc_language"], "preset": conf.get("preset", eff["preset"]),
-                             "routing": {k: eff["routing"].get(k, "") for k in ("mode", "light", "heavy", "final_reviewer")}},
+                             "routing": {k: eff["routing"].get(k, "") for k in ("mode", "light", "heavy", "final_reviewer")},
+                             "chat_direct_edit": bool(eff.get("chat", {}).get("direct_edit"))},
                 "limit_bounds": SETTING_LIMITS, "installed_models": inst,
                 "resolved": models.resolve(set(inst), eff["routing"], eff["coder_model"]),
                 "catalog": models.catalog_view(set(inst))}
@@ -226,6 +227,8 @@ class ProjectMixin:
             if body["web_mode"] not in ("off", "sources", "open"):
                 raise UiError("Web mode must be off, sources or open")
             conf.setdefault("web", {})["mode"] = body["web_mode"]
+        if "chat_direct_edit" in body:
+            conf.setdefault("chat", {})["direct_edit"] = bool(body["chat_direct_edit"])
         if "doc_language" in body:
             lang = str(body["doc_language"]).strip()
             if not re.fullmatch(r"[A-Za-z ]{2,30}", lang):

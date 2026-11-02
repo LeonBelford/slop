@@ -34,6 +34,10 @@ TOOLS: dict[str, tuple[str, bool, bool]] = {
     "cancel_task": ('args: "task": id. Cancels a task that is not wanted anymore', True, True),
     "hint": ('args: "text": an instruction pinned into the prompts of the current task', True, True),
     "generate_tests": ('args: "file": queue a task that writes tests for that source file', True, True),
+    "write_note": ('args: "text", optional "file" (default notes.md): a project note kept outside the repo, always available', True, True),
+    "make_folder": ('args: "path": create an (empty) folder in the project repo, for example "docs/notes"', True, True),
+    "write_file": ('args: "path", "content": write a file straight into the repo, skipping plan/build/test. Only works if '
+                   '"Let chat write files directly" is on in Settings', True, True),
     "create_project": ('args: "idea": text, "name": optional, "template": cli, web-api or library (optional)', False, True),
 }
 ACTION_RE = re.compile(r"```action[ \t]*\n(.*?)```", re.S)
@@ -97,11 +101,14 @@ def validate(call: dict, linked: list[str] | None) -> tuple[str, dict]:
             raise ValueError(f"Project '{p}' is not linked to this chat")
     need = {"search_code": "query", "add_task": "text", "hint": "text", "run_next": "task", "set_priority": "task", "generate_tests": "file",
             "create_project": "idea", "read_file": "path", "cancel_task": "task", "show_task": "task", "reopen_task": "task",
-            "delete_task": "task", "feedback": "text", "run_command": "command"}.get(tool)
+            "delete_task": "task", "feedback": "text", "run_command": "command", "write_note": "text", "make_folder": "path",
+            "write_file": "path"}.get(tool)
     if need and not str(args.get(need) or "").strip():
         raise ValueError(f"'{need}' is missing")
     if tool == "edit_task" and not (str(args.get("title") or "").strip() or str(args.get("text") or "").strip()):
         raise ValueError("'title' or 'text' is missing")
+    if tool == "write_file" and not str(args.get("content") or "").strip():
+        raise ValueError("'content' is missing")
     if tool == "design" and not isinstance(args.get("approve"), bool):
         raise ValueError('"approve" must be true or false')
     if tool == "set_priority" and args.get("priority") != "top":
@@ -113,5 +120,5 @@ def validate(call: dict, linked: list[str] | None) -> tuple[str, dict]:
 
 
 def describe(tool: str, args: dict) -> str:
-    detail = args.get("text") or args.get("command") or args.get("idea") or args.get("query") or args.get("task") or args.get("file") or ""
+    detail = args.get("text") or args.get("command") or args.get("idea") or args.get("query") or args.get("task") or args.get("file") or args.get("path") or ""
     return f"{tool}" + (f" on {args['project']}" if args.get("project") else "") + (f": {str(detail)[:200]}" if detail else "")

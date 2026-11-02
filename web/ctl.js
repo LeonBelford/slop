@@ -52,7 +52,8 @@ function ctlControlBody(d) {
     <label><input type="checkbox" ${c.step_mode ? "checked" : ""} onchange="ctlAct('control',{step_mode:this.checked})"> Step mode (wait after every task)</label>
   </div>
   <div class="row" style="margin-top:10px;gap:6px"><input id="ctl-next" placeholder="task id, e.g. T0012" value="${esc(c.next || "")}" style="max-width:160px"><button onclick="ctlAct('control',{next:$('#ctl-next').value})">Run this one next</button>${c.next ? `<button class="ghost" onclick="ctlAct('control',{next:''})">Clear</button>` : ""}</div>
-  <div class="row" style="margin-top:10px;gap:6px"><input id="ctl-hint" placeholder="hint for the current/next attempt, pinned into every prompt"><button onclick="ctlHint()">Pin hint</button></div>
+  <div class="row" style="margin-top:10px;gap:6px"><input id="ctl-hint" placeholder="hint for the current/next attempt, pinned into every prompt" onkeydown="if(event.key==='Enter')ctlHint()"><button onclick="ctlHint()">Pin hint</button></div>
+  <div class="chips" style="margin-top:6px">${HINT_PRESETS.map(h => `<span class="chip" onclick="ctlHint('${esc(h).replace(/'/g, "\\'")}')">${esc(h)}</span>`).join("")}</div>
   ${hints ? `<ul style="margin-top:8px">${hints}</ul><button class="small ghost" onclick="ctlAct('control',{clear_hints:true})">Clear hints</button>` : ""}</div>
   ${spec}
   <div class="panel" style="margin-top:16px"><h3>Context window tuner</h3><p class="hint">Reads what the running model server reports and proposes num_ctx for the Modelfile. Your biggest bottleneck if answers get cut off or re-planning fails.</p>
@@ -62,7 +63,8 @@ function ctlControlBody(d) {
   <div class="panel" style="margin-top:16px"><h3>Playground</h3><p class="hint">Starts the app for real (same command as "Test now"), with a live log, so you can click around while it runs.</p>
   <div class="row" style="gap:6px"><input id="ctl-play-cmd" placeholder="run command (optional, detected by default)" style="flex:1"><button onclick="ctlPlay()">Start</button><button class="ghost" onclick="ctlAct('play-stop')">Stop</button></div><div id="ctl-play"></div></div>`;
 }
-async function ctlHint() { const v = $("#ctl-hint").value.trim(); if (!v) return; await ctlAct("control", { hint: v }); $("#ctl-hint").value = ""; }
+async function ctlHint(preset) { const v = preset || $("#ctl-hint").value.trim(); if (!v) return; await ctlAct("control", { hint: v }); if (!preset) $("#ctl-hint").value = ""; }
+const HINT_PRESETS = ["Be conservative with refactors", "No new dependencies", "Keep changes small and reviewable", "Write a test before touching this", "Prefer clarity over cleverness"];
 async function ctlTune() {
   try { const r = await api("/api/ext/ctx"); $("#ctl-tune").innerHTML = r.models && r.models.length ? `<table><tr><th>Model</th><th>Current num_ctx</th><th>Recommended</th><th></th></tr>${r.models.map(m => `<tr><td>${esc(m.name)}</td><td>${m.current_ctx || "–"}</td><td title="${esc(m.why)}">${m.recommended}</td><td>${m.recommended > (m.current_ctx || 4096) ? `<button class="small" onclick="ctlTuneWrite('${esc(m.name)}',${m.recommended})">Write Modelfile</button>` : "already big enough"}</td></tr>`).join("")}</table>` : `<div class="hint">${esc(r.error || "No model server reachable.")}</div>`; }
   catch (e) { toast(e.message, true); }

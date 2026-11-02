@@ -37,8 +37,10 @@ function statusOf(p){return p.running?(p.stopping?["stop","stopping after task"]
 function renderList(){
   const m=list.model_server;if(m)$("#ms").innerHTML=`<span class="dot ${m.ok?"run":"stop"}" style="display:inline-block"></span> Model server ${m.ok?"online · "+m.models+" models":"offline ("+esc(m.url)+")"}`;
   const jobs=list.init_jobs.map(j=>`<div class="job">${j.running?"Creating":"Failed"}: <b>${esc(j.name)}</b><br><code>${esc((j.log||"").split("\n").slice(-3).join(" "))}</code></div>`).join("");
-  $("#plist").innerHTML=jobs+(list.projects.map(p=>{const[c,t]=statusOf(p);
-    return `<div class="card ${view==="project"&&p.name===sel?"sel":""}" onclick="select('${esc(p.name)}')"><div class="n"><span class="dot ${c}"></span>${esc(p.name)}${p.priority==="side"?` <span class="pill info" title="Side agent: only uses the GPU while the main agent is idle">side</span>`:""}</div><div class="s">${t} · ${p.merged} features · ${p.backlog.pending||0} open</div></div>`}).join("")||(jobs?"":'<div class="hint" style="padding:10px">No projects yet.</div>'));
+  const fEl=$("#projFilter"),f=(fEl&&fEl.value||"").trim().toLowerCase();
+  const projs=f?list.projects.filter(p=>p.name.toLowerCase().includes(f)):list.projects;
+  $("#plist").innerHTML=jobs+(projs.map(p=>{const[c,t]=statusOf(p);
+    return `<div class="card ${view==="project"&&p.name===sel?"sel":""}" onclick="select('${esc(p.name)}')"><div class="n"><span class="dot ${c}"></span>${esc(p.name)}${p.priority==="side"?` <span class="pill info" title="Side agent: only uses the GPU while the main agent is idle">side</span>`:""}</div><div class="s">${t} · ${p.merged} features · ${p.backlog.pending||0} open</div></div>`}).join("")||(jobs?"":f?'<div class="hint" style="padding:10px">No project matches.</div>':'<div class="hint" style="padding:10px">No projects yet.</div>'));
 }
 function select(n){closeSb();view="project";sel=n;localStorage.setItem("sel",n);applyPref();tab=pref().start||"overview";dirty=false;detail=null;extra=null;diffView=null;codeView=null;codeOpen=new Set();codeInit=false;lastBody=lastHead=lastTabs="";renderList();refresh()}
 function showTool(){closeSb();view="tool";tab="tool";toolTab_="tool";codeView=null;codeInit=false;codeOpen=new Set();dirty=false;extra=null;diffView=null;lastBody=lastHead=lastTabs="";renderList();refresh()}
@@ -469,6 +471,7 @@ function settingsBody(d){
     <label class="fld">side waits until main is idle for (s)<input id="sc-idle" type="number" min="0" max="3600" value="${esc(st.scheduler.min_idle)}"></label>
     <label class="fld">Parallel model calls (same model only)<input id="sc-slots" type="number" min="1" max="4" value="${esc(st.scheduler.slots||2)}"></label></div>
     <p class="hint">Run one project as <b>main</b> and others as <b>side</b>: side agents use the GPU only in the pauses of main (its builds, tests, waiting) and are stopped as soon as main needs the model again.</p>
+    <label class="cap" style="margin-top:10px"><div>Let chat write files directly<small>Off: the chat agent only queues tasks for plan/build/test. On: it may also write files straight into the repo (write_file), skipping review and tests.</small></div><input id="chat-direct" type="checkbox" ${st.chat_direct_edit?"checked":""}></label>
     <div class="row" style="justify-content:space-between;margin-top:10px"><span class="hint">Stack: <b>${esc(st.preset)}</b> (fixed after creation). ${d.running?"Model and routing changes apply from the next task, everything else at the next start.":""}</span><button class="primary" onclick="saveSettings()">Save settings</button></div></div>
     <div class="panel" style="margin-top:16px"><h3>Rename project</h3><div class="row"><input id="newname" value="${esc(d.name)}"><button onclick="renameProject()" ${d.running?"disabled":""}>Rename</button></div></div>
     <div class="panel" style="margin-top:16px;border-color:var(--bad)"><h3>Delete project</h3>
@@ -478,7 +481,7 @@ function settingsBody(d){
 async function saveSettings(){
   const v=id=>$("#"+id).value,limits={};
   document.querySelectorAll("[id^=lim-]").forEach(e=>limits[e.id.slice(4)]=e.value);
-  try{const r=await api(`/api/project/${sel}/settings`,{models:{planner:v("m-planner"),reviewer:v("m-reviewer"),summarizer:v("m-summarizer"),strategist:v("m-strategist")},coder_model:v("m-coder"),limits,web_mode:v("web-mode"),routing:{mode:v("rt-mode"),light:v("rt-light"),heavy:v("rt-heavy"),final_reviewer:v("rt-final")},doc_language:v("doc-lang"),run:{mode:v("run-mode"),rounds:v("run-rounds")},scheduler:{priority:v("sc-prio"),min_idle:v("sc-idle"),slots:v("sc-slots")}});
+  try{const r=await api(`/api/project/${sel}/settings`,{models:{planner:v("m-planner"),reviewer:v("m-reviewer"),summarizer:v("m-summarizer"),strategist:v("m-strategist")},coder_model:v("m-coder"),limits,web_mode:v("web-mode"),routing:{mode:v("rt-mode"),light:v("rt-light"),heavy:v("rt-heavy"),final_reviewer:v("rt-final")},doc_language:v("doc-lang"),run:{mode:v("run-mode"),rounds:v("run-rounds")},scheduler:{priority:v("sc-prio"),min_idle:v("sc-idle"),slots:v("sc-slots")},chat_direct_edit:$("#chat-direct").checked});
     dirty=false;toast(r.applies==="now"?"Settings saved":"Saved: models apply from the next task, other settings at the next start");extra=null;await fetchExtra();lastBody="";renderProject()}catch(e){toast(e.message,true)}
 }
 async function renameProject(){
@@ -813,3 +816,37 @@ async function saveToolModels(){
   try{toolMcfg=await api("/api/tool/models",{planner:v("tm-planner"),coder:v("tm-coder"),reviewer:v("tm-reviewer"),summarizer:v("tm-summarizer"),
     routing:{mode:v("tm-mode"),light:v("tm-light"),heavy:v("tm-heavy"),final_reviewer:v("tm-final")}});dirty=false;lastBody="";toast("Saved: used from the next self-change run");renderTool()}catch(e){toast(e.message,true)}
 }
+
+/* ---- global command palette: Ctrl/Cmd+K jumps to any project, tab or action ---- */
+let palIdx=0,palItems=[];
+function palActions(){
+  const a=[["Dashboard","Live AI metrics across all projects",showDash],["Chat","Talk to a local model",()=>showChat()],["Master prompt","Instructions for all projects",openMaster],["Change the tool itself","Make CodeFactory change its own code",showTool],["+ New idea","Start a new project",openNew]];
+  if(view==="project"&&sel){
+    const d=detail||{};
+    a.push(["Start/Stop agent",d.running?"Stop the running agent":"Start the agent",()=>act(d.running?"stop":"start",{},d.running?"Will stop after the current task":"Agent started")]);
+    GROUPS.forEach(g=>g[2].forEach(k=>a.push(["Go to: "+(LEAF[k]||g[1]),"on "+sel,()=>setTab(k)])));
+  }
+  return a;
+}
+function palOpen(){
+  const dlg=$("#dPal");if(!dlg)return;palIdx=0;dlg.showModal();$("#palInput").value="";palFilter();setTimeout(()=>$("#palInput").focus(),0);
+}
+function palReset(){palItems=[];palIdx=0}
+function palFilter(){
+  const q=($("#palInput").value||"").trim().toLowerCase();
+  const projs=(list.projects||[]).filter(p=>!q||p.name.toLowerCase().includes(q)).map(p=>["📁 "+p.name,statusOf(p)[1]+" · "+p.merged+" features",()=>{select(p.name);$("#dPal").close()}]);
+  const acts=palActions().filter(([l,s])=>!q||l.toLowerCase().includes(q)||s.toLowerCase().includes(q)).map(([l,s,fn])=>[l,s,()=>{fn();$("#dPal").close()}]);
+  const seen=new Set();
+  palItems=[...projs,...acts].filter(([l,s])=>{const k=l+"|"+s;if(seen.has(k))return false;seen.add(k);return true}).slice(0,40);palIdx=0;palRender();
+}
+function palRender(){
+  $("#palList").innerHTML=palItems.length?palItems.map(([l,s],i)=>`<div class="card ${i===palIdx?"sel":""}" onmouseenter="palIdx=${i};palRender()" onclick="palItems[${i}][2]()"><div class="n">${esc(l)}</div><div class="s">${esc(s)}</div></div>`).join(""):`<div class="hint" style="padding:10px">Nothing matches.</div>`;
+}
+function palKey(e){
+  if(e.key==="ArrowDown"){e.preventDefault();palIdx=Math.min(palIdx+1,palItems.length-1);palRender()}
+  else if(e.key==="ArrowUp"){e.preventDefault();palIdx=Math.max(palIdx-1,0);palRender()}
+  else if(e.key==="Enter"){e.preventDefault();if(palItems[palIdx])palItems[palIdx][2]()}
+}
+document.addEventListener("keydown",e=>{
+  if((e.ctrlKey||e.metaKey)&&e.key.toLowerCase()==="k"){e.preventDefault();palOpen()}
+});
