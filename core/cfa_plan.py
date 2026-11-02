@@ -117,6 +117,16 @@ class PlanMixin:
             self.log(f"Layer bookkeeping skipped: {clip(str(e), 200)}")
         self.milestone_review(layer, name)
 
+    def _reeval_note(self, data: dict, res: dict, by_title: dict) -> None:
+        """Puts the verdict per task (layer, priority, cancel reason, new tasks) into the Reasoning tab as its own card."""
+        why = {str(c.get("id")): c.get("why", "") for c in data.get("cancel", []) if isinstance(c, dict)}
+        lines = [f"Assessment: {res.get('assessment') or data.get('assessment', '-')}", "", "Layers: " + ", ".join(
+            f"{n}. {ly['name']}" for n, ly in enumerate(res["layers"]))]
+        lines += [f"  {i} {by_title.get(i, '')[:60]} -> layer {a['layer']}, priority {a['priority']}" for i, a in res["assign"].items()]
+        lines += [f"  CANCEL {i} {by_title.get(i, '')[:60]}: {why.get(i) or 'no reason given'}" for i in res["cancel"]]
+        lines += [f"  NEW {t['title']} (layer {t['layer']})" for t in res["new"]]
+        self.llm.record("reevaluate_result", "strategist", "-", "Decisions applied to the backlog by the re-evaluation", "\n".join(lines))
+
     def reevaluate(self, requeue: bool = True, state_note: str = "") -> dict:
         """Thinks the plan through again for an existing project: new layers, every open task re-ordered into them, gaps in the
         foundation added as tasks, redundant tasks cancelled. Needs the agent to be stopped (it rewrites the backlog)."""
@@ -125,19 +135,24 @@ class PlanMixin:
         items = [i for i in self.backlog.items if i["status"] != "cancelled"]
         old = self.blueprint()
         arch = self.mem.dir / "ARCHITECTURE.md"
-        rows = [{"id": i["id"], "title": i["title"], "type": i["type"], "status": i["status"], "layer": i.get("layer"),
-                 "source": i.get("source"), "depends_on": i.get("depends_on", [])} for i in items]
+        sctx = getattr(self.llm, "server_ctx", 0)
+        # a small server window: the task list and schema matter most, so notes and the code map shrink first
+        share = min(1.0, sctx * 1.8 / 25000) if sctx else 1.0
+        rows = [{k: v for k, v in {"id": i["id"], "title": clip(i["title"], 80 if sctx else 200), "type": i["type"], "status": i["status"],
+                                   "layer": i.get("layer"), "source": i.get("source"), "depends_on": i.get("depends_on")}.items() if v not in (None, [], "")}
+                for i in items]
         ideas = self.ideas_path.read_text("utf-8") if self.ideas_path.exists() else ""
         data = self.llm.json(
-            "reevaluate", "strategist", SYSTEM + " You are re-planning a project that already has code and tasks: keep what works, "
+            "reevaluate", "strategist", SYSTEM + " You are re-planning a project that already has code and tasks: keep what works, think briefly (a few sentences), then answer the JSON only, "
             "fix the order. Finished tasks are foundation: put them in the layer they belong to. Add tasks for missing foundation, "
             "cancel tasks that are redundant or contradict the architecture. Never cancel tasks the user wrote.",
-            f"Goal:\n{clip(self.goal, 2500)}{self.directive}\nUser directives (IDEAS.md):\n{clip(ideas, 1500) or '-'}\n"
+            f"Goal:\n{clip(self.goal, int(2500 * max(share, 0.4)))}{self.directive}\nUser directives (IDEAS.md):\n{clip(ideas, int(1500 * share)) or '-'}\n"
             f"Previous layers: {[ly['name'] for ly in old['layers']] if old else 'none (the project was planned feature by feature)'}\n"
             f"Features built: {[f['title'] for f in self.mem.features.values()]}\nArchitecture notes:\n"
-            f"{clip(arch.read_text('utf-8') if arch.exists() else '', 2500)}\nCode map:\n{clip(self.mem.render_codemap(), 5000)}\n"
+            f"{clip(arch.read_text('utf-8') if arch.exists() else '', int(2500 * share))}\nCode map:\n{clip(self.mem.render_codemap(), int(5000 * share))}\n"
             f"Current state of the project:\n{state_note or '-'}\nTasks: {json.dumps(rows)}\n3 to 5 layers. Schema: " + REEVAL_SCHEMA)
         res = blueprint.normalize_reevaluation(data, items)
+        self._reeval_note(data, res, by_title={i["id"]: i["title"] for i in items})
         if not res["layers"]:
             raise RuntimeError("The model returned no usable layers; nothing was changed.")
         by_id = {i["id"]: i for i in items}
