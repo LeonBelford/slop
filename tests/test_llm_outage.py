@@ -76,6 +76,33 @@ class ProcessOutageTests(unittest.TestCase):
             self.assertEqual(len(ag.backlog.items), 1)
 
 
+class CtxPersistTests(unittest.TestCase):
+    def test_ctx_survives_restart_and_prompt_is_cut_before_the_first_call(self):
+        import json
+        import tempfile
+        from pathlib import Path
+        with tempfile.TemporaryDirectory() as d:
+            f = Path(d) / "llm_ctx.json"
+            f.write_text(json.dumps({"ctx": 4096, "at": __import__("time").time()}))
+            llm = LLM(cfg(), lambda m: None)
+            llm.load_ctx(f)
+            sent = []
+
+            def fake(req, timeout=0):
+                sent.append(json.loads(req.data))
+                return io.BytesIO(b"")
+            with mock.patch.object(cfllm.urllib.request, "urlopen", fake), mock.patch.object(LLM, "_read", lambda *a, **k: ("ok", "")):
+                llm.chat("impact", "planner", "sys", "u" * 20000)
+            self.assertEqual(len(sent), 1)
+            self.assertLessEqual(sum(len(m["content"]) for m in sent[0]["messages"]), int(4096 * 0.6 * 3))
+
+    def test_fit_stays_within_budget_in_one_step(self):
+        from core.cfllm import fit_to_ctx
+        s, u = fit_to_ctx("s" * 6000, "u" * 20000, 4096)
+        self.assertGreater(len(s) + len(u), 6500)
+        self.assertLessEqual(len(s) + len(u), int(4096 * 0.6 * 3) + 40)
+
+
 class CtxTests(unittest.TestCase):
     MSG = 'request (5565 tokens) exceeds the available context size (4096 tokens), try increasing it'
 
