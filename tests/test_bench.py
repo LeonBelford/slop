@@ -72,7 +72,7 @@ class BugfixPolicyTests(unittest.TestCase):
             logs, diffs = [], ["+++ b/app.py\n+x = 1\n"]
             ag.git.diff = lambda *a, **k: diffs[0]
             ag.git.changed_files = lambda: ["tests/test_a.py"]
-            ag.verify_stage = lambda: (True, "")
+            ag.verify_stage = lambda *a: (True, "")
             ag.handoff = lambda *a, **k: None
             ag.tried = []
             ag.log = logs.append

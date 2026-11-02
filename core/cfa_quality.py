@@ -28,6 +28,10 @@ class QualityMixin:
         if not self.feat("size_gate") or item.get("size_checked") or int(item.get("attempts", 0)) > 0 or item["type"] in ("docs", "test"):
             return False
         self.backlog.set(item, size_checked=True)
+        known = [f for f in (item.get("files") or []) if isinstance(f, str)]
+        if known and len(known) <= 2 and not item.get("why", "").startswith("Slice"):
+            self.backlog.set(item, size_files=len(known))  # the graph already knows the files: no model call to count them
+            return False
         try:
             d = self.llm.json("size_estimate", "planner",
                               "Estimate how many files must change and how many lines must be written for this task. Be realistic.",
@@ -44,6 +48,9 @@ class QualityMixin:
         if files <= self.lim["max_files_per_task"] and lines <= MAX_LINES_ESTIMATE:
             return False
         self.log(f"{item['id']} estimated at {files} files / {lines} lines: too big for one attempt, splitting before the start")
+        reason = f"estimated {files} files and {lines} lines, too large for one attempt. {d.get('reason', '')}"
+        if self.graph_split(item, reason):
+            return True
         return self.split_task(item, [f"Pre-check: estimated {files} files and {lines} lines, too large for one attempt. {d.get('reason', '')}"])
 
     def make_spec(self, item: dict, plan: dict) -> None:

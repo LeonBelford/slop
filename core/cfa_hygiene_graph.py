@@ -71,8 +71,27 @@ class HygieneGraphMixin:
 
     def run_process(self, proc: dict) -> list[dict]:
         out = graph_ideas.add_graph(self.backlog, graph_ideas.process_steps(proc), f"Standard process: {proc['name']}", "process", f"Part of the standard process '{proc['name']}'")
+        self.attach_to_graph(out, proc)
         self.backlog.save()
         return out
+
+    def attach_to_graph(self, steps: list[dict], proc: dict) -> None:
+        """A process that comes due grows out of the project graph instead of floating beside it: its first step builds on the task merged
+        last (same layer, so it runs right after the work it checks), and it carries the files of the latest merged tasks as its context."""
+        if not steps:
+            return
+        done = [i for i in self.backlog.items if i["status"] == "done"]
+        last = self.backlog.by_id(self.state.get("last_done") or "") or (done[-1] if done else None)
+        recent = list(dict.fromkeys(f for i in sorted(done, key=lambda x: x["id"])[-5:] for f in (i.get("files") or [])))[:8]
+        for n, s in enumerate(steps):
+            s["process"] = proc["id"]
+            if last and last.get("layer") is not None:
+                s["layer"] = last["layer"]
+            if recent:
+                s["files"] = recent
+            if n == 0 and last and last["id"] not in s.get("depends_on", []):
+                s["depends_on"] = [last["id"]] + list(s.get("depends_on", []))
+        self.log(f"Standard process '{proc['name']}' attached to the graph after {last['id'] if last else 'the start'} ({len(steps)} step(s))")
 
     def run_due_processes(self, merged: int) -> None:
         """Standard processes with an interval (every N merged tasks) are added as a graph when due, never while an earlier run is still open."""

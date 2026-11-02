@@ -106,9 +106,10 @@ from core.cfa_bench import BenchMixin
 from core.cfa_scout import ScoutMixin
 from core.cfa_ext import ExtMixin
 from core.cfa_gates import GateMixin
+from core.cfa_tiers import TierMixin
 
 
-class Agent(BuildMixin, FlowMixin, VerifyMixin, SecurityMixin, ResearchMixin, OpsMixin, PlanMixin, GraphMixin, HygieneGraphMixin, BenchMixin, ScoutMixin, SplitMixin, ConductorMixin, SpikeMixin, MilestoneMixin, RulesMixin, HandoffMixin, TriageMixin, QualityMixin, GateMixin, ExtMixin):
+class Agent(BuildMixin, FlowMixin, VerifyMixin, SecurityMixin, ResearchMixin, OpsMixin, PlanMixin, GraphMixin, HygieneGraphMixin, BenchMixin, ScoutMixin, SplitMixin, ConductorMixin, SpikeMixin, MilestoneMixin, RulesMixin, HandoffMixin, TriageMixin, QualityMixin, GateMixin, TierMixin, ExtMixin):
     def __init__(self, ws: Path, cfg: dict | None = None):
         self.ws = ws.resolve()
         self.repo, self.dir = self.ws / "repo", self.ws / "agent"
@@ -487,7 +488,7 @@ def selftest() -> None:
     cfg["src_dirs"] = PRESETS["minimal"]["src_dirs"]
     cfg["web"]["mode"] = "open"
     cfg["limits"]["max_iterations"] = 6
-    cfg["features"].update(skeleton=False, dependency_plan=False, contracts_code=False)  # keeps the selftest to its 6 iterations
+    cfg["features"].update(skeleton=False, dependency_plan=False, contracts_code=False, tier="full")  # keeps the selftest to its 6 iterations
     cfg["limits"]["reflect_every"] = 2
     cfg["limits"]["architecture_refresh_every"] = 1
     a = Agent(ws, cfg)

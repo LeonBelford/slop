@@ -106,6 +106,17 @@ class BuildMixin:
 
     # ---- Build/test
     def verify(self) -> tuple[bool, str]:
+        """Build, test, lint. Skipped when the tree is the one that passed last, or differs from it only in documentation files."""
+        tree = self.tree_now()
+        if tree and self.unchanged_since_green(tree):
+            self.log("Build and tests skipped: nothing but documentation changed since the last green run")
+            self.ok_tree = tree
+            return True, "build + tests ok (unchanged since the last green run)"
+        ok, report = self._verify()
+        self.ok_tree = tree if ok else ""
+        return ok, report
+
+    def _verify(self) -> tuple[bool, str]:
         cmds, t = self.cfg["commands"], self.lim["cmd_timeout"]
         deps = [self.repo / f for f in PRESETS.get(self.cfg["preset"], {}).get("deps_files", [])]
         h = sha("".join(f.read_text("utf-8") for f in deps if f.exists()))
@@ -127,6 +138,9 @@ class BuildMixin:
 
     # ---- Planning
     def impact_analysis(self, item: dict, previous: list[str]) -> dict:
+        light = self.light_plan(item, previous)
+        if light:
+            return light
         self.phase("Planning: analysing the codebase and the impact of the change", "plan")
         cands = graphctx.prefer_files(graphctx.context_pack(self.backlog.items, item)["files"], self.mem.select_candidates(item), lambda f: (self.repo / f).exists())
         ctx = self.mem.context_pack(item, cands)
@@ -207,9 +221,9 @@ class BuildMixin:
                      do_not=["delete or weaken tests", "rewrite code that already works", "change files unrelated to the failure"],
                      done_when=["build and tests are green"])
 
-    def debug_loop(self, item: dict) -> tuple[bool, str]:
+    def debug_loop(self, item: dict, full: bool = False) -> tuple[bool, str]:
         self.phase("Building and running tests", "build")
-        ok, report = self.verify_stage()
+        ok, report = self.verify_stage(full)
         last_sig = failures.signature(report)
         for n in range(1, self.lim["max_debug_rounds"] + 1):
             if ok and self.cfg["features"]["require_tests"] and item["type"] in ("feature", "bug") \
@@ -244,7 +258,7 @@ class BuildMixin:
                       f"The task was: {item['title']}\n\nError report:\n{report}\n\n{self.RULES}\n"
                       "Do not delete or weaken tests just to make them pass.")
             self.tried.append(f"round {n} on '{clip(report.splitlines()[0], 100)}' edited {files[:4]}")
-            ok, report = self.verify_stage()
+            ok, report = self.verify_stage(full)
             sig = failures.signature(report)
             if not ok and n >= 2 and sig == last_sig:
                 self.log(f"Debug loop stalled: round {n} failed exactly like round {n - 1}, stopping early")
@@ -285,7 +299,7 @@ class BuildMixin:
         previous: list[str] = []
         sigs: list[str] = []
         self.journal_start(item)
-        self.backlog.set(item, status="in_progress")
+        self.backlog.set(item, status="in_progress", hot=False)
         self.cur_task = f"{item['id']} {item['title']}"
         t0 = time.time()
         est = estimate.estimate(estimate.load(self.dir / "durations.jsonl"), item["title"], item["type"], item.get("description", ""))
@@ -293,6 +307,9 @@ class BuildMixin:
             self.log(f"estimate: ~{round(est['seconds'] / 60)} min ({est['basis']}, {est['n']} comparable tasks)")
             self.backlog.set(item, estimate_s=est["seconds"])
         try:
+            if self.replan_after_cancel(item):
+                self.cur_task, self.cur_attempt = "", 0
+                return False
             split = self.size_gate(item)
         except LLMError:
             self.backlog.set(item, status="pending")
@@ -430,7 +447,8 @@ class BuildMixin:
                       + "\n".join(previous[-3:]) + f"\n\n{self.RULES}")
         else:
             plan = self.impact_analysis(item, previous)
-            self.make_spec(item, plan)
+            if not plan.get("light"):
+                self.make_spec(item, plan)
             if self.spike_due(item, plan):
                 worked, finding = self.spike(item, plan)
                 if not worked and self.spike_failed_split(item, finding):
@@ -444,37 +462,17 @@ class BuildMixin:
             return False, "Build/test red after debug rounds:\n" + report
         self.save_wip(item)
         self.note("green", f"build and tests pass; changed files: {self.git.changed_files()[:12]}")
-        self.coverage_check(item)
-        if not self.mutation_check(item):
-            return False, "Red after the mutation fix round"
-        ok, report = self.e2e_check(item)
+        ok, why, review = self.run_gates(item, plan, base_sha)
         if not ok:
-            return False, "UI test failed:\n" + report
-        ok, report = self.security_gate(item, plan)
+            return False, why
+        ok, report = self.full_gate(item)
         if not ok:
-            return False, "Security gate failed:\n" + report
-        review = self.review(item, plan)
-        self.note("review", f"score {review.get('score')} {review.get('verdict')}: {clip(json.dumps(review.get('issues', [])), 300)}")
-        if review.get("verdict") == "revise" or review.get("score", 10) < self.lim["min_review_score"]:
-            self.log(f"Review requests revision (score {review.get('score')})")
-            self.handoff("review fix", "review", goal=item["title"],
-                         decided=[f"review score {review.get('score')}: {review.get('summary', '')}"],
-                         do=[f"{i.get('file')}: {i.get('problem')} -> {i.get('fix')}" for i in review.get("issues", []) if isinstance(i, dict)],
-                         do_not=["change behaviour the review did not criticise", "delete tests"], done_when=["every listed issue is fixed and tests stay green"])
-            self.code("review_fix", sorted(set(self.git.changed_files()))[:self.lim["max_files_per_task"] + 4],
-                      [str(self.run_dir / "context.md")],
-                      f"Fix these review points:\n{json.dumps(review.get('issues', []), indent=1)}\n\n{self.RULES}")
-            ok, report = self.debug_loop(item)
-            if not ok:
-                return False, "Red after review fix:\n" + report
-            review = self.review(item, plan)
-        if not self.acceptance_check(item, plan):
-            return False, "Red after the acceptance fix round"
+            return False, "Build/test red in the full run before the commit:\n" + report
         self.git.commit_all(f"{item['id']}: {item['title']}")
         checkpoint = self.git.sha()
         changed = [f for f in self.git.changed_files(base_sha) if (self.repo / f).exists() and f.endswith(tuple(self.cfg["source_exts"]))]
-        # small graph steps (few files) skip the cleanup pass: it costs a model call plus a verify run for little gain
-        if self.cfg["features"]["cleanup_pass"] and item["type"] != "docs" and len(changed) > 2:
+        # only full-tier tasks get the cleanup pass: it costs a model call plus a verify run, little gain on a small change
+        if self.cfg["features"]["cleanup_pass"] and item["type"] != "docs" and getattr(self, "cur_tier", "full") == "full":
             self.phase("Cleanup pass (no behavior change)", "cleanup")
             self.code("cleanup", changed[:self.lim["max_files_per_task"]], [str(self.run_dir / "context.md")],
                       "Cleanup without behavior change: remove dead code, clarify names, merge duplicates, "

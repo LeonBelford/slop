@@ -104,3 +104,48 @@ def place(items: list[dict]) -> dict[str, int]:
         if cand:
             out[i["id"]] = max(cand)
     return out
+
+
+def _is_test(path: str) -> bool:
+    name = path.rsplit("/", 1)[-1]
+    return name.startswith("test_") or "_test." in name or ".test." in name or ".spec." in name
+
+
+def _stem(path: str) -> str:
+    stem = path.rsplit("/", 1)[-1].rsplit(".", 1)[0]
+    return stem.removeprefix("test_").removesuffix("_test").removesuffix(".test").removesuffix(".spec")
+
+
+def _group_key(path: str) -> str:
+    """Files that belong together share a key: the package directory (tests folded into their module's directory) or the module stem."""
+    parts = [p for p in path.split("/")[:-1] if p not in ("tests", "test", "__tests__")]
+    if parts:
+        return "/".join(parts)
+    stem = _stem(path)
+    return stem.split("_")[0] or stem
+
+
+def group_files(files: list[str], max_groups: int = 3, min_files: int = 4) -> list[list[str]]:
+    """Splits the files of a big task into 2-3 balanced groups along the module structure. [] = not worth splitting (few files or one block)."""
+    files = list(dict.fromkeys(f for f in files if isinstance(f, str)))
+    if len(files) < min_files:
+        return []
+    buckets: dict[str, list[str]] = {}
+    for f in sorted(files):
+        buckets.setdefault(_group_key(f), []).append(f)
+    stems = {}
+    for k, fs in buckets.items():
+        for f in fs:
+            stems.setdefault(_stem(f), k)
+    for k in list(buckets):  # a test follows the module it tests
+        fs = buckets[k]
+        if len(fs) == 1 and _is_test(fs[0]) and stems.get(_stem(fs[0])) not in (None, k):
+            buckets[stems[_stem(fs[0])]].append(buckets.pop(k)[0])
+    groups = sorted(buckets.values(), key=len, reverse=True)
+    if len(groups) < 2:
+        return []
+    while len(groups) > max_groups:  # merge the two smallest
+        groups.sort(key=len)
+        a, b = groups.pop(0), groups.pop(0)
+        groups.append(a + b)
+    return sorted(groups, key=lambda g: g[0])
