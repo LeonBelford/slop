@@ -78,7 +78,7 @@ class SplitMixin:
             if item["id"] in other.get("depends_on", []) and other["id"] not in ids:
                 other["depends_on"] = [ids[-1] if x == item["id"] else x for x in other["depends_on"]]
         self.backlog.set(item, status="cancelled", split_into=ids, reason=f"split into {len(ids)} smaller slices ({', '.join(ids)}): {str(d.get('cause', ''))[:200]}",
-                         notes=item.get("notes", []) + [f"split into {', '.join(ids)} after repeated failures"])
+                         notes=item.get("notes", []) + [f"split into {', '.join(ids)} " + ("before the start (too large)" if previous and previous[-1].startswith("Pre-check") else "after repeated failures")])
         self.metric(kind="split", item=item["id"], into=ids)
         self.log(f"Split {item['id']} into {len(ids)} slices: {', '.join(ids)}")
         return True

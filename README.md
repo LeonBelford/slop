@@ -234,6 +234,16 @@ The blueprint is one linear chain: `blueprint.normalize` adds the direct predece
 ## Light priority check after every merge
 After each merge the strategist sees only open task titles, status and recent results and corrects priorities (`triage_light` flag); every change is stored with its reason and shown in the project dashboard under Triage. The dynamic priority also rewards essential tasks, `risk: high` tasks and small tasks.
 
+## Planning quality (each part has a feature flag)
+- `skeleton`: layer 0 starts with a walking skeleton, the thinnest end-to-end path with one test.
+- `dependency_plan`: the strategist picks libraries (name, version, reason) into the blueprint; the first task installs them.
+- `contracts_code`: a task turns the contracts into signatures, types, stubs and `tests/contracts/`; those tests can never be removed or loosened (policy check).
+- `spec_first`: per task the planner writes a design (files, signatures, edge cases), the reviewer checks it against the contracts, it is pinned as handoff.
+- `size_gate`: before the first attempt files/lines are estimated; too big means split at once.
+- `risk_spikes`: tasks marked `risk: high` always get a spike first (and a dynamic priority bonus).
+- `layer_gate`: before climbing, build+tests, the optional `commands.smoke` and a strategist check of the layer goal must pass; otherwise fix tasks are queued (gives up after 2 failures with a note).
+- `drift_check`: after every merge, file size (800 lines) and module imports (`uses` in the blueprint modules) are checked; violations become fix tasks.
+
 ## Self-Improve uses the same quality standard
 
 The self-improve pipeline shares the helpers of the project pipeline: pinned instruction blocks (`core/cfa_handoff.py`) in front of
