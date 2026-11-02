@@ -73,6 +73,8 @@ class GraphMixin:
             self.state["directives_hash"] = self.directives_hash()  # first look: the start review covers it
         elif self.directives_hash() != self.state["directives_hash"]:
             reasons.append("GOAL.md or IDEAS.md changed: turn the new wishes into tasks")
+        if self.custom_pending():
+            reasons.append("custom graph(s) to build out: " + ", ".join(g["title"] for g in self.custom_pending())[:100])
         if self.state.get("milestone_replan"):
             reasons.append("the milestone review found the product drifting from the vision")
         blocked = sum(1 for i in items if i["status"] == "blocked")

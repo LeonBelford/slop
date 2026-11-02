@@ -1,10 +1,10 @@
-"""Task-graph API: summaries for the overview, manual graph edits (link, unlink, merge, split, templates), the plan proposal and the replay timeline."""
+"""Task-graph API: summaries for the overview, manual graph edits (link, unlink, merge, split, custom graphs), the plan proposal and the replay timeline."""
 from __future__ import annotations
 
 from pathlib import Path
 
 import codefactory as sa
-from core import graph_ideas, graph_templates, taskgraph
+from core import graph_ideas, taskgraph
 
 from webapi.common import UiError, alive, spawn
 
@@ -16,7 +16,7 @@ class GraphEditMixin:
         prop = sa.read_json(a / "plan_proposal.json", None)
         return {"graphs": taskgraph.summaries(backlog), "blocks": {k: len(v) for k, v in impact.items() if v},
                 "proposal": {k: prop.get(k) for k in ("ts", "assessment", "lines", "reason")} if prop else None,
-                "templates": graph_templates.labels(), "graph_ideas": graph_ideas.load_ideas(a / "graph_ideas.json", sa.read_json)["ideas"],
+                "graph_ideas": graph_ideas.load_ideas(a / "graph_ideas.json", sa.read_json)["ideas"],
                 "processes": sa.read_json(a / "processes.json", [])}
 
     def graph_history(self, name: str) -> dict:
@@ -44,9 +44,9 @@ class GraphEditMixin:
                 raise UiError("Task not found", 404)
             return item
 
-        if action == "graph-template":
+        if action == "graph-custom":
             try:
-                made = graph_templates.instantiate(bl, str(body.get("template", "")), str(body.get("name", "")))
+                made = sa.Agent(ws).add_custom_graph(str(body.get("name", "")), str(body.get("goal", "")), str(body.get("steps", "")))
             except ValueError as e:
                 raise UiError(str(e)) from None
             return {"ok": True, "ids": [i["id"] for i in made]}

@@ -1,4 +1,4 @@
-/* Graph tools: edit mode (link, merge, split), plan proposal, templates, replay timeline, time formatting. */
+/* Graph tools: edit mode (link, merge, split), plan proposal, custom graphs, replay timeline, time formatting. */
 const gtEta=s=>!s?"-":s<90?Math.round(s)+" s":s<5400?Math.round(s/60)+" min":(s/3600).toFixed(1)+" h";
 function gtSummary(d,comp){return(d.graphs||[]).find(g=>g.ids[0]===comp[0])}
 function gtCritical(d){const s=new Set(),e=new Set();(d.graphs||[]).forEach(g=>{g.critical.forEach((id,k)=>{s.add(id);if(k)e.add(g.critical[k-1]+">"+id)})});return{nodes:s,edges:e}}
@@ -37,18 +37,29 @@ function gtNodeClick(id){
   else gtAct("graph-merge",{ids:[sel,id]},"Tasks merged");
   return true;
 }
-function templateBar(d){
-  const t=d.templates||[];if(!t.length)return "";
-  return `<div class="tg-grp"><select id="tplSel" class="small">${t.map(x=>`<option value="${esc(x.id)}">${esc(x.label)} (${x.steps} steps)</option>`).join("")}</select><button class="small" onclick="gtTemplate()" title="Add a ready-made task graph for a typical change">+ Add graph</button></div>`;
+let cgDraft=null;
+function templateBar(){
+  return `<div class="tg-grp"><button class="small" onclick="cgOpen()" title="Describe a graph yourself: the AI builds it out at the next re-plan, you can add your own steps too">+ Add custom graph</button></div>`;
+}
+function cgOpen(){cgDraft={name:"",goal:"",steps:""};lastBody="";renderProject()}
+function cgSet(k,v){if(cgDraft)cgDraft[k]=v}
+async function cgSave(){
+  if(!cgDraft)return;
+  const r=await gtAct("graph-custom",cgDraft,"Graph added: the next re-plan builds it out");
+  if(r){cgDraft=null;lastBody="";renderProject()}
+}
+function customForm(){
+  const c=cgDraft;if(!c)return "";
+  return `<div class="tg-form" style="margin-bottom:12px"><b>New custom graph</b>
+    <input class="small" placeholder="Name, e.g. Full text search" value="${esc(c.name)}" oninput="cgSet('name',this.value)">
+    <textarea rows="3" placeholder="What should it do? The AI turns this into steps at the next re-plan" oninput="cgSet('goal',this.value)">${esc(c.goal)}</textarea>
+    <textarea rows="4" placeholder="Your own steps, one per line (optional, they follow each other; the AI adds what is missing)" oninput="cgSet('steps',this.value)">${esc(c.steps)}</textarea>
+    <div class="tg-row"><button class="small primary" onclick="cgSave()">Add graph</button><button class="small" onclick="cgDraft=null;lastBody='';renderProject()">Cancel</button></div></div>`;
 }
 function gtStats(d,items){
   const g=d.graphs||[],open=items.filter(i=>i.status!=="done").length,blocked=items.filter(i=>i.status==="blocked").length,eta=g.reduce((a,x)=>Math.max(a,x.critical_s||0),0);
   const pill=(n,l,c)=>`<span class="tg-pill${c?" "+c:""}"><b>${n}</b> ${l}</span>`;
   return `<div class="tg-stats">${pill(tgComps(items).length,"graphs")}${pill(open,"open")}${blocked?pill(blocked,"blocked","bad"):""}${eta?pill("~"+gtEta(eta),"critical path","warn"):""}</div>`;
-}
-async function gtTemplate(){
-  const name=prompt("What is it about (e.g. the endpoint or screen name)?");if(!name||!name.trim())return;
-  await gtAct("graph-template",{template:$("#tplSel").value,name:name.trim()},"Graph added");
 }
 function proposalCard(d){
   const p=d.proposal;if(!p)return "";
