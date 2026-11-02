@@ -146,6 +146,16 @@ def stats(out_dir: Path) -> dict:
             "avg_fix_rounds": round(rounds / total, 2) if total else None, "models": model_stats(out_dir)}
 
 
+def all_runs(out_dir: Path, limit: int = 30) -> list[dict]:
+    out = []
+    for f in sorted((Path(out_dir) / "runs").glob("*.json"))[-limit:]:
+        try:
+            out.append(json.loads(f.read_text("utf-8")))
+        except (OSError, ValueError):
+            continue
+    return out
+
+
 def list_runs(out_dir: Path, limit: int = 15) -> list[dict]:
     rows = []
     for f in sorted((Path(out_dir) / "runs").glob("*.json"), reverse=True)[:limit]:
