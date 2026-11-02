@@ -16,11 +16,16 @@ function applyPref(){const p=pref();document.documentElement.style.setProperty("
 const ALL_STEPS=[["plan","Plan"],["implement","Implement"],["build","Build & test"],["e2e","UI test"],["security","Security"],["review","Review"],["cleanup","Cleanup"],["docs","Docs & memory"],["merge","Merge"]];
 const stepsFor=()=>detail&&detail.has_ui===false?ALL_STEPS.filter(s=>s[0]!=="e2e"):ALL_STEPS; // no UI test step when the product has no UI
 
+const etags={};
 async function api(path,body){
   const opt=body===undefined?{}:{method:"POST",headers:{"X-UI":"1","Content-Type":"application/json"},body:JSON.stringify(body)};
+  const tag=body===undefined?etags[path]:null;  // unchanged data answers 304: nothing to download or parse
+  if(tag)opt.headers={"If-None-Match":tag.etag};
   let r;
   try{r=await fetch(path,opt)}catch(e){throw new Error("Cannot reach the UI server. Is `make ui` still running?")}
+  if(r.status===304&&tag)return JSON.parse(tag.text);
   const text=await r.text();
+  if(body===undefined&&r.ok&&r.headers.get("ETag"))etags[path]={etag:r.headers.get("ETag"),text};
   let j;
   try{j=JSON.parse(text)}catch(e){
     throw new Error(`Unexpected response from ${path} (HTTP ${r.status}). Open the UI via the address printed by "make ui" (http://127.0.0.1:8765), not as a file or through a proxy.\n`+text.slice(0,160));
@@ -538,6 +543,7 @@ async function showFileHistory(path){
   const c=extra.commits.find(c=>c.files.some(f=>f.path===path));if(c)showDiff(c.sha,path);
 }
 async function doReplan(){if(!confirm("Re-evaluate the plan? The agent re-thinks the architecture and re-orders, adds and cancels open tasks (your own tasks stay). It takes a few minutes."))return;await act("replan",{},"Re-evaluating: follow it in the log");setTab("log")}
+async function doPreview(){await act("replan-preview",{},"Preparing a proposal: follow it in the log");setTab("log")}
 async function doTry(){await act("try",{},"Building a test version once the current task is done");setTab("testing")}
 async function say(){const v=$("#say").value.trim();if(!v)return;try{await api(`/api/project/${sel}/say`,{msg:v});toast("Feedback added");$("#say").value="";dirty=false;await refresh()}catch(e){toast(e.message,true)}}
 async function saveFile(kind,label){try{await api(`/api/project/${sel}/${kind}`,{text:$("#"+kind).value});dirty=false;toast(label+" saved");await refresh()}catch(e){toast(e.message,true)}}

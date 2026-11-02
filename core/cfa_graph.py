@@ -2,8 +2,12 @@
 from __future__ import annotations
 
 from core import taskgraph
-from core.cfutil import clip
+from core.cfa_conductor import REPLAN_EVERY_MERGES
+from core.cfa_triage import MIN_OPEN, RELAYOUT_EVERY_MERGES
+from core.cfutil import clip, now, read_json, write_json
 
+HISTORY_MAX = 12  # snapshots kept for the replay timeline
+BLOCK_IMPACT = 2  # a blocked task that holds back this many tasks gets its own mini re-plan
 
 
 class GraphMixin:
@@ -44,23 +48,116 @@ class GraphMixin:
                          notes=item.get("notes", []) + [f"split into {', '.join(ids)} by the re-evaluation"])
         return ids
 
-    def graph_replan_start(self) -> bool:
-        """Once at the start of a run: the re-evaluation always reviews the graphs (sound steps? missing steps? still needed?).
-        It changes nothing without a valid reason (keep_plan)."""
-        if getattr(self, "_graph_started", False) or not self.feat("graph_replan"):
-            return False
-        self._graph_started = True
-        self.backlog.reload()
-        open_ = [i for i in self.backlog.items if i["status"] in ("pending", "blocked")]
+    # ---- the one graph review: every trigger is collected, the model is asked once
+    def review_reasons(self) -> tuple[list[str], list[str]]:
+        """Why the graphs should be reviewed now (human readable) and which tasks the review should focus on (blocked chains)."""
+        items = self.backlog.items
+        open_ = [i for i in items if i["status"] in ("pending", "blocked")]
         if not open_:
+            return [], []
+        reasons, focus = [], []
+        merged = self.state.get("merged", 0)
+        flaws = taskgraph.problems(items)
+        if self.feat("graph_replan") and not getattr(self, "_graph_started", False):
+            changed = taskgraph.signature(items) != self.state.get("graph_sig")
+            if changed or flaws or self.feat("graph_review_always"):
+                reasons.append("start of the run" + ("" if changed else " (nothing changed since the last review)"))
+        if self.state.get("milestone_replan"):
+            reasons.append("the milestone review found the product drifting from the vision")
+        blocked = sum(1 for i in items if i["status"] == "blocked")
+        spaced = merged - self.state.get("auto_replan_at", -REPLAN_EVERY_MERGES) >= REPLAN_EVERY_MERGES
+        if (blocked >= 3 or self.state.get("consecutive_failures", 0) >= 3) and spaced:
+            reasons.append("the project is stuck (blocked or failing tasks)")
+        since = merged - self.state.get("triage_at", 0)
+        unlayered = [i for i in self.backlog.pending() if i.get("layer") is None and i.get("source") != "user"]
+        if (since >= RELAYOUT_EVERY_MERGES and len(open_) >= MIN_OPEN) or (len(unlayered) >= 2 and since >= 1):
+            reasons.append(f"{since} merge(s) since the last layout")
+        by = {i["id"]: i for i in items}
+        for b, who in taskgraph.blocked_impact(items).items():
+            if len(who) >= BLOCK_IMPACT and not by[b].get("block_reviewed"):
+                reasons.append(f"blocked task {b} holds back {len(who)} task(s)")
+                focus += [b, *who]
+        if reasons and flaws:
+            reasons.append("structure: " + "; ".join(flaws[:4]))
+        return reasons, list(dict.fromkeys(focus))
+
+    def graph_review(self) -> bool:
+        """Runs ONE re-evaluation for all current reasons (instead of one call per trigger). True when the plan was looked at."""
+        reasons, focus = self.review_reasons()
+        if not reasons:
+            self._graph_started = True
             return False
-        self.log(f"Graph review at the start of the run: {len(open_)} open task(s)")
+        merged = self.state.get("merged", 0)
+        self._graph_started = True
+        self.state.pop("milestone_replan", None)
+        self.state["triage_at"] = merged  # also after a failure: never retry on every iteration
+        if any(r.startswith(("the project is stuck", "the milestone")) for r in reasons):
+            self.state["auto_replan_at"] = merged
+        for i in self.backlog.items:
+            if i["id"] in focus and i["status"] == "blocked":
+                i["block_reviewed"] = True  # one mini re-plan per blocked task
+        self.backlog.save()
+        why = "; ".join(reasons)
+        self.log(f"Graph review: {why}")
+        note = self._state_note() + (f" Review reasons: {why}." if why else "")
+        only = focus if focus and all(r.startswith(("blocked task", "structure:")) for r in reasons) else None
+        if only:
+            note += " Focus on the graph(s) around the blocked task: unblock the waiting tasks (split it, change the approach, re-link the followers, or cancel it with a reason)."
         try:
-            self.reevaluate(requeue=False, state_note=self._state_note())
+            self.reevaluate(requeue=False, state_note=note, focus=only, reason=why[:160])
         except Exception as e:  # noqa: BLE001
-            self.log(f"Graph plan failed ({clip(str(e), 200)}), keeping the current graph")
+            self.log(f"Graph review failed ({clip(str(e), 200)}), keeping the current graph")
             return False
         return True
+
+    # ---- history (replay) and the confirm-before-apply proposal
+    @property
+    def history_path(self):
+        return self.dir / "graph_history.json"
+
+    def record_graph(self, reason: str, stats: dict) -> None:
+        """Snapshot of the graphs for the replay timeline; skipped when the structure is the same as in the last one."""
+        hist = read_json(self.history_path, [])
+        snap = taskgraph.snapshot(self.backlog.items, reason, stats, now())
+        if hist and hist[-1].get("sig") == snap["sig"]:
+            return
+        write_json(self.history_path, (hist + [snap])[-HISTORY_MAX:])
+
+    @property
+    def proposal_path(self):
+        return self.dir / "plan_proposal.json"
+
+    def save_proposal(self, data: dict, res: dict, items: list[dict], requeue: bool, focus: list[str] | None) -> dict:
+        """Writes what the re-evaluation wants to change as a readable diff; nothing is applied until you confirm in the UI."""
+        if res["keep"] and not (res["new"] or res["cancel"] or res["merge"] or res["split"]):
+            return self.apply_reevaluation(data, items, requeue, focus, "reviewed")
+        title = {i["id"]: i["title"] for i in items}
+        why = {str(c.get("id")): c.get("why", "") for c in data.get("cancel", []) if isinstance(c, dict)}
+        lines = [f"NEW {t['title']}: {t.get('why') or '-'}" for t in res["new"]]
+        lines += [f"CANCEL {i} {title.get(i, '')[:60]}: {why.get(i) or '-'}" for i in res["cancel"]]
+        lines += [f"MERGE {', '.join(m['ids'])} -> {m['title']}: {m['why'] or '-'}" for m in res["merge"]]
+        lines += [f"SPLIT {sp['id']} {title.get(sp['id'], '')[:50]} -> " + " | ".join(st["title"] for st in sp["steps"]) for sp in res["split"]]
+        moved = [i for i, a in res["assign"].items() if next((x.get("layer") for x in items if x["id"] == i), None) != a["layer"]]
+        if moved:
+            lines.append(f"RE-LAYER {len(moved)} task(s)")
+        write_json(self.proposal_path, {"ts": now(), "assessment": res.get("assessment", ""), "lines": lines, "data": data,
+                                        "requeue": requeue, "focus": focus or [], "reason": getattr(self, "_review_reason", "manual")})
+        self.log(f"Plan proposal saved ({len(lines)} change(s)); waiting for your confirmation in the UI.")
+        self.phase("Idle (plan proposal waiting for you)", None)
+        return {"proposal": len(lines)}
+
+    def apply_proposal(self) -> dict:
+        prop = read_json(self.proposal_path, None)
+        if not prop:
+            raise RuntimeError("There is no plan proposal")
+        self.backlog.reload()
+        items = [i for i in self.backlog.items if i["status"] != "cancelled"]
+        if prop.get("focus"):
+            scope = {k for c in taskgraph.components(items) if set(c) & set(prop["focus"]) for k in c}
+            items = [i for i in items if i["id"] in scope]
+        res = self.apply_reevaluation(prop["data"], items, bool(prop.get("requeue")), prop.get("focus") or None, "confirmed")
+        self.proposal_path.unlink(missing_ok=True)
+        return res
 
     def downstream_note(self, item: dict) -> str:
         """For the planning prompt of a task: which open tasks build on it, so it keeps its interfaces usable for them."""

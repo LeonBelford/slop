@@ -226,7 +226,7 @@ class BuildMixin:
                                          "(a new test function, not only a changed one).")
                 else:
                     item["regression"] = names
-            if ok and (bad := self.contract_violation(item)):
+            if ok and (bad := self.contract_violation(item) or self.bench_violation(item)):
                 ok, report = False, bad
             if ok:
                 return True, report
@@ -325,6 +325,7 @@ class BuildMixin:
                 estimate.record(self.dir / "durations.jsonl", item["title"], time.time() - t0, item["type"], item["attempts"], True,
                                 desc=item.get("description", ""))
                 self.backlog.set(item, status="done")
+                self.state["last_done"] = item["id"]
                 if item.get("regression"):
                     with open(self.dir / "regressions.jsonl", "a", encoding="utf-8") as f:
                         f.write(json.dumps({"item": item["id"], "title": item["title"], "tests": item["regression"], "time": time.strftime("%Y-%m-%d %H:%M:%S")}) + "\n")

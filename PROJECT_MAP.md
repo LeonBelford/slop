@@ -43,6 +43,9 @@ Code lives in five places: the entry points in the root (`codefactory.py`, `webu
 | `core/cfa_quality.py` | `QualityMixin`: size estimate before the start, spec before code (design + review, pinned), protected contract tests |
 | `core/cfa_gates.py` | `GateMixin`: layer gate (integration, smoke, strategist) and the deterministic drift check after merges |
 | `core/taskgraph.py` | Pure graph functions over backlog items: `components`, `visible_ids` (finished graphs hidden, finished tasks of active graphs kept), `trees`, `break_cycles`, `unlocks`, `levels`, `render` (prompt text), `raise_layers`, `signature` |
+| `core/cfa_bench.py` | `BenchMixin`: performance guard; performance-graph tasks are rejected in the debug loop when `commands.bench` gets >15% slower (feature `perf_guard`) |
+| `core/cfa_scout.py` | `ScoutMixin`: parallel, model-free look-ahead (likely files + symbols) for the next ready tasks, shown in the planning prompt (feature `scout`) |
+| `core/graph_templates.py` | Ready-made task graphs (API endpoint, UI screen, migration, refactor module) added from the Overview |
 | `core/cfa_hygiene_graph.py` | `HygieneGraphMixin`: refactor and performance graphs (chains with a `why` per task) scheduled from `schedule_hygiene`, never while one is open |
 | `core/cfa_graph.py` | `GraphMixin`: `merge_tasks`, `split_into_steps` (applied from the re-evaluation's `merge`/`split`), `graph_replan_start` (a graph review at the start of every run; the re-evaluation changes nothing without a reason (`keep_plan`); feature `graph_replan`), `downstream_note` |
 | `core/cfa_triage.py` | `TriageMixin`: every iteration re-scores open tasks for the current project state (fan-out bonus, failure penalty, `dyn`) and lays the plan out again (strategist) when enough was merged or tasks lack a layer; feature `triage` |
@@ -97,6 +100,7 @@ Code lives in five places: the entry points in the root (`codefactory.py`, `webu
 | `selfimprove.py` | Self-improvement of this repo on `self-improve/<ts>` branches (worktree, tests, security gate, review, docs) |
 | `webui.py` | HTTP server, router (`make_handler`), `Service` base class (combines the `webapi/` mixins below), process spawning, update/master-prompt endpoints |
 | `webapi/common.py` | Shared constants and helpers for the `Service` mixins: `ROOT`, `PROCS`/`PULLS` (mutable, import the module and read `common.ROOT`/`common.PULLS` rather than binding the name, so monkeypatching in tests still works), `UiError`, `git`/`git_rc`, `spawn`, `tail`, `alive`, `read_live` |
+| `webapi/graphedit.py` | `GraphEditMixin`: graph summaries/blocks/proposal for the overview, manual link/unlink/merge/split, templates, plan proposal apply/discard, replay history |
 | `webapi/project.py` | `ProjectMixin`: per-project detail/activity/thoughts/stream, settings, create/rename/delete, backlog edit, agent profile |
 | `webapi/dashboard.py` | `DashboardMixin`: `dashboard`, `history`, `gpu_stats`, `loaded_models`, `diagnostics` |
 | `webapi/tool.py` | `ToolMixin`: self-improve review branches (`tool_*`), preview builds/merge, the tool's own activity/diff/tree views, class attribute `PREVIEW` |
@@ -217,4 +221,6 @@ selftest self-improve e2e-setup`.
 - Self-improve chat has its own Direct mode (SELF_TOOLS) editing CodeFactory itself.
 - `dash/checkpoints.py`: preview/show/undo of direct chat edits (each write is a commit); `/api/chat/<id>/checkpoint`.
 - `@file` / `@T0001` mentions in chat (`dash/chat.py` `mention_context`, autocomplete via `editor/mentions`); repo map (`codesearch.repo_map`) in chat context.
+- `web/graphtools.js`: edit mode (Needs…/Merge/Split…, click an arrow to unlink), plan proposal card, templates, history replay slider.
+- Graph review (`core/cfa_graph.py`): all triggers (run start, milestone, stuck, stale layout, blocked chain) are collected and ONE re-evaluation runs; the start review is skipped when the graph is unchanged and flawless (`graph_review_always` forces it). Harmful results (mass cancel, torn graphs) are rolled back; `plan_confirm` / "Preview re-plan" saves a proposal to confirm. `next()` prefers the chain of the last finished task.
 - `web/taskgraph.js` + `web/tasktree.js`: the Overview is the task graph (bands per graph, chain highlight, zoom) plus the tree list below; finished graphs only via "Show finished graphs" (pref `showDone`). Editor Terminal panel: editor op `exec`.

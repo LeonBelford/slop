@@ -32,8 +32,13 @@ class HygieneGraphMixin:
                                     depends_on=prev, why=why)
             if not item:
                 break
+            if kind == "perf" and self.bench_cmd():
+                item["bench"] = True  # accepted only if the benchmark does not get slower
             out.append(item)
             prev = [item["id"]]
+        if kind == "perf" and out and self.bench_cmd():
+            self.bench_baseline()
+        self.backlog.save()
         return out
 
     def schedule_quality(self, ranked: list[str], merged: int) -> None:

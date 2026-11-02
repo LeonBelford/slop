@@ -7,6 +7,7 @@ The CLI stays fully usable; the UI calls the same commands (scripts/run.sh) and 
 from __future__ import annotations
 
 import argparse
+import hashlib
 import hmac
 import http.cookies
 import json
@@ -40,13 +41,14 @@ from webapi.dashboard import DashboardMixin
 from webapi.editor import EditorMixin
 from webapi.ext import ACTIONS as EXT_ACTIONS, ExtMixin
 from webapi.models import ModelsMixin
+from webapi.graphedit import GraphEditMixin
 from webapi.project import ProjectMixin
 from webapi.tool import ToolMixin
 
 ROOT = Path(__file__).resolve().parent
 
 
-class Service(ProjectMixin, DashboardMixin, ToolMixin, ModelsMixin, ChatMixin, ExtMixin, EditorMixin):
+class Service(ProjectMixin, GraphEditMixin, DashboardMixin, ToolMixin, ModelsMixin, ChatMixin, ExtMixin, EditorMixin):
     """The web UI backend. Each concern lives in its own mixin under webapi/; see webapi/common.py for shared helpers."""
 
     def __init__(self, projects: Path):
@@ -173,6 +175,8 @@ class Service(ProjectMixin, DashboardMixin, ToolMixin, ModelsMixin, ChatMixin, E
             sa.Agent(ws).add_feedback(msg)
         elif action in ("task-cancel", "task-reopen", "task-top", "task-delete"):
             self.backlog_edit(ws, action, body)
+        elif action in ("graph-link", "graph-unlink", "graph-merge", "graph-split", "graph-template", "replan-preview", "plan-apply", "plan-reject"):
+            return self.graph_edit(ws, name, action, body)
         elif action == "replay":
             try:
                 replay.validate(ws, str(body.get("task", "")), str(body.get("model", "")).strip())
@@ -252,7 +256,17 @@ def make_handler(svc: Service, port: int, token: str | None = None):
 
         def send(self, code: int, payload, ctype: str = "application/json") -> None:
             data = payload if isinstance(payload, bytes) else json.dumps(payload, ensure_ascii=False).encode()
-            self.send_response(code)
+            if code == 200 and self.command == "GET" and ctype == "application/json" and len(data) > 2000:
+                etag = '"' + hashlib.sha1(data).hexdigest()[:20] + '"'
+                if self.headers.get("If-None-Match") == etag:  # unchanged since the last poll: no body to send or parse
+                    self.send_response(304)
+                    self.send_header("ETag", etag)
+                    self.end_headers()
+                    return
+                self.send_response(code)
+                self.send_header("ETag", etag)
+            else:
+                self.send_response(code)
             self.send_header("Content-Type", ctype + "; charset=utf-8")
             self.send_header("Content-Length", str(len(data)))
             self.send_header("Cache-Control", "no-store")
@@ -429,10 +443,12 @@ def make_handler(svc: Service, port: int, token: str | None = None):
                 m = re.fullmatch(r"/api/project/([^/]+)/editor/([a-z]+)", path)
                 if m:
                     return svc.editor_get(m.group(1), m.group(2), q)
-                m = re.fullmatch(r"/api/project/([^/]+)/(llm|changes|diff|thoughts|tree|file|stream)", path)
+                m = re.fullmatch(r"/api/project/([^/]+)/(llm|changes|diff|thoughts|tree|file|stream|graph-history)", path)
                 if m:
                     if m.group(2) == "stream":
                         return svc.stream(m.group(1))
+                    if m.group(2) == "graph-history":
+                        return svc.graph_history(m.group(1))
                     if m.group(2) == "thoughts":
                         return svc.thoughts(m.group(1))
                     if m.group(2) == "tree":
