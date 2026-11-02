@@ -34,5 +34,5 @@ function treeListPanel(d){
 function overviewBody(d){
   const P=pref();
   const plan=(d.plan||[]).length?`<details class="panel" style="margin-top:16px"><summary><b>Build plan (core first)</b> <span class="meta">${d.plan.length} layers</span></summary>${d.plan.map(l=>`<div class="cap"><div><b>L${l.layer} ${esc(l.name)}</b> <span class="meta">${esc(l.goal)}</span></div><div style="min-width:140px">${pctBar(l.total?Math.round(100*l.done/l.total):0)} <span class="meta">${l.done}/${l.total}</span></div></div>`).join("")}</details>`:"";
-  return tgPanel(d)+`<div style="margin-top:16px">${treeListPanel(d)}</div>`+plan+(P.showDone?`<div style="margin-top:16px">${finishedTasks(d)}</div>`:"");
+  return proposalCard(d)+historyPanel()+tgPanel(d)+`<div style="margin-top:16px">${treeListPanel(d)}</div>`+plan+(P.showDone?`<div style="margin-top:16px">${finishedTasks(d)}</div>`:"");
 }

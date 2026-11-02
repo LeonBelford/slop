@@ -70,6 +70,7 @@ class Git:
 # --------------------------------------------------------------------------- Backlog
 
 
+CHAIN_BONUS = 1.5  # a task that continues the chain of the last finished task goes first among equals
 UNLAYERED = 50  # items without a layer are scheduled after every planned layer
 
 
@@ -145,10 +146,11 @@ class Backlog:
         closed = {i["id"] for i in self.items if i["status"] in ("done", "cancelled")}
         return [i for i in pending if all(d in closed for d in i.get("depends_on", []))]
 
-    def next(self, prefer_light: bool | None = None):
+    def next(self, prefer_light: bool | None = None, chain_from: str | None = None):
         """User tasks first, then bugs. After that the lowest layer first (core before features, items without a layer come last),
         then by priority; items wait for their dependencies. Among near-equal priorities the task that suits the model already
-        loaded (light = docs/tests, else regular) wins, which saves model switches on a small GPU."""
+        loaded (light = docs/tests, else regular) wins, which saves model switches on a small GPU. A task that builds directly on
+        `chain_from` (the last finished task) gets a bonus: the agent stays inside one graph while the code is still in its head."""
         self.reload()
         p = self.pending()
         if not p:
@@ -161,7 +163,8 @@ class Backlog:
             light = i["type"] in ("docs", "test")
             bonus = 0.75 if prefer_light is not None and light == prefer_light else 0
             layer = i["layer"] if i.get("layer") is not None else UNLAYERED
-            return (i.get("source") == "user", i["type"] == "bug", -layer, i["priority"] + bonus + i.get("dyn", 0))
+            chain = CHAIN_BONUS if chain_from and chain_from in (i.get("depends_on") or []) else 0
+            return (i.get("source") == "user", i["type"] == "bug", -layer, i["priority"] + bonus + chain + i.get("dyn", 0))
         return max(p, key=key)
 
     def set(self, item: dict, **kw) -> None:

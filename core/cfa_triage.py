@@ -55,7 +55,7 @@ class TriageMixin(PriorityMixin):
             self.backlog.reload()
             changed = self.light_check()
             changed = self._rescore() or changed
-            relaid = self.graph_replan_start() or self.replan_if_stuck() or self._relayout_if_stale()
+            relaid = self.graph_review()
             if relaid:
                 self.backlog.reload()
                 changed = self._rescore() or changed
@@ -79,24 +79,6 @@ class TriageMixin(PriorityMixin):
         if changed and top:
             self.log("Triage: priority adjusted for the current state: " + ", ".join(f"{i['id']} {i['dyn']:+g}" for i in top))
         return changed
-
-    def _relayout_if_stale(self) -> bool:
-        """Strategist re-layout (layers, order, dependencies, missing/redundant tasks) when enough has been merged since the last one,
-        or when open tasks have no layer. Blocked tasks stay with `revive_blocked`."""
-        merged = self.state.get("merged", 0)
-        since = merged - self.state.get("triage_at", 0)
-        open_items = [i for i in self.backlog.items if i["status"] in ("pending", "blocked")]
-        unlayered = [i for i in self.backlog.pending() if i.get("layer") is None and i.get("source") != "user"]
-        if not ((since >= RELAYOUT_EVERY_MERGES and len(open_items) >= MIN_OPEN) or (len(unlayered) >= 2 and since >= 1)):
-            return False
-        self.state["triage_at"] = merged  # also after a failure: never retry on every iteration
-        self.log(f"Triage: {since} merge(s) since the last layout, laying out the {len(open_items)} open task(s) again")
-        try:
-            self.reevaluate(requeue=False, state_note=self._state_note())
-        except Exception as e:  # noqa: BLE001
-            self.log(f"Triage: re-layout failed ({clip(str(e), 200)}), keeping the current order")
-            return False
-        return True
 
     def _state_note(self) -> str:
         items = self.backlog.items

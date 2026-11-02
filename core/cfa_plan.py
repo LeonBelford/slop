@@ -1,6 +1,7 @@
 """Strategic planning: turns the product brief into an architecture blueprint (layers, core first) and seeds the backlog from it."""
 from __future__ import annotations
 
+import copy
 import json
 
 from core import blueprint, taskgraph, uidetect
@@ -69,6 +70,8 @@ class PlanMixin:
         if built:
             text += "\nBuilds on (already merged, extend it, do not redo it): " + "; ".join(built)
         down = self.downstream_note(item)
+        if item.get("scout"):
+            text += f"\nLikely relevant files (scouted, check before relying on it): {item['scout']}"
         if item.get("why"):
             text += f"\nWhy this task exists (the purpose to serve): {item['why']}"
         return text + ("\n" + down if down else "")
@@ -138,12 +141,16 @@ class PlanMixin:
         lines += [f"  NEW {t['title']} (layer {t['layer']})" for t in res["new"]]
         self.llm.record("reevaluate_result", "strategist", "-", "Decisions applied to the backlog by the re-evaluation", "\n".join(lines))
 
-    def reevaluate(self, requeue: bool = True, state_note: str = "") -> dict:
+    def reevaluate(self, requeue: bool = True, state_note: str = "", focus: list[str] | None = None, preview: bool = False, reason: str = "manual") -> dict:
         """Thinks the plan through again for an existing project: new layers, every open task re-ordered into them, gaps in the
-        foundation added as tasks, redundant tasks cancelled. Needs the agent to be stopped (it rewrites the backlog)."""
+        foundation added as tasks, redundant tasks cancelled. `focus` (task ids) limits the review to the graphs those tasks belong to
+        (a mini re-plan, e.g. around a blocked task). `preview` only saves the proposal for you to confirm."""
         self.phase("Re-evaluating the plan: what does the core need?", "plan")
         self.backlog.reload()
         items = [i for i in self.backlog.items if i["status"] != "cancelled"]
+        if focus:
+            scope = {k for c in taskgraph.components(items) if set(c) & set(focus) for k in c}
+            items = [i for i in items if i["id"] in scope]
         old = self.blueprint()
         arch = self.mem.dir / "ARCHITECTURE.md"
         sctx = getattr(self.llm, "server_ctx", 0)
@@ -164,18 +171,29 @@ class PlanMixin:
             f"Features built: {[f['title'] for f in self.mem.features.values()]}\nArchitecture notes:\n"
             f"{clip(arch.read_text('utf-8') if arch.exists() else '', int(2500 * share))}\nCode map:\n{clip(self.mem.render_codemap(), int(5000 * share))}\n"
             f"Current state of the project:\n{state_note or '-'}\nDependency graphs now:\n{graph}\nTasks: {json.dumps(rows)}\n3 to 5 layers. Schema: " + REEVAL_SCHEMA)
+        self._review_reason = reason
         res = blueprint.normalize_reevaluation(data, items)
         self._reeval_note(data, res, by_title={i["id"]: i["title"] for i in items})
+        if preview or (self.feat("plan_confirm") and reason != "confirmed"):
+            return self.save_proposal(data, res, items, requeue, focus)
+        return self.apply_reevaluation(data, items, requeue, focus, reason)
+
+    def apply_reevaluation(self, data: dict, items: list[dict], requeue: bool, focus: list[str] | None, reason: str) -> dict:
+        """Applies a (normalized) re-evaluation to the backlog. A result that looks harmful (mass cancellation, graphs torn apart) is rolled back."""
+        res = blueprint.normalize_reevaluation(data, items)
+        zero = {"assigned": 0, "new": 0, "cancelled": 0, "requeued": 0, "merged": 0, "split": 0}
         if res["keep"] and not (res["new"] or res["cancel"] or res["merge"] or res["split"]):
             self.state["graph_sig"] = taskgraph.signature(self.backlog.items)
             self.metric(kind="reevaluate", kept=True)
             self.log(f"Plan reviewed, the graphs are sound: nothing changed. {res.get('assessment', '')}")
             self.phase("Idle (plan reviewed, no change needed)", None)
-            return {"assigned": 0, "new": 0, "cancelled": 0, "requeued": 0, "merged": 0, "split": 0, "kept": True}
+            return {**zero, "kept": True}
         if not res["layers"]:
             raise RuntimeError("The model returned no usable layers; nothing was changed.")
-        by_id = {i["id"]: i for i in items}
-        top, stats = len(res["layers"]) - 1, {"assigned": 0, "new": 0, "cancelled": 0, "requeued": 0, "merged": 0, "split": 0}
+        before = copy.deepcopy(self.backlog.items)
+        by_id = {i["id"]: i for i in self.backlog.items if i["status"] != "cancelled"}
+        scope = {i["id"] for i in items}
+        top, stats = len(res["layers"]) - 1, dict(zero)
         for cid in res["cancel"]:
             if by_id[cid]["status"] in ("pending", "blocked"):
                 why = next((str(c.get("why", ""))[:200] for c in data.get("cancel", []) if isinstance(c, dict) and c.get("id") == cid), "")
@@ -201,7 +219,7 @@ class PlanMixin:
                 redirect[item["id"]] = self.split_into_steps(item, sp["steps"], by_id)[-1]
                 stats["split"] += 1
         for i in list(by_id.values()):
-            if i["status"] == "cancelled" or i.get("source") == "user" or i["id"] in key_to_id.values():
+            if i["status"] == "cancelled" or i.get("source") == "user" or i["id"] in key_to_id.values() or (focus and i["id"] not in scope):
                 continue
             a = res["assign"].get(i["id"])
             if a:
@@ -236,16 +254,26 @@ class PlanMixin:
             if ds:
                 by_id[k]["depends_on"] = ds
         taskgraph.raise_layers(list(by_id.values()))
+        if bad := taskgraph.damage(before, self.backlog.items):
+            self.backlog.items[:] = before
+            self.backlog.save()
+            self.record_graph(f"rolled back: {bad}", {})
+            self.log(f"Re-evaluation rolled back, the result looked harmful ({bad}). The plan stays as it was.")
+            self.metric(kind="reevaluate", rolled_back=True)
+            self.phase("Idle (re-evaluation rolled back)", None)
+            return {**zero, "rolled_back": bad}
         self.state["graph_sig"] = taskgraph.signature(self.backlog.items)
         self.backlog.save()
-        bp = {"architecture": res["architecture"], "assessment": res.get("assessment", ""), "layers": [
-            {**ly, "tasks": [{"title": i["title"], "id": i["id"]} for i in by_id.values() if i.get("layer") == n and i["status"] != "cancelled"]}
-            for n, ly in enumerate(res["layers"])]}
-        blueprint.save(self.blueprint_path, bp)
-        write_text(self.repo / "docs" / "BLUEPRINT.md", blueprint.render_md(bp))
-        self.git.commit_all("docs: re-evaluated plan and architecture blueprint")
+        if not focus:
+            bp = {"architecture": res["architecture"], "assessment": res.get("assessment", ""), "layers": [
+                {**ly, "tasks": [{"title": i["title"], "id": i["id"]} for i in by_id.values() if i.get("layer") == n and i["status"] != "cancelled"]}
+                for n, ly in enumerate(res["layers"])]}
+            blueprint.save(self.blueprint_path, bp)
+            write_text(self.repo / "docs" / "BLUEPRINT.md", blueprint.render_md(bp))
+            self.git.commit_all("docs: re-evaluated plan and architecture blueprint")
+        self.record_graph(reason, stats)
         self.metric(kind="reevaluate", **stats)
-        self.log(f"Re-evaluation: {len(res['layers'])} layers, {stats['assigned']} tasks re-ordered, {stats['new']} new, "
+        self.log(f"Re-evaluation ({reason}): {len(res['layers'])} layers, {stats['assigned']} tasks re-ordered, {stats['new']} new, "
                  f"{stats['merged']} merged, {stats['split']} split, {stats['cancelled']} cancelled, {stats['requeued']} blocked tasks given a new chance. {res.get('assessment', '')}")
         self.phase("Idle (re-evaluation finished)", None)
         return stats

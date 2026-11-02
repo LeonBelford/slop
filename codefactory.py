@@ -3,13 +3,11 @@
 
 Only the start idea comes from you. After that an outer loop runs and decides on its own
 (the model does NOT decide when to finish):
-
   health -> backlog empty? -> product review / ideation (+critic) -> pick task
   -> impact analysis with memory (codemap, dependency graph, ADRs, lessons)
   -> plan critique -> implementation (Aider) -> build+tests -> debug rounds
   -> review -> cleanup pass (only with a green build) -> update memory+docs
   -> commit -> merge into main -> build on main (if red: rollback)
-
 Layout (one folder per idea under projects/<name>/):
   repo/     Git repo of the product (incl. docs/)
   agent/    State of this project OUTSIDE the repo so that `git reset` never destroys it:
@@ -104,11 +102,13 @@ from core.cfa_spike import SpikeMixin
 from core.cfa_triage import TriageMixin
 from core.cfa_quality import QualityMixin
 from core.cfa_hygiene_graph import HygieneGraphMixin
+from core.cfa_bench import BenchMixin
+from core.cfa_scout import ScoutMixin
 from core.cfa_ext import ExtMixin
 from core.cfa_gates import GateMixin
 
 
-class Agent(BuildMixin, FlowMixin, VerifyMixin, SecurityMixin, ResearchMixin, OpsMixin, PlanMixin, GraphMixin, HygieneGraphMixin, SplitMixin, ConductorMixin, SpikeMixin, MilestoneMixin, RulesMixin, HandoffMixin, TriageMixin, QualityMixin, GateMixin, ExtMixin):
+class Agent(BuildMixin, FlowMixin, VerifyMixin, SecurityMixin, ResearchMixin, OpsMixin, PlanMixin, GraphMixin, HygieneGraphMixin, BenchMixin, ScoutMixin, SplitMixin, ConductorMixin, SpikeMixin, MilestoneMixin, RulesMixin, HandoffMixin, TriageMixin, QualityMixin, GateMixin, ExtMixin):
     def __init__(self, ws: Path, cfg: dict | None = None):
         self.ws = ws.resolve()
         self.repo, self.dir = self.ws / "repo", self.ws / "agent"
@@ -378,7 +378,8 @@ class Agent(BuildMixin, FlowMixin, VerifyMixin, SecurityMixin, ResearchMixin, Op
                 self.reflect()
             self.schedule_hygiene()
             self.triage()
-            item = self.control_pick(self.backlog.next(getattr(self, "last_light", None)))
+            self.scout_ahead()
+            item = self.control_pick(self.backlog.next(getattr(self, "last_light", None), self.state.get("last_done")))
             if item and self.backlog.deadlock:
                 waiting = [d for d in item.get("depends_on", []) if d not in {i["id"] for i in self.backlog.items if i["status"] in ("done", "cancelled")}]
                 self.log(f"Dependency deadlock: {item['id']} starts although {', '.join(waiting) or 'a dependency'} is not finished")
@@ -605,6 +606,8 @@ def main() -> None:
     p_re = sub.add_parser("replan", help="Think the plan through again: new layers, re-ordered tasks (agent must be stopped)")
     p_re.add_argument("--projects-dir", default="projects")
     p_re.add_argument("--project")
+    p_re.add_argument("--preview", action="store_true", help="Only write the proposed changes for you to confirm")
+    p_re.add_argument("--apply", action="store_true", help="Apply the saved proposal")
     p_name = sub.add_parser("name", help="Print the resolved project name")
     p_name.add_argument("--projects-dir", default="projects")
     p_name.add_argument("--project")
@@ -669,7 +672,7 @@ def main() -> None:
         ag = Agent(ws)
         if ag.is_running():
             sys.exit("The agent is running. Stop it first (or use the button in the UI, which waits for it).")
-        print(ag.reevaluate())
+        print(ag.apply_proposal() if a.apply else ag.reevaluate(preview=a.preview))
         return
     if a.cmd == "name":
         print(ws.name)

@@ -124,10 +124,6 @@ class ReevaluateGraphTests(unittest.TestCase):
             self.assertEqual(ag.state["graph_sig"], taskgraph.signature(items))
 
 
-if __name__ == "__main__":
-    unittest.main()
-
-
 class QualityGraphTest(unittest.TestCase):
     def test_why_normalized_and_cancel_needs_reason(self):
         items = [{"id": "T1", "title": "a", "type": "feature", "status": "pending", "source": "blueprint"},
@@ -140,8 +136,10 @@ class QualityGraphTest(unittest.TestCase):
     def test_quality_graph_is_a_chain_with_reasons(self):
         from core.cfa_hygiene_graph import HygieneGraphMixin
 
-        class A(HygieneGraphMixin):
-            pass
+        from core.cfa_bench import BenchMixin
+
+        class A(HygieneGraphMixin, BenchMixin):
+            cfg = {}
         with tempfile.TemporaryDirectory() as d:
             a = A()
             a.backlog = Backlog(Path(d) / "b.json")
@@ -153,3 +151,7 @@ class QualityGraphTest(unittest.TestCase):
             self.assertTrue(all(i["why"] for i in items))
             a.schedule_quality(["x.py"], 8)  # one is still open
             self.assertEqual(len(a.backlog.items), 2)
+
+
+if __name__ == "__main__":
+    unittest.main()
