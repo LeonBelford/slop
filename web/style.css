@@ -153,6 +153,12 @@ button.ghost.danger{color:var(--bad)}
 .loglegend{display:flex;gap:14px;font-size:12px;margin-bottom:8px}
 .loglegend .lg-step,.loglegend .lg-ok,.loglegend .lg-sec,.loglegend .lg-warn,.loglegend .lg-err{padding:1px 8px;border:1px solid currentColor;border-radius:10px}
 .think{display:flex;align-items:center;gap:12px;color:var(--mute)}
+.think-box{margin-bottom:8px;border:1px solid var(--line);border-radius:8px;background:#141018}
+.think-box summary{cursor:pointer;padding:6px 10px;color:#b8a8d8;font-size:12.5px;user-select:none}
+.think-box summary:hover{color:#d2c3f0}
+.think-box pre{margin:0;padding:8px 12px;border:0;border-top:1px solid var(--line);background:none;max-height:260px;overflow:auto;color:#b8a8d8;font-style:italic;white-space:pre-wrap}
+.think-box.live{display:none}
+.think-box.live summary{color:#56d364}
 .stream pre{max-height:320px;margin-top:4px;resize:vertical;overflow:auto}
 .stream .meta{display:flex;align-items:center;gap:8px}.live-badge{color:#56d364;font-size:11px;animation:pulse 1.4s ease-in-out infinite}
 @keyframes pulse{50%{opacity:.35}}
@@ -307,6 +313,11 @@ button.ghost{background:none;border:none;color:var(--mute);padding:0 4px}.pd-lin
 .cs-t{flex:1;min-width:120px;color:var(--mute);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}.cs-n{color:var(--mute)}
 .cs-b{display:flex;gap:6px;margin-left:auto}
 .cs-auto{padding:4px 16px 7px;font-size:12px;color:var(--mute);border-top:1px solid #222}.cs-auto label{display:flex;align-items:center;gap:8px;margin:0}.cs-auto select{width:auto;padding:2px 8px;font-size:12px}
+.cx-modelbar{display:flex;align-items:center;gap:10px;padding:6px 16px;border-bottom:1px solid var(--line);background:#141414;font-size:12px;color:var(--mute);flex-wrap:wrap}
+.mb-dot{width:8px;height:8px;border-radius:50%;background:#555;flex:none}
+.mb-dot.on{background:var(--ok)}.mb-dot.boot{background:var(--warn);animation:pulse 1.2s ease-in-out infinite}.mb-dot.off{background:#a33}.mb-dot.idle{background:#555}
+.mb-t{color:var(--text);font-weight:600}
+.mb-gpu{margin-left:auto}
 .cx .msgs{border:0;border-radius:0;background:transparent;padding:20px 22px}
 .msg .mt{color:var(--mute);font-size:11px;margin-left:10px}.msg.assistant .acts .mt{margin:0 6px 0 0}
 .msg.cmdmsg{font-family:ui-monospace,monospace;font-size:13px}

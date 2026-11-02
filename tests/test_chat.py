@@ -24,6 +24,22 @@ class Fake(http.server.BaseHTTPRequestHandler):
         self.wfile.write(b"data: [DONE]\n\n")
 
 
+class FakeThink(http.server.BaseHTTPRequestHandler):
+    """Reasons via an inline <think> block, then answers - like a local reasoning model."""
+
+    def log_message(self, *a):
+        pass
+
+    def do_POST(self):
+        self.rfile.read(int(self.headers["Content-Length"]))
+        self.send_response(200)
+        self.send_header("Content-Type", "text/event-stream")
+        self.end_headers()
+        for w in ("<think>I should", " say hi</think>", "Hi there"):
+            self.wfile.write(b"data: " + json.dumps({"choices": [{"delta": {"content": w}}]}).encode() + b"\n\n")
+        self.wfile.write(b"data: [DONE]\n\n")
+
+
 class ChatTests(unittest.TestCase):
     def setUp(self):
         self.tmp = tempfile.TemporaryDirectory()
@@ -66,6 +82,30 @@ class ChatTests(unittest.TestCase):
     def test_bad_id(self):
         with self.assertRaises(chat.ChatError):
             self.svc.chats.load("../../etc")
+
+    def test_thinking_is_split_from_the_answer_and_streamed_separately(self):
+        srv = http.server.ThreadingHTTPServer(("127.0.0.1", 0), FakeThink)
+        threading.Thread(target=srv.serve_forever, daemon=True).start()
+        old = webui.sa.DEFAULT_CONFIG["llm_api"]
+        webui.sa.DEFAULT_CONFIG["llm_api"] = f"http://127.0.0.1:{srv.server_address[1]}/v1/chat/completions"
+        try:
+            c = self.svc.chat_create({"projects": ["demo"], "model": "m"})
+            out = []
+            self.svc.chat_stream(c["id"], "Hi", out.append)
+        finally:
+            webui.sa.DEFAULT_CONFIG["llm_api"] = old
+            srv.shutdown()
+        self.assertEqual("".join(d["think"] for d in out if "think" in d), "I should say hi")
+        self.assertEqual("".join(d["delta"] for d in out if "delta" in d), "Hi there")
+        saved = self.svc.chats.load(c["id"])
+        self.assertEqual(saved["messages"][1]["content"], "Hi there")
+        self.assertEqual(saved["messages"][1]["thinking"], "I should say hi")
+
+    def test_models_status(self):
+        st = self.svc.models_status()
+        self.assertIn("up", st)
+        self.assertIn("loaded", st)
+        self.assertIn("gpu", st)
 
 
 if __name__ == "__main__":

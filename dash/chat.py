@@ -12,6 +12,7 @@ import threading
 import time
 import urllib.request
 
+from core.cfutil import _open_think, _strip_think
 from dash import chatagent, directtools, toolchat
 from infra import knowledge
 from pathlib import Path
@@ -223,11 +224,14 @@ def build_messages(chat: dict, ws_of: Callable[[str], Path | None], api: str = "
     return [{"role": "system", "content": system}] + kept[::-1]
 
 
-def stream_completion(api: str, key: str, model: str, messages: list[dict], timeout: int = 600) -> Iterator[str]:
-    """Yields text deltas from an OpenAI-compatible streaming endpoint."""
+def stream_completion(api: str, key: str, model: str, messages: list[dict], timeout: int = 600) -> Iterator[tuple[str, str]]:
+    """Yields (kind, text) pieces from an OpenAI-compatible streaming endpoint: kind is "think" for reasoning
+    (a separate reasoning/reasoning_content delta field, or <think>...</think> tags inline in content) and "content" for the
+    visible answer. Mirrors core/cfllm.py's split so chat answers show their reasoning the same way the agent does."""
     req = urllib.request.Request(
         api, data=json.dumps({"model": model, "messages": messages, "stream": True, "temperature": 0.5}).encode(),
         headers={"Content-Type": "application/json", "Authorization": "Bearer " + key})
+    raw_content, think_field, seen_visible, seen_think = "", "", 0, 0
     with urllib.request.urlopen(req, timeout=timeout) as r:
         for raw in r:
             line = raw.decode("utf-8", "replace").strip()
@@ -237,8 +241,17 @@ def stream_completion(api: str, key: str, model: str, messages: list[dict], time
             if data == "[DONE]":
                 return
             try:
-                delta = json.loads(data)["choices"][0].get("delta", {}).get("content")
+                delta = json.loads(data)["choices"][0].get("delta", {})
             except (ValueError, KeyError, IndexError):
                 continue
-            if delta:
-                yield delta
+            raw_content += delta.get("content") or ""
+            think_field += delta.get("reasoning") or delta.get("reasoning_content") or ""
+            if not (delta.get("content") or delta.get("reasoning") or delta.get("reasoning_content")):
+                continue
+            visible, think = _strip_think(raw_content), think_field + _open_think(raw_content)
+            if len(think) > seen_think:
+                yield "think", think[seen_think:]
+                seen_think = len(think)
+            if len(visible) > seen_visible:
+                yield "content", visible[seen_visible:]
+                seen_visible = len(visible)

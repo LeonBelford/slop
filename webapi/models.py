@@ -30,6 +30,12 @@ class ModelsMixin:
         u = urllib.parse.urlparse(sa.DEFAULT_CONFIG["llm_api"])
         return f"{u.scheme}://{u.netloc}"
 
+    def models_status(self) -> dict:
+        """Light poll for the chat header: is Ollama up, which models currently sit in VRAM, and the GPU load."""
+        from webapi.dashboard import DashboardMixin
+        loaded = DashboardMixin.loaded_models()
+        return {"up": bool(self.installed_models(sa.DEFAULT_CONFIG["llm_api"])), "loaded": loaded, "gpu": DashboardMixin.gpu_stats()}
+
     def models_overview(self) -> dict:
         try:
             with urllib.request.urlopen(self.ollama_base() + "/api/tags", timeout=3) as r:

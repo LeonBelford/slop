@@ -385,6 +385,8 @@ def make_handler(svc: Service, port: int, token: str | None = None):
                     return svc.chat_list()
                 if path == "/api/models":
                     return svc.models_overview()
+                if path == "/api/models/status":
+                    return svc.models_status()
                 m = re.fullmatch(r"/api/chat/([a-f0-9]{12})", path)
                 if m:
                     return svc.chats.load(m.group(1))
