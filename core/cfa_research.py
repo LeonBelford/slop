@@ -5,7 +5,7 @@ from pathlib import Path
 from infra.webaccess import WebError
 from core import blueprint
 from core.cfa_rules import fail_rate
-from dash import estimate
+from dash import estimate, testgen
 import json
 from infra import knowledge
 import time
@@ -93,10 +93,8 @@ class ResearchMixin:
                                  "refactor", 4.0, ["Build and tests green", "no behavior change"], "Hygiene", "hygiene")
             self.state["last_refactor_at"] = merged
         if merged - self.state["last_coverage_at"] >= self.lim["coverage_every"]:
-            tested = {t for e in self.mem.codemap.values() if "test" in str(e) for t in e.get("imports", [])}
             dirs = tuple("" if d == "." else d for d in self.cfg["src_dirs"])
-            untested = [r for r in self.mem.codemap if r.startswith(dirs) and "test" not in r.lower()
-                        and r not in tested and not r.endswith("__init__.py")][:4]
+            untested = [u["file"] for u in testgen.untested(self.repo, 40) if u["file"].startswith(dirs)][:4]
             if untested:
                 self.backlog.add(f"Add tests for: {', '.join(untested)}", "Write missing unit tests including error cases.",
                                  "test", 4.5, ["Tests exist for all listed files"], "Hygiene", "hygiene")

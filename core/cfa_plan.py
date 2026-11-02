@@ -117,6 +117,7 @@ class PlanMixin:
         except Exception as e:  # noqa: BLE001  (bookkeeping only)
             self.log(f"Layer bookkeeping skipped: {clip(str(e), 200)}")
         self.milestone_review(layer, name)
+        self.doc_sync(layer, name)
 
     def _reeval_note(self, data: dict, res: dict, by_title: dict) -> None:
         """Puts the verdict per task (layer, priority, cancel reason, new tasks) into the Reasoning tab as its own card."""

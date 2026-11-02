@@ -37,6 +37,7 @@ from infra import update
 from webapi.chat import ChatMixin
 from webapi.common import BUILD, INDEX, LOCK, MAX_BODY, NAME_RE, PROCS, UPDATE_LOCK, UiError, alive, head_sha, pid_alive, spawn, tail
 from webapi.dashboard import DashboardMixin
+from webapi.ext import ACTIONS as EXT_ACTIONS, ExtMixin
 from webapi.models import ModelsMixin
 from webapi.project import ProjectMixin
 from webapi.tool import ToolMixin
@@ -44,7 +45,7 @@ from webapi.tool import ToolMixin
 ROOT = Path(__file__).resolve().parent
 
 
-class Service(ProjectMixin, DashboardMixin, ToolMixin, ModelsMixin, ChatMixin):
+class Service(ProjectMixin, DashboardMixin, ToolMixin, ModelsMixin, ChatMixin, ExtMixin):
     """The web UI backend. Each concern lives in its own mixin under webapi/; see webapi/common.py for shared helpers."""
 
     def __init__(self, projects: Path):
@@ -215,6 +216,8 @@ class Service(ProjectMixin, DashboardMixin, ToolMixin, ModelsMixin, ChatMixin):
             sa.write_text(ws / "IDEAS.md", str(body.get("text", "")))
         elif action == "sources":
             sa.write_text(ws / "SOURCES.md", str(body.get("text", "")))
+        elif action in EXT_ACTIONS:
+            return self.ext_act(ws, name, action, body)
         else:
             raise UiError("Unknown action", 404)
         return {"ok": True}
@@ -398,6 +401,11 @@ def make_handler(svc: Service, port: int, token: str | None = None):
                 m = re.fullmatch(r"/api/project/([^/]+)", path)
                 if m:
                     return svc.detail(m.group(1))
+                m = re.fullmatch(r"/api/project/([^/]+)/x/([a-z-]+)", path)
+                if m:
+                    return svc.ext_get(m.group(1), m.group(2), q)
+                if path == "/api/ext/ctx":
+                    return svc.ext_global("ctx")
                 m = re.fullmatch(r"/api/project/([^/]+)/dashboard", path)
                 if m:
                     return svc.project_dashboard(m.group(1))
@@ -457,6 +465,11 @@ def make_handler(svc: Service, port: int, token: str | None = None):
                     return svc.set_ui_settings(body)
                 if path == "/api/chats":
                     return svc.chat_create(body)
+                if path == "/api/ext/ctx-write":
+                    return svc.ext_global("ctx-write", body)
+                m = re.fullmatch(r"/api/chat/([a-f0-9]{12})/action", path)
+                if m:
+                    return svc.chat_action(m.group(1), body)
                 if path in ("/api/models/pull", "/api/models/delete", "/api/models/cancel"):
                     return getattr(svc, "model_" + path.rsplit("/", 1)[1])(body)
                 m = re.fullmatch(r"/api/chat/([a-f0-9]{12})/(update|delete)", path)

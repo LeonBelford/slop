@@ -204,9 +204,12 @@ function microSteps(steps){
   return `<details class="microsteps" open><summary>Sub-steps so far</summary>${rows}</details>`;
 }
 function stepTimes(list,idx,durations,liveStep,liveSince,t){
-  return `<div class="steps">${list.map(([k,l],i)=>{
+  const sum=durations?Object.values(durations).reduce((a,b)=>a+b,0)+(liveSince?Math.max(0,t-liveSince):0):0;
+  return `${sum>0.5?`<div class="sub">Whole task so far: ${fmtDur(sum)}</div>`:""}<div class="steps">${list.map(([k,l],i)=>{
     const closed=(durations&&durations[k])||0,live=k===liveStep&&liveSince?Math.max(0,t-liveSince):0,total=closed+live;
-    const time=(i<=idx&&total>0.5)?`<span class="stime">${fmtDur(total)}</span>`:"";
+    const isLive=k===liveStep&&liveSince&&i===idx;
+    const time=isLive?`<span class="stime" title="Now in this step / total in this step over the whole task">now ${fmtDur(live)} · Σ ${fmtDur(total)}</span>`
+      :(i<=idx&&total>0.5)?`<span class="stime" title="Total time in this step over the whole task">Σ ${fmtDur(total)}</span>`:"";
     return `<div class="step ${i<idx?"done":i===idx?"cur":""}">${l}${time}</div>`}).join("")}</div>`;
 }
 function renderNow(){

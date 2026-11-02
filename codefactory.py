@@ -102,10 +102,11 @@ from core.cfa_rules import RulesMixin
 from core.cfa_spike import SpikeMixin
 from core.cfa_triage import TriageMixin
 from core.cfa_quality import QualityMixin
+from core.cfa_ext import ExtMixin
 from core.cfa_gates import GateMixin
 
 
-class Agent(BuildMixin, FlowMixin, VerifyMixin, SecurityMixin, ResearchMixin, OpsMixin, PlanMixin, SplitMixin, ConductorMixin, SpikeMixin, MilestoneMixin, RulesMixin, HandoffMixin, TriageMixin, QualityMixin, GateMixin):
+class Agent(BuildMixin, FlowMixin, VerifyMixin, SecurityMixin, ResearchMixin, OpsMixin, PlanMixin, SplitMixin, ConductorMixin, SpikeMixin, MilestoneMixin, RulesMixin, HandoffMixin, TriageMixin, QualityMixin, GateMixin, ExtMixin):
     def __init__(self, ws: Path, cfg: dict | None = None):
         self.ws = ws.resolve()
         self.repo, self.dir = self.ws / "repo", self.ws / "agent"
@@ -116,7 +117,7 @@ class Agent(BuildMixin, FlowMixin, VerifyMixin, SecurityMixin, ResearchMixin, Op
             if k in TUNABLE:
                 self.lim[k] = max(TUNABLE[k][0], min(TUNABLE[k][1], int(v)))
         self.llm = LLM(self.cfg, self.log)
-        self.llm.trace = self.dir / "llm.log"
+        self.llm.trace, self.llm.roles = self.dir / "llm.log", self.dir / "roles.json"
         self.llm.live = self.dir / "llm_now.json"
         self.llm.thoughts = self.dir / "thoughts.jsonl"
         self.llm.load_ctx(self.dir / "llm_ctx.json")
@@ -365,6 +366,7 @@ class Agent(BuildMixin, FlowMixin, VerifyMixin, SecurityMixin, ResearchMixin, Op
             reason = self.should_stop(started)
             if reason:
                 break
+            self.control_wait()
             self.state["iteration"] += 1
             if self.state["iteration"] % self.lim["health_every"] == 0:
                 self.health_check()
@@ -376,7 +378,7 @@ class Agent(BuildMixin, FlowMixin, VerifyMixin, SecurityMixin, ResearchMixin, Op
                 self.reflect()
             self.schedule_hygiene()
             self.triage()
-            item = self.backlog.next(getattr(self, "last_light", None))
+            item = self.control_pick(self.backlog.next(getattr(self, "last_light", None)))
             if item and self.backlog.deadlock:
                 waiting = [d for d in item.get("depends_on", []) if d not in {i["id"] for i in self.backlog.items if i["status"] in ("done", "cancelled")}]
                 self.log(f"Dependency deadlock: {item['id']} starts although {', '.join(waiting) or 'a dependency'} is not finished")
@@ -397,6 +399,7 @@ class Agent(BuildMixin, FlowMixin, VerifyMixin, SecurityMixin, ResearchMixin, Op
                 self.llm_outage(e)
                 continue
             self.state["llm_outages"] = 0
+            self.control_after_task()
             if not ok:
                 self.state["failed_since_reflect"] = self.state.get("failed_since_reflect", 0) + 1
             self.state["consecutive_failures"] = 0 if ok else self.state["consecutive_failures"] + 1
