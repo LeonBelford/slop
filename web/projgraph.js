@@ -116,6 +116,7 @@ function pgCard(id,e){
     const nm=x=>esc(m.by[x].id+" "+m.by[x].title.slice(0,34)),needs=m.deps[id],later=m.kids[id]||[],files=i.files||[];
     c.dataset.id=id;
     c.innerHTML=`<div class="pc-h"><i style="background:${pgFill(i)}"></i><b>${esc(i.id)}</b> <span class="pill ${i.status==="done"?"ok":i.status==="blocked"?"bad":""}">${esc(i.status.replace("_"," "))}</span>${i.layer!=null?` <span class="pill info">L${i.layer}</span>`:""}</div><div class="pc-t">${esc(i.title)}</div>
+    <div class="meta">${i.estimate_s?"Estimated: "+dur(i.estimate_s):"No estimate yet"}${i.runtime_s?" · Took: "+dur(i.runtime_s):""}</div>
     ${i.why?`<div class="meta">Why: ${esc(i.why.slice(0,160))}</div>`:""}${i.result?`<div class="meta">Result: ${esc(String(i.result).slice(0,140))}</div>`:""}
     <div class="meta">Builds on: ${needs.length?needs.slice(0,4).map(nm).join(", ")+(needs.length>4?" …":""):"foundation"}</div><div class="meta">Unlocks: ${later.length?later.slice(0,4).map(nm).join(", ")+(later.length>4?" …":""):"nothing yet"}</div>
     <div class="meta">Files: ${files.length?esc(files.slice(0,4).join(", "))+(files.length>4?" …":""):"not known yet"}</div>`;

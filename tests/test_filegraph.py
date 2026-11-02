@@ -64,3 +64,31 @@ class PackHistoryTest(unittest.TestCase):
         bl.set(step, status="blocked", process="p1")
         nxt = bl.add("Feature", "d", force=True, depends_on=[step["id"]])
         self.assertTrue(bl.ready([nxt]))
+
+    def test_html_css_and_served_paths(self):
+        files = {"web/index.html": "", "web/app.js": "", "web/style.css": "", "web/chat.js": "", "api/server.py": "", "api/models.py": ""}
+        html = '<link href="/static/style.css"><script src="/static/app.js"></script><script src="chat.js"></script><script src="https://x.y/z.js">'
+        self.assertEqual(filegraph.imports_of("web/index.html", html, files), {"web/style.css", "web/app.js", "web/chat.js"})
+        self.assertEqual(filegraph.imports_of("api/server.py", "import models\n", files), {"api/models.py"})
+
+    def test_other_languages(self):
+        f = {"src/main.c", "src/util.h", "go/app/main.go", "go/app/pkg/db/db.go", "src/lib.rs", "src/net.rs", "src/net/mod.rs",
+             "app/src/com/x/Repo.java", "app/src/com/x/Main.java", "lib/helper.rb", "lib/app.rb", "web/components/Button.tsx", "web/page.tsx"}
+        g = filegraph.imports_of
+        self.assertEqual(g("src/main.c", '#include "util.h"\n#include <stdio.h>', f), {"src/util.h"})
+        self.assertEqual(g("go/app/main.go", 'import (\n\t"fmt"\n\t"example.com/me/app/pkg/db"\n)', f), {"go/app/pkg/db/db.go"})
+        self.assertEqual(g("src/lib.rs", "mod net;\nuse crate::net::Conn;", f), {"src/net.rs"})
+        self.assertEqual(g("app/src/com/x/Main.java", "import com.x.Repo;\nimport java.util.List;", f), {"app/src/com/x/Repo.java"})
+        self.assertEqual(g("lib/app.rb", "require_relative 'helper'", f), {"lib/helper.rb"})
+        self.assertEqual(g("web/page.tsx", "import B from 'components/Button'", f), {"web/components/Button.tsx"})
+
+    def test_keep_prefers_code(self):
+        fs = ["a.png", "node_modules/x.js", "z/app.go", "README.md"]
+        self.assertEqual(filegraph.keep(fs), ["z/app.go", "README.md"])
+
+    def test_no_false_links(self):
+        g = filegraph.imports_of
+        self.assertEqual(g("web/app.js", "import c from 'react-dom/client'", {"web/app.js", "web/client.js", "src/client.js"}), set())
+        go = {"main.go", "log/log.go", "cmd/x.go"}
+        self.assertEqual(g("main.go", 'import "log"\nvar names = []string{\n\t"cmd"\n}\n', go), set())
+        self.assertEqual(g("main.go", 'import "me/app/cmd"', go), {"cmd/x.go"})

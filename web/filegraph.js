@@ -35,7 +35,7 @@ function fgInfoText(){
   const n=fg.m&&fg.sel&&fg.m.by[fg.sel];
   if(!n)return `<span class="hint">Click a bubble for its imports and tasks.</span>`;
   const nb=fg.m.nb[n.path]||{out:[],in:[]},chip=p=>`<span class="pg-ch file" onclick="fgSelect('${esc(p)}')">${esc(p)}</span>`;
-  return `<div class="pg-info"><div><b>${esc(n.path)}</b> <span class="pill info">${n.total} task(s)</span> <span class="pill info">used by ${n.used_by}</span></div>
+  return `<div class="pg-info"><div><b>${esc(n.path)}</b> <span class="pill info">${n.total} task(s)</span> <span class="pill info">used by ${n.used_by}</span> <span class="pill info">${n.lines==null?"?":n.lines} lines</span></div>
   <div class="pg-rows"><div><span class="meta">Tasks</span> ${fgTaskLine(n)}</div><div><span class="meta">Imports</span> ${nb.out.length?nb.out.map(chip).join(""):'<span class="meta">nothing from the project</span>'}</div>
   <div><span class="meta">Used by</span> ${nb.in.length?nb.in.map(chip).join(""):'<span class="meta">nobody</span>'}</div></div>
   <div class="tg-row" style="margin-top:6px"><button class="small" onclick="fgOpen('${esc(n.path)}')">Open in editor</button></div></div>`;
@@ -45,12 +45,12 @@ function fgSelect(p){fg.sel=fg.sel===p?null:p;const i=document.getElementById("f
 function fgSeed(){fg.m.nodes.forEach(n=>{if(!fg.pos[n.path]){const h=pgHash(n.path);fg.pos[n.path]={x:(h%700)-350,y:((h>>6)%500)-250,vx:0,vy:0}}})}
 function fgTick(){
   const N=fg.m.nodes,P=fg.pos,a=fg.alpha;
-  N.forEach(n=>{const p=P[n.path];p.fx=-p.x*.003;p.fy=-p.y*.003});
+  N.forEach(n=>{const p=P[n.path];p.fx=-p.x*.006;p.fy=-p.y*.006});
   for(let i=0;i<N.length;i++)for(let j=i+1;j<N.length;j++){
-    const p=P[N[i].path],q=P[N[j].path];let dx=p.x-q.x,dy=p.y-q.y,d2=dx*dx+dy*dy;if(d2>90000)continue;if(d2<1){dx=Math.random()-.5;dy=Math.random()-.5;d2=1}
-    const d=Math.sqrt(d2),f=2200/d2;p.fx+=dx/d*f;p.fy+=dy/d*f;q.fx-=dx/d*f;q.fy-=dy/d*f;
+    const p=P[N[i].path],q=P[N[j].path];let dx=p.x-q.x,dy=p.y-q.y,d2=dx*dx+dy*dy;if(d2>250000)continue;if(d2<1){dx=Math.random()-.5;dy=Math.random()-.5;d2=1}
+    const d=Math.sqrt(d2),f=5200/d2;p.fx+=dx/d*f;p.fy+=dy/d*f;q.fx-=dx/d*f;q.fy-=dy/d*f;
   }
-  fg.m.edges.forEach(([x,y])=>{const p=P[x],q=P[y],dx=q.x-p.x,dy=q.y-p.y,d=Math.sqrt(dx*dx+dy*dy)||1,f=(d-70)*.04;p.fx+=dx/d*f;p.fy+=dy/d*f;q.fx-=dx/d*f;q.fy-=dy/d*f});
+  fg.m.edges.forEach(([x,y])=>{const p=P[x],q=P[y],dx=q.x-p.x,dy=q.y-p.y,d=Math.sqrt(dx*dx+dy*dy)||1,f=(d-110)*.04;p.fx+=dx/d*f;p.fy+=dy/d*f;q.fx-=dx/d*f;q.fy-=dy/d*f});
   N.forEach(n=>{const p=P[n.path];if(p.pin)return;p.vx=(p.vx+p.fx*a)*.6;p.vy=(p.vy+p.fy*a)*.6;p.x+=p.vx;p.y+=p.vy});
   fg.alpha*=.985;
 }
@@ -69,8 +69,9 @@ function fgLoop(){fg.raf=0;if(!document.getElementById("fgSvg"))return;fgTick();
 function fgKick(){fg.alpha=Math.max(fg.alpha,.4);if(!fg.raf)fg.raf=requestAnimationFrame(fgLoop)}
 function fgFit(){
   const svg=document.getElementById("fgSvg");if(!svg||!fg.m||!fg.m.nodes.length)return;
-  const ps=fg.m.nodes.map(n=>fg.pos[n.path]),x0=Math.min(...ps.map(p=>p.x))-50,x1=Math.max(...ps.map(p=>p.x))+50,y0=Math.min(...ps.map(p=>p.y))-50,y1=Math.max(...ps.map(p=>p.y))+60;
-  const w=svg.clientWidth||900,h=svg.clientHeight||560,k=Math.max(.2,Math.min(1.4,w/(x1-x0),h/(y1-y0)));
+  const cut=a=>{const v=a.slice().sort((x,y)=>x-y),n=v.length,lo=v[Math.floor(n*.04)],hi=v[Math.ceil(n*.96)-1];return [lo,hi]};  // a few stray files must not shrink the picture
+  const ps=fg.m.nodes.map(n=>fg.pos[n.path]),[xa,xb]=cut(ps.map(p=>p.x)),[ya,yb]=cut(ps.map(p=>p.y)),x0=xa-50,x1=xb+50,y0=ya-50,y1=yb+60;
+  const w=svg.clientWidth||900,h=svg.clientHeight||560,k=Math.max(.25,Math.min(1.4,w/(x1-x0),h/(y1-y0)));
   fg.view={k,x:(w-(x1-x0)*k)/2-x0*k,y:(h-(y1-y0)*k)/2-y0*k};fgApply(svg);
 }
 function fgStart(){
@@ -92,7 +93,7 @@ function fgMark(){
 function fgCard(id,e){
   const n=fg.m&&fg.m.by[id],wrap=document.querySelector("#fgSvg")&&document.querySelector("#fgSvg").parentNode;if(!n||!wrap)return;
   let c=document.getElementById("fgCard");if(!c){c=document.createElement("div");c.id="fgCard";c.className="pgcard";wrap.appendChild(c)}
-  if(c.dataset.id!==id){c.dataset.id=id;c.innerHTML=`<div class="pc-h"><i style="background:${fgCol(id)}"></i><b>${esc(id)}</b></div><div class="meta">Used by ${n.used_by} file(s) · ${n.total} task(s)</div><div style="margin-top:4px">${fgTaskLine(n)}</div>`}
+  if(c.dataset.id!==id){c.dataset.id=id;c.innerHTML=`<div class="pc-h"><i style="background:${fgCol(id)}"></i><b>${esc(id)}</b></div><div class="meta">${n.lines==null?"":n.lines+" lines · "}Used by ${n.used_by} file(s) · ${n.total} task(s)</div><div style="margin-top:4px">${fgTaskLine(n)}</div>`}
   const r=wrap.getBoundingClientRect(),x=e.clientX-r.left+16,y=e.clientY-r.top+16;
   c.style.display="block";c.style.left=Math.max(4,Math.min(x,r.width-c.offsetWidth-4))+"px";c.style.top=Math.max(4,Math.min(y,r.height-c.offsetHeight-4))+"px";
 }
