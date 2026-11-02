@@ -19,6 +19,25 @@ class LLMError(RuntimeError):
         self.status = status
 
 
+CHARS_PER_TOKEN = 3.0
+ANSWER_SHARE = 0.4  # of a small context window kept free for the answer (reasoning models think before they answer)
+
+
+def server_ctx(detail: str) -> int:
+    """The context size a server names in its 400 error ("exceeds the available context size (4096 tokens)"), else 0."""
+    m = re.search(r"context (?:size|length|window)[^0-9]{0,30}(\d{3,7})", detail, re.I) or re.search(r"(\d{3,7}) tokens?\)?[^.]{0,40}context", detail, re.I)
+    return int(m.group(1)) if m else 0
+
+
+def fit_to_ctx(system: str, user: str, ctx: int) -> tuple[str, str]:
+    """Cuts a prompt so that it fits the server's real context window and leaves room for the answer."""
+    budget = int(ctx * (1 - ANSWER_SHARE) * CHARS_PER_TOKEN)
+    if len(system) + len(user) <= budget:
+        return system, user
+    sys_keep = min(len(system), budget // 3)
+    return clip(system, sys_keep), clip(user, max(budget - sys_keep, 500))
+
+
 def shrink(system: str, user: str, factor: float = 0.6) -> tuple[str, str]:
     """Cuts a prompt that the server rejected (usually too large): the user part loses most, the system part a little."""
     return clip(system, int(len(system) * (0.85 if len(system) > 3000 else 1))), clip(user, int(len(user) * factor))
@@ -41,6 +60,7 @@ class LLM:
         self.stream: Path | None = None  # the answer being written right now, updated while it streams (llm_stream.json)
         self.sched = gpusched.NullScheduler()  # set by Agent
         self.seq = 0
+        self.server_ctx = 0  # learned from a 400 error: every later prompt is cut to this window up front
         self.tok = {"tokens": 0, "chars": 0, "t0": None}
         self.ctx = lambda: ""  # returns the current task id (set by Agent)
 
@@ -172,6 +192,10 @@ class LLM:
         self.log(f"Model server OK, models available: {', '.join(sorted(need))}. "
                  "The first answer can take several minutes while the model loads (see `ollama ps`).")
 
+    def _answer_tokens(self) -> int:
+        cap = int(self.cfg["limits"].get("max_answer_tokens", 6000))
+        return min(cap, int(self.server_ctx * ANSWER_SHARE)) if self.server_ctx else cap
+
     def chat(self, tag: str, role: str, system: str, user: str, temperature: float = 0.2) -> str:
         if getattr(self, "session_note", ""):
             system += "\n\nTask journal (what already happened in this task; build on it, do not redo it):\n" + self.session_note
@@ -181,11 +205,13 @@ class LLM:
             return self._traced(tag, role, user, mocked)
         fallback = self.cfg["models"].get("planner") if role == "strategist" else self.cfg["models"]["reviewer"]
         model = self.overrides.get(role) or self.cfg["models"].get(role) or fallback
+        if self.server_ctx:
+            system, user = fit_to_ctx(system, user, self.server_ctx)
         body = json.dumps({
             "model": model,
             "messages": [{"role": "system", "content": system}, {"role": "user", "content": user}],
             "temperature": temperature,
-            "max_tokens": int(self.cfg["limits"].get("max_answer_tokens", 6000)),
+            "max_tokens": self._answer_tokens(),
             "stream": True,
             "stream_options": {"include_usage": True},  # exact token counts for the dashboard
         }).encode()
@@ -238,8 +264,16 @@ class LLM:
                 if e.code == 400 and shrinks < 3:
                     # the request itself was rejected, repeating it unchanged cannot help: send a smaller prompt
                     shrinks += 1
-                    system, user = shrink(system, user)
-                    body = json.dumps({**json.loads(body), "messages": [{"role": "system", "content": system}, {"role": "user", "content": user}]}).encode()
+                    ctx = server_ctx(detail)
+                    if ctx and ctx != self.server_ctx:
+                        self.server_ctx = ctx
+                        self.log(f"The model server only has a context window of {ctx} tokens. Prompts are cut to fit it; for good results raise it "
+                                 f"(Ollama: OLLAMA_CONTEXT_LENGTH=16384, or a Modelfile with num_ctx, see scripts/Modelfile.qwen-coder-14b).")
+                    system, user = fit_to_ctx(system, user, ctx) if ctx else shrink(system, user)
+                    if ctx and len(system) + len(user) > int(ctx * (1 - ANSWER_SHARE) * CHARS_PER_TOKEN):
+                        system, user = shrink(system, user)
+                    body = json.dumps({**json.loads(body), "max_tokens": self._answer_tokens(),
+                                       "messages": [{"role": "system", "content": system}, {"role": "user", "content": user}]}).encode()
                     self.log(f"LLM error ({tag}): retrying with a smaller prompt ({len(system) + len(user)} chars)")
                     continue
                 if e.code not in (408, 429, 500, 502, 503, 504):
