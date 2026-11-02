@@ -92,7 +92,7 @@ def normalize(data: dict, mvp: list[dict] | None = None, chain: bool = True, ske
             last = key
             seen.add(key)
             tasks.append({"key": key, "title": _s(t["title"], 120), "description": _s(t.get("description"), 800),
-                          "acceptance": [_s(a) for a in (t.get("acceptance") or []) if a][:6], "depends_on": deps,
+                          "acceptance": [_s(a) for a in (t.get("acceptance") or []) if a][:6], "depends_on": deps, "why": _s(t.get("why"), 200),
                           "type": t.get("type") if t.get("type") in ("feature", "refactor", "test", "docs") else "feature",
                           "risk": "high" if str(t.get("risk", "")).lower() == "high" else "low", "skeleton": bool(t.get("skeleton")),
                           "priority": _num(t.get("value"), 5) * 2 - _num(t.get("effort"), 5)})
@@ -120,7 +120,7 @@ def normalize_reevaluation(data: dict, items: list[dict]) -> dict:
         {"name": ly.get("name"), "goal": ly.get("goal"), "tasks": [{"title": "-"}]} for ly in data.get("layers", []) if isinstance(ly, dict)]})
     layers = [{"name": ly["name"], "goal": ly["goal"]} for ly in base["layers"]]
     if not layers:
-        return {"architecture": base["architecture"], "layers": [], "assign": {}, "new": [], "cancel": [], "merge": [], "split": []}
+        return {"architecture": base["architecture"], "layers": [], "assign": {}, "new": [], "cancel": [], "merge": [], "split": [], "keep": False}
     ids = {i["id"] for i in items}
     top = len(layers) - 1
 
@@ -133,14 +133,14 @@ def normalize_reevaluation(data: dict, items: list[dict]) -> dict:
     assign = {}
     for a in data.get("assign", []):
         if isinstance(a, dict) and a.get("id") in ids:
-            assign[a["id"]] = {"layer": lay(a.get("layer")), "priority": _num(a.get("priority"), 5),
+            assign[a["id"]] = {"layer": lay(a.get("layer")), "priority": _num(a.get("priority"), 5), "why": _s(a.get("why"), 200),
                                "depends_on": [d for d in (a.get("depends_on") or []) if isinstance(d, str) and d != a["id"]]}
     new, keys = [], set()
     for n, t in enumerate(x for x in data.get("new_tasks", []) if isinstance(x, dict) and x.get("title")):
         key = _s(t.get("key"), 40) or f"new{n}"
         keys.add(key)
         new.append({"key": key, "title": _s(t["title"], 120), "description": _s(t.get("description"), 800),
-                    "acceptance": [_s(a) for a in (t.get("acceptance") or []) if a][:6], "layer": lay(t.get("layer")),
+                    "acceptance": [_s(a) for a in (t.get("acceptance") or []) if a][:6], "layer": lay(t.get("layer")), "why": _s(t.get("why"), 200),
                     "type": t.get("type") if t.get("type") in ("feature", "refactor", "test", "docs") else "feature",
                     "priority": _num(t.get("value"), 5) * 2 - _num(t.get("effort"), 5),
                     "depends_on": [d for d in (t.get("depends_on") or []) if isinstance(d, str) and (d in ids or d in keys) and d != key]})
@@ -148,8 +148,8 @@ def normalize_reevaluation(data: dict, items: list[dict]) -> dict:
     cancel = []
     for c in data.get("cancel", []):
         cid = c.get("id") if isinstance(c, dict) else c
-        if cid in ids and cid not in protected and cid not in cancel:
-            cancel.append(cid)
+        if cid in ids and cid not in protected and cid not in cancel and isinstance(c, dict) and _s(c.get("why"), 200):
+            cancel.append(cid)  # a cancellation needs a stated reason
     pending = {i["id"] for i in items if i.get("status") == "pending"} - protected
     used: set[str] = set()
     merge = []
@@ -165,9 +165,9 @@ def normalize_reevaluation(data: dict, items: list[dict]) -> dict:
         if sp.get("id") in pending and sp["id"] not in used and sp["id"] not in cancel and len(steps) >= 2:
             used.add(sp["id"])
             split.append({"id": sp["id"], "steps": [{"title": _s(st["title"], 120), "description": _s(st.get("description"), 800),
-                                                     "acceptance": [_s(a) for a in (st.get("acceptance") or []) if a][:6]} for st in steps[:4]]})
+                                                     "acceptance": [_s(a) for a in (st.get("acceptance") or []) if a][:6], "why": _s(st.get("why"), 200)} for st in steps[:4]]})
     return {"architecture": base["architecture"], "layers": layers, "assign": assign, "new": new[:20], "cancel": cancel,
-            "merge": merge[:6], "split": split[:6], "assessment": _s(data.get("assessment"), 800)}
+            "merge": merge[:6], "split": split[:6], "assessment": _s(data.get("assessment"), 800), "keep": data.get("keep_plan") is True}
 
 
 def load(path: Path) -> dict | None:

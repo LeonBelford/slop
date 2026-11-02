@@ -126,3 +126,30 @@ class ReevaluateGraphTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class QualityGraphTest(unittest.TestCase):
+    def test_why_normalized_and_cancel_needs_reason(self):
+        items = [{"id": "T1", "title": "a", "type": "feature", "status": "pending", "source": "blueprint"},
+                 {"id": "T2", "title": "b", "type": "feature", "status": "pending", "source": "blueprint"}]
+        r = blueprint.normalize_reevaluation({"layers": [{"name": "x", "goal": "g"}], "cancel": [{"id": "T1"}, {"id": "T2", "why": "duplicate of T1"}],
+                                              "keep_plan": True}, items)
+        self.assertEqual(r["cancel"], ["T2"])
+        self.assertTrue(r["keep"])
+
+    def test_quality_graph_is_a_chain_with_reasons(self):
+        from core.cfa_hygiene_graph import HygieneGraphMixin
+
+        class A(HygieneGraphMixin):
+            pass
+        with tempfile.TemporaryDirectory() as d:
+            a = A()
+            a.backlog = Backlog(Path(d) / "b.json")
+            a.lim = {"refactor_every": 4}
+            a.schedule_quality(["x.py"], 4)
+            items = a.backlog.items
+            self.assertEqual(len(items), 2)
+            self.assertEqual(items[1]["depends_on"], [items[0]["id"]])
+            self.assertTrue(all(i["why"] for i in items))
+            a.schedule_quality(["x.py"], 8)  # one is still open
+            self.assertEqual(len(a.backlog.items), 2)

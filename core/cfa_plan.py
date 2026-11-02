@@ -17,19 +17,22 @@ SCHEMA = ('{"architecture": {"principles": ["..."], "modules": [{"name": "", "re
           '"contracts": ["stable interface, e.g. function or endpoint signature and its meaning"], "decisions": ["decision and why"]}, "dependencies": [{"name": "", "version": "", "reason": ""}], '
           '"layers": [{"name": "", "goal": "what exists and works after this layer", "tasks": [{"key": "short-unique-id", "title": "", '
           '"description": "", "acceptance": ["testable"], "depends_on": ["keys of earlier tasks"], "type": "feature|refactor|test", '
-          '"risk": "low|high", "skeleton": false, "value": 1-10, "effort": 1-10}]}]}')
+          '"risk": "low|high", "skeleton": false, "why": "one short sentence: why this task is needed", "value": 1-10, "effort": 1-10}]}]}')
 
 
-REEVAL_SCHEMA = ('{"assessment": "what is wrong with the current order, 2-4 sentences", "architecture": {"principles": ["..."], '
+REEVAL_SCHEMA = ('{"keep_plan": true if the graphs are sound and nothing needs to change (then leave all other lists empty), "assessment": "what is wrong with the current order, 2-4 sentences", "architecture": {"principles": ["..."], '
                  '"modules": [{"name": "", "responsibility": ""}], "contracts": ["..."], "decisions": ["..."]}, '
-                 '"layers": [{"name": "", "goal": ""}], "assign": [{"id": "T0001", "layer": 0, "depends_on": ["T0000"], "priority": 1-10}], '
+                 '"layers": [{"name": "", "goal": ""}], "assign": [{"id": "T0001", "layer": 0, "depends_on": ["T0000"], "priority": 1-10, "why": "only if the reason changed"}], '
                  '"new_tasks": [{"key": "short-id", "title": "", "description": "", "acceptance": ["testable"], "type": "feature|refactor|test", '
-                 '"layer": 0, "depends_on": ["task ids or keys of earlier tasks"], "value": 1-10, "effort": 1-10}], '
+                 '"layer": 0, "depends_on": ["task ids or keys of earlier tasks"], "why": "short reason this task is needed", "value": 1-10, "effort": 1-10}], '
                  '"cancel": [{"id": "T0002", "why": ""}], "merge": [{"ids": ["T0004", "T0005"], "title": "", "description": "", "acceptance": ["testable"], "why": ""}], '
-                 '"split": [{"id": "T0009", "steps": [{"title": "", "description": "", "acceptance": ["testable"]}]}]}. Every open and finished task should appear in assign.')
+                 '"split": [{"id": "T0009", "steps": [{"title": "", "description": "", "acceptance": ["testable"], "why": ""}]}]}. Every open and finished task should appear in assign.')
 GRAPH_RULES = (" Think in a graph: every task lists in depends_on exactly the tasks whose result it needs (never a cycle); independent work stays in separate branches, "
                "a task needing several branches joins them. Merge pending tasks that touch the same code or would be one change anyway (merge, at most 5 ids each, never in_progress "
-               "or user tasks). Split a pending task that is too big for one iteration into 2 to 4 small steps (split). Use new_tasks for missing steps.")
+               "or user tasks). Split a pending task that is too big for one iteration into 2 to 4 small steps (split). Use new_tasks for missing steps. "
+               "Review every graph: do the steps make sense, are they in the right order and size, is a step missing for the vision, is a step still needed? "
+               "Every task carries a `why`; keep a task while its why holds, cancel it only with a concrete reason (cancel needs `why`), and give new tasks a why. "
+               "Do NOT rebuild what is sound: without a valid reason change nothing, set keep_plan true and leave the lists empty. Moving or re-linking a task needs a reason too.")
 
 
 class PlanMixin:
@@ -66,6 +69,8 @@ class PlanMixin:
         if built:
             text += "\nBuilds on (already merged, extend it, do not redo it): " + "; ".join(built)
         down = self.downstream_note(item)
+        if item.get("why"):
+            text += f"\nWhy this task exists (the purpose to serve): {item['why']}"
         return text + ("\n" + down if down else "")
 
     def make_blueprint(self, idea: str, brief: dict) -> bool:
@@ -91,7 +96,7 @@ class PlanMixin:
             for t in layer["tasks"]:
                 item = self.backlog.add(t["title"], t["description"], t["type"], t["priority"], t["acceptance"],
                                         f"Layer {li}: {layer['name']}", "blueprint", force=True, layer=li,
-                                        depends_on=[ids[d] for d in t["depends_on"] if d in ids])
+                                        depends_on=[ids[d] for d in t["depends_on"] if d in ids], why=t.get("why"))
                 ids[t["key"]] = item["id"]
                 t["id"] = item["id"]
                 item["key"] = t["key"]
@@ -146,7 +151,7 @@ class PlanMixin:
         share = scaled(self.llm, 1000, 0.0) / 1000
         visible = taskgraph.visible_ids(items)  # finished graphs are only history: they stay out of the prompt
         rows = [{k: v for k, v in {"id": i["id"], "title": clip(i["title"], 80 if sctx else 200), "type": i["type"], "status": i["status"],
-                                   "layer": i.get("layer"), "source": i.get("source")}.items() if v not in (None, [], "")}
+                                   "layer": i.get("layer"), "source": i.get("source"), "why": clip(i.get("why", ""), 100)}.items() if v not in (None, [], "")}
                 for i in items if i["id"] in visible]
         ideas = self.ideas_path.read_text("utf-8") if self.ideas_path.exists() else ""
         graph = taskgraph.render(items, 70 if sctx else 100, int(6000 * max(share, 0.4)))
@@ -161,18 +166,26 @@ class PlanMixin:
             f"Current state of the project:\n{state_note or '-'}\nDependency graphs now:\n{graph}\nTasks: {json.dumps(rows)}\n3 to 5 layers. Schema: " + REEVAL_SCHEMA)
         res = blueprint.normalize_reevaluation(data, items)
         self._reeval_note(data, res, by_title={i["id"]: i["title"] for i in items})
+        if res["keep"] and not (res["new"] or res["cancel"] or res["merge"] or res["split"]):
+            self.state["graph_sig"] = taskgraph.signature(self.backlog.items)
+            self.metric(kind="reevaluate", kept=True)
+            self.log(f"Plan reviewed, the graphs are sound: nothing changed. {res.get('assessment', '')}")
+            self.phase("Idle (plan reviewed, no change needed)", None)
+            return {"assigned": 0, "new": 0, "cancelled": 0, "requeued": 0, "merged": 0, "split": 0, "kept": True}
         if not res["layers"]:
             raise RuntimeError("The model returned no usable layers; nothing was changed.")
         by_id = {i["id"]: i for i in items}
         top, stats = len(res["layers"]) - 1, {"assigned": 0, "new": 0, "cancelled": 0, "requeued": 0, "merged": 0, "split": 0}
         for cid in res["cancel"]:
             if by_id[cid]["status"] in ("pending", "blocked"):
-                self.backlog.set(by_id[cid], status="cancelled", notes=by_id[cid].get("notes", []) + ["cancelled by the re-evaluation"])
+                why = next((str(c.get("why", ""))[:200] for c in data.get("cancel", []) if isinstance(c, dict) and c.get("id") == cid), "")
+                self.backlog.set(by_id[cid], status="cancelled", reason=why or "cancelled by the re-evaluation",
+                                 notes=by_id[cid].get("notes", []) + [f"cancelled by the re-evaluation: {why}"])
                 stats["cancelled"] += 1
         key_to_id, redirect = {}, {}
         for t in res["new"]:
             item = self.backlog.add(t["title"], t["description"], t["type"], t["priority"], t["acceptance"], "Re-evaluation", "blueprint",
-                                    layer=t["layer"])
+                                    layer=t["layer"], why=t.get("why"))
             if item:
                 key_to_id[t["key"]] = item["id"]
                 by_id[item["id"]] = item
@@ -192,12 +205,17 @@ class PlanMixin:
                 continue
             a = res["assign"].get(i["id"])
             if a:
-                i["layer"], i["priority"] = a["layer"], a["priority"] * 2 if i["status"] != "done" else i["priority"]
-                stats["assigned"] += 1
-            elif i["status"] != "done":
-                i["layer"] = top + 1
+                if a["why"]:
+                    i["why"] = a["why"]
+                if i["status"] != "done" and abs(a["priority"] * 2 - i["priority"]) >= 3:
+                    i["priority"] = a["priority"] * 2  # small priority differences are noise, not a reason to reorder
+                if i.get("layer") != a["layer"]:
+                    stats["assigned"] += 1
+                i["layer"] = a["layer"]
+            elif i.get("layer") is None and i["status"] != "done":
+                i["layer"] = top
             elif i.get("layer") is not None:
-                i["layer"] = min(i["layer"], top)
+                i["layer"] = min(i["layer"], top)  # not mentioned: stays where it is
             if requeue and i["status"] == "blocked":
                 i.update(status="pending", attempts=0)
                 stats["requeued"] += 1
