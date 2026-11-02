@@ -4,8 +4,8 @@ let sel=localStorage.getItem("sel")||null, view="project", tab="overview", list=
 let taskModel="",toolMcfg=null,toolTab_="tool",toolBranch="",planId="",taskPrefill="",codeBase="head",codeOpen=new Set(),codeView=null,codeInit=false;
 let diffView=null, lastBody="", lastHead="", lastTabs="", openKeys=new Set();
 const EDITABLE=["ideas","sources","task","tool","settings","goal","profile","knowledge"];
-const GROUPS=[["overview","Overview",["overview"]],["pdash","Dashboard",["pdash"]],["chat","Chat",["chat"]],["task","Do a task",["task"]],["agent","Agent",["profile","knowledge","goal","ideas","sources","settings"]],["activity","Activity",["log","reasoning","llm"]],["code","Code & test",["changes","testing"]],["customize","Customize",["customize"]]];
-const LEAF={pdash:"Dashboard",profile:"Instructions & capabilities",knowledge:"Knowledge files",goal:"Goal",ideas:"Ideas",sources:"Web sources",settings:"Models & limits",log:"Live log",reasoning:"Reasoning",llm:"AI activity",changes:"File changes",testing:"Test version"};
+const GROUPS=[["overview","Overview",["overview"]],["pdash","Dashboard",["pdash"]],["chat","Chat",["chat"]],["task","Do a task",["task"]],["agent","Agent",["profile","knowledge","goal","ideas","sources","settings"]],["activity","Activity",["log","reasoning","llm"]],["code","Code & test",["editor","changes","testing"]],["customize","Customize",["customize"]]];
+const LEAF={pdash:"Dashboard",profile:"Instructions & capabilities",knowledge:"Knowledge files",goal:"Goal",ideas:"Ideas",sources:"Web sources",settings:"Models & limits",log:"Live log",reasoning:"Reasoning",llm:"AI activity",editor:"Editor",changes:"Review changes",testing:"Test version"};
 const ACCENTS=["","#5fb36b","#6fa3d8","#d6a23c","#c678dd","#e06c75","#56b6c2"];
 const STAT_KEYS=[["merged","Features merged"],["open","Open tasks"],["done","Done"],["blocked","Blocked"],["iterations","Iterations"],["hours","Runtime"],["tokens","Tokens used"],["tps","Tokens / s"],["wps","Words / s"],["tpm","Tokens / min"],["gpu","GPU"],["avgcall","Avg. call time"]];
 let lastLeaf={};
@@ -184,7 +184,7 @@ function fileViewer(){
   if(v.binary)return `<div class="hint" style="padding:12px">${esc(v.path)}: binary file (${v.size} bytes)</div>`;
   const ch=new Set(v.changed),lines=v.text.split("\n");
   const body=lines.map((l,i)=>`<div class="cl ${ch.has(i+1)?"new":""}"><span class="ln">${i+1}</span><span class="ct">${esc(l)||" "}</span></div>`).join("");
-  return `<div class="cvh"><b>${esc(v.path)}</b> <span class="meta">${lines.length} lines · ${v.new_file?"new file":ch.size+" new/changed"}${v.truncated?" · truncated":""}</span></div><div class="code">${body}</div>`;
+  return `<div class="cvh"><b>${esc(v.path)}</b> ${view==="tool"?"":`<button class="small" onclick="setTab('editor');setTimeout(()=>edOpen('${jsq(v.path)}'),150)">Edit in editor</button>`} <span class="meta">${lines.length} lines · ${v.new_file?"new file":ch.size+" new/changed"}${v.truncated?" · truncated":""}</span></div><div class="code">${body}</div>`;
 }
 function codePanel(x){
   const root=buildTree(x.tree.files);
@@ -300,7 +300,7 @@ function setBody(html){
   if(html===lastBody&&b.dataset.tab===tab)return;
   const keep=$("#main").scrollTop,h0=$("#main").scrollHeight,lb=$("#logbox"),stick=lb&&lb.scrollHeight-lb.scrollTop-lb.clientHeight<40;
   const anchored=tab==="reasoning"||(view==="tool"&&toolTab_==="reason");
-  b.innerHTML=html;b.dataset.tab=tab;lastBody=html;if(tab==="settings")loadModels();
+  b.innerHTML=html;b.dataset.tab=tab;lastBody=html;if(tab==="settings")loadModels();if(tab==="editor")edMount();
   b.querySelectorAll("details[data-k]").forEach(x=>{if(openKeys.has(x.dataset.k))x.open=true;x.addEventListener("toggle",()=>{x.open?openKeys.add(x.dataset.k):openKeys.delete(x.dataset.k)})});
   $("#main").scrollTop=anchored&&keep>20?keep+Math.max(0,$("#main").scrollHeight-h0):keep;
   const nb=$("#logbox");if(nb&&(stick||!lb))nb.scrollTop=nb.scrollHeight;
@@ -338,6 +338,7 @@ function projectBody(d){
     return `<p class="hint">Everything the model was asked and what it answered, newest first (the end of each prompt is shown). Roles: planner = plans and ideas, reviewer = reviews, summarizer = notes and docs.</p>`+
       (extra.entries.length?extra.entries.map((e,i)=>`<details data-k="llm-${esc(e.head)}"><summary><span class="pill info">${esc(e.head.replace(/^.*?\[/,"").replace(/\].*$/,""))}</span><span class="meta">${esc(e.head.replace(/\[.*$/,""))}</span></summary><div class="inner"><div class="hint">Prompt (end)</div><pre>${esc(e.prompt)}</pre><div class="hint" style="margin-top:10px">Answer</div><pre>${esc(e.answer)}</pre></div></details>`).join(""):'<div class="hint">No model calls recorded yet.</div>');
   }
+  if(tab==="editor")return '<div id="ed-root"></div>';
   if(tab==="changes"){
     if(!extra||extra.kind!=="changes")return `<div class="hint">Loading…</div>`;
     const x=extra;
@@ -364,7 +365,8 @@ function projectBody(d){
     <div class="row" style="justify-content:flex-end;margin-top:4px"><button class="primary" onclick="saveNotify()">Save</button></div></div>`;
   }
   if(tab==="testing"){
-    return `<div class="panel"><p class="hint">"Test now" lets the agent finish its current task, builds the last working state and shows here how to run it. Press Start afterwards to continue.</p>
+    return `<div class="panel"><h3>Unit tests <button class="small primary" onclick="runTestsTab()">Run tests</button></h3><div id="tests-out" class="${testsRes?"":"hint"}">${testsRes||"Runs the project's own test command on the current files."}</div></div>
+    <div class="panel" style="margin-top:16px"><p class="hint">"Test now" lets the agent finish its current task, builds the last working state and shows here how to run it. Press Start afterwards to continue.</p>
     ${d.testing?`<pre>${esc(d.testing)}</pre>`:'<div class="hint">No test version built yet.</div>'}${d.try_running||d.try_out?`<h4>Output</h4><pre>${esc(d.try_out)}</pre>`:""}</div>`;
   }
   if(tab==="log")return `<div class="loglegend"><span class="lg-step">step</span><span class="lg-ok">success</span><span class="lg-sec">security</span><span class="lg-warn">warning</span><span class="lg-err">error</span></div><pre id="logbox">${colorLog(d.log||"No log yet.")}${d.run_out&&/Traceback|Error/.test(d.run_out)?"\n\n--- run.out ---\n"+colorLog(d.run_out):""}${d.do_out&&/Traceback|Error/.test(d.do_out)?"\n\n--- do.out ---\n"+colorLog(d.do_out):""}</pre>`;
@@ -491,6 +493,11 @@ async function renameProject(){
 async function deleteProject(){
   const n=sel;if(!confirm(`Delete "${n}" and all its files permanently?`))return;
   try{await api(`/api/project/${n}/delete`,{confirm:$("#delconfirm").value});toast("Project deleted");sel=null;localStorage.removeItem("sel");tab="overview";dirty=false;detail=null;extra=null;lastBody=lastHead=lastTabs="";await refresh()}catch(e){toast(e.message,true)}
+}
+let testsRes="";
+async function runTestsTab(){
+  const o=$("#tests-out");o.textContent="Running…";
+  try{const r=await api(`/api/project/${encodeURIComponent(sel)}/editor`,{op:"run-tests"});o.className="";testsRes=`<div class="row"><code>${esc(r.cmd)}</code> <b class="${r.rc===0?"lg-ok":"lg-err"}">${r.rc===0?"passed":"failed (exit "+r.rc+")"}</b></div><pre>${colorLog(r.out||"(no output)")}</pre>`;o.innerHTML=testsRes}catch(e){o.textContent=e.message}
 }
 function setTab(k){if(k==="chat")return openProjectChat(sel);$("#main").scrollTop=0;LS=null;liveHtml="";tab=k;dirty=false;extra=null;lastBody="";$("#body").dataset.tab="";lastTabs="";renderProject();fetchExtra().then(renderProject)}
 async function fetchExtra(){

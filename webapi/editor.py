@@ -1,0 +1,150 @@
+"""Backend of the project code editor: save/create/rename/delete files, search, git status/commit/revert and the test run.
+
+Reads come in as GET /api/project/<name>/editor/<what>, actions as POST /api/project/<name>/editor. Writes are refused
+while the agent works on the project (it would fight with the editor over the same files).
+"""
+from __future__ import annotations
+
+import re
+import shlex
+import shutil
+import subprocess
+from pathlib import Path
+
+import codefactory as sa
+from dash.directedit import _safe
+from webapi.common import MAX_FILE, UiError, git
+
+OPS = ("save", "create", "mkdir", "delete", "rename", "revert", "commit", "run-tests")
+IDENT = ("-c", "user.name=CodeFactory", "-c", "user.email=codefactory@localhost")
+
+
+def _git_rc(repo: Path, *args: str) -> tuple[int, str]:
+    try:
+        p = subprocess.run(["git", *args], cwd=str(repo), capture_output=True, timeout=60)
+    except (OSError, subprocess.SubprocessError) as e:
+        return 1, str(e)
+    return p.returncode, (p.stdout + p.stderr).decode("utf-8", "replace")
+
+
+class EditorMixin:
+    def _repo(self, name: str) -> Path:
+        repo = self.ws(name) / "repo"
+        if not repo.is_dir():
+            raise UiError("This project has no repo yet")
+        return repo
+
+    def _rel(self, repo: Path, path: str) -> tuple[Path, str]:
+        try:
+            p = _safe(repo, path)
+        except ValueError as e:
+            raise UiError(str(e)) from None
+        return p, p.relative_to(repo.resolve()).as_posix()
+
+    def editor_get(self, name: str, what: str, q: dict) -> dict:
+        repo = self._repo(name)
+        if what == "search":
+            return self._editor_search(repo, q.get("q", ""), q.get("regex") == "1", q.get("case") == "1")
+        if what == "git":
+            lines = git(repo, "status", "--porcelain=v1", "-uall").splitlines()
+            files = [{"status": ln[:2].strip() or "?", "path": ln[3:].strip().strip('"')} for ln in lines if len(ln) > 3]
+            branch = git(repo, "rev-parse", "--abbrev-ref", "HEAD").strip()
+            log = [dict(zip(("sha", "subject", "date"), ln.split("\x1f"), strict=False))
+                   for ln in git(repo, "log", "-n", "15", "--format=%h\x1f%s\x1f%cI").splitlines()]
+            return {"branch": branch, "files": files, "log": log}
+        if what == "head":
+            _, rel = self._rel(repo, q.get("path", ""))
+            rc, out = _git_rc(repo, "show", f"HEAD:{rel}")
+            return {"path": rel, "text": out if rc == 0 else None}
+        raise UiError("Not found", 404)
+
+    def _editor_search(self, repo: Path, query: str, regex: bool, case: bool) -> dict:
+        if len(query) < 2:
+            return {"hits": [], "truncated": False}
+        if regex:
+            try:
+                re.compile(query)
+            except re.error as e:
+                raise UiError(f"Invalid regex: {e}") from None
+        args = ["grep", "-n", "-I", "--untracked", "--no-color", "-e", query]
+        args[1:1] = ["-E" if regex else "-F"] + ([] if case else ["-i"])
+        out = git(repo, *args, limit=400_000)
+        hits = []
+        for ln in out.splitlines():
+            m = re.match(r"^(.*?):(\d+):(.*)$", ln)
+            if m:
+                hits.append({"path": m.group(1), "line": int(m.group(2)), "text": m.group(3)[:240]})
+        return {"hits": hits[:300], "truncated": len(hits) > 300}
+
+    def editor_act(self, ws: Path, name: str, body: dict) -> dict:
+        op = str(body.get("op", ""))
+        if op not in OPS:
+            raise UiError("Unknown editor action")
+        repo = self._repo(name)
+        if op == "run-tests":
+            return self._editor_tests(ws, repo)
+        if self._running(ws, name):
+            raise UiError("The agent is working on this project. Stop it first, or edit when it is idle.", 409)
+        if op == "commit":
+            msg = str(body.get("message", "")).strip() or "Edit in the code editor"
+            _git_rc(repo, "add", "-A")
+            rc, out = _git_rc(repo, *IDENT, "commit", "-qm", msg)
+            if rc:
+                raise UiError("Nothing to commit" if "nothing to commit" in out or not out.strip() else out.strip()[:300])
+            return {"ok": True}
+        p, rel = self._rel(repo, body.get("path", ""))
+        if op == "save":
+            text = str(body.get("text", ""))
+            if len(text.encode("utf-8")) > MAX_FILE:
+                raise UiError("File too large for the editor")
+            if p.is_dir():
+                raise UiError("That is a folder")
+            p.parent.mkdir(parents=True, exist_ok=True)
+            p.write_text(text, "utf-8", newline="")
+            return {"ok": True, "path": rel, "size": p.stat().st_size}
+        if op == "create":
+            if p.exists():
+                raise UiError("That file already exists", 409)
+            p.parent.mkdir(parents=True, exist_ok=True)
+            p.write_text("", "utf-8")
+            return {"ok": True, "path": rel}
+        if op == "mkdir":
+            p.mkdir(parents=True, exist_ok=True)
+            (p / ".gitkeep").touch()
+            return {"ok": True, "path": rel}
+        if op == "delete":
+            if not p.exists():
+                raise UiError("File not found", 404)
+            if p.is_dir():
+                shutil.rmtree(p)
+            else:
+                p.unlink()
+            return {"ok": True}
+        if op == "rename":
+            dest, drel = self._rel(repo, body.get("to", ""))
+            if not p.exists() or dest.exists():
+                raise UiError("Source missing or target already exists", 409)
+            dest.parent.mkdir(parents=True, exist_ok=True)
+            p.rename(dest)
+            return {"ok": True, "path": drel}
+        tracked = bool(git(repo, "ls-files", "--", rel).strip())  # revert
+        if tracked:
+            rc, out = _git_rc(repo, "checkout", "HEAD", "--", rel)
+            if rc:
+                raise UiError(out.strip()[:300])
+        elif p.is_file():
+            p.unlink()
+        return {"ok": True, "path": rel, "removed": not tracked}
+
+    def _editor_tests(self, ws: Path, repo: Path) -> dict:
+        cmd = sa.Agent(ws).cfg.get("commands", {}).get("test") or ""
+        if not cmd:
+            raise UiError("No test command is set for this project yet")
+        try:
+            p = subprocess.run(shlex.split(cmd), cwd=str(repo), capture_output=True, timeout=300)
+        except subprocess.TimeoutExpired:
+            return {"cmd": cmd, "rc": -1, "out": "Timed out after 300 s"}
+        except (OSError, ValueError) as e:
+            return {"cmd": cmd, "rc": -1, "out": str(e)}
+        out = (p.stdout + p.stderr).decode("utf-8", "replace")
+        return {"cmd": cmd, "rc": p.returncode, "out": out[-20000:]}

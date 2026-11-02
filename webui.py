@@ -37,6 +37,7 @@ from infra import update
 from webapi.chat import ChatMixin
 from webapi.common import BUILD, INDEX, LOCK, MAX_BODY, NAME_RE, PROCS, UPDATE_LOCK, UiError, alive, head_sha, pid_alive, spawn, tail
 from webapi.dashboard import DashboardMixin
+from webapi.editor import EditorMixin
 from webapi.ext import ACTIONS as EXT_ACTIONS, ExtMixin
 from webapi.models import ModelsMixin
 from webapi.project import ProjectMixin
@@ -45,7 +46,7 @@ from webapi.tool import ToolMixin
 ROOT = Path(__file__).resolve().parent
 
 
-class Service(ProjectMixin, DashboardMixin, ToolMixin, ModelsMixin, ChatMixin, ExtMixin):
+class Service(ProjectMixin, DashboardMixin, ToolMixin, ModelsMixin, ChatMixin, ExtMixin, EditorMixin):
     """The web UI backend. Each concern lives in its own mixin under webapi/; see webapi/common.py for shared helpers."""
 
     def __init__(self, projects: Path):
@@ -134,6 +135,8 @@ class Service(ProjectMixin, DashboardMixin, ToolMixin, ModelsMixin, ChatMixin, E
     def act(self, name: str, action: str, body: dict) -> dict:
         ws = self.ws(name)
         a = ws / "agent"
+        if action == "editor":
+            return self.editor_act(ws, name, body)
         if action == "start":
             if self.summary(ws)["running"]:
                 raise UiError("Agent is already running", 409)
@@ -423,6 +426,9 @@ def make_handler(svc: Service, port: int, token: str | None = None):
                 m = re.fullmatch(r"/api/project/([^/]+)/settings", path)
                 if m:
                     return svc.settings(m.group(1))
+                m = re.fullmatch(r"/api/project/([^/]+)/editor/([a-z]+)", path)
+                if m:
+                    return svc.editor_get(m.group(1), m.group(2), q)
                 m = re.fullmatch(r"/api/project/([^/]+)/(llm|changes|diff|thoughts|tree|file|stream)", path)
                 if m:
                     if m.group(2) == "stream":
