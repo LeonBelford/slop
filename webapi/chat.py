@@ -136,13 +136,26 @@ class ChatMixin:
         cfg = sa.DEFAULT_CONFIG
         answer, thinking, err = "", "", ""
         try:
-            for kind, d in chatlib.stream_completion(cfg["llm_api"], cfg["api_key"], chat["model"], msgs):
-                if kind == "think":
-                    thinking += d
-                    write({"think": d})
-                else:
-                    answer += d
-                    write({"delta": d})
+            known = chatlib.KNOWN_CTX.get(chat["model"], 0)
+            if known:
+                msgs = chatlib.fit_messages(msgs, known)
+            for attempt in range(2):
+                try:
+                    for kind, d in chatlib.stream_completion(cfg["llm_api"], cfg["api_key"], chat["model"], msgs):
+                        if kind == "think":
+                            thinking += d
+                            write({"think": d})
+                        else:
+                            answer += d
+                            write({"delta": d})
+                    break
+                except RuntimeError as e:
+                    ctx = chatlib.server_ctx(str(e))
+                    if attempt or answer or not ctx:
+                        raise
+                    chatlib.KNOWN_CTX[chat["model"]] = ctx
+                    write({"status": f"The model's context window is {ctx} tokens: shortening the request…"})
+                    msgs = chatlib.fit_messages(msgs, ctx)
         except OSError as e:  # includes a closed browser connection: keep the partial answer
             err = f"Model server not reachable or connection closed: {e}"
         except Exception as e:  # noqa: BLE001

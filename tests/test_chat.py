@@ -191,6 +191,19 @@ class ChatTests(unittest.TestCase):
         msgs = chat.build_messages(c, lambda n: None)
         self.assertEqual([m["role"] for m in msgs], ["system", "user"])
 
+    def test_fit_messages_drops_docs_first_and_keeps_the_newest_message(self):
+        system = "RULES " * 200 + "\n\n" + chat.DOCS_MARK + "\n\n" + "doc " * 5000
+        msgs = [{"role": "system", "content": system}] + [{"role": "user" if i % 2 == 0 else "assistant", "content": f"m{i} " * 300} for i in range(8)]
+        out = chat.fit_messages(msgs, 4096)
+        total = sum(len(m["content"]) for m in out)
+        self.assertLessEqual(total, int(4096 * 0.6 * 3) + 50)
+        self.assertNotIn("doc doc", out[0]["content"])
+        self.assertIn("RULES", out[0]["content"])
+        self.assertTrue(out[-1]["content"].startswith("m7"))
+
+    def test_server_ctx_is_read_from_the_400_message(self):
+        self.assertEqual(chat.server_ctx('request (5027 tokens) exceeds the available context size (4096 tokens), try increasing it'), 4096)
+
     def test_models_status(self):
         st = self.svc.models_status()
         self.assertIn("up", st)
