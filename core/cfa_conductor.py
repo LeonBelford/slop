@@ -2,6 +2,7 @@
 that every prompt of a task sees (instead of every stage starting blind)."""
 from __future__ import annotations
 
+import time
 from contextlib import contextmanager
 
 from core.cfutil import clip, write_text
@@ -31,6 +32,14 @@ class ConductorMixin:
         rd = getattr(self, "run_dir", None)
         if rd:
             write_text(rd / "journal.md", "# Task journal\n" + (pinned + "\n\n" if pinned else "") + body + "\n")
+
+    def llm_outage(self, e: Exception) -> None:
+        """A model-server error is not a task failure: count it, wait (longer each time) and let should_stop end a permanent outage."""
+        n = self.state["llm_outages"] = self.state.get("llm_outages", 0) + 1
+        self.metric(kind="llm_outage", error=str(e)[:200])
+        self.log(f"Model server problem {n} in a row: {e}. The task stays in the queue and is not counted as failed.")
+        self.save_state()
+        time.sleep(min(30 * n, 120) if not getattr(self, "coder_mock", None) else 0)
 
     def journal_file(self) -> list[str]:
         p = getattr(self, "run_dir", None)

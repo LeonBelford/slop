@@ -96,6 +96,7 @@ from core.cfa_plan import PlanMixin
 from core.cfa_split import SplitMixin
 from core.cfa_conductor import ConductorMixin
 from core.cfa_handoff import HandoffMixin
+from core.cfllm import LLMError
 from core.cfa_milestone import MilestoneMixin
 from core.cfa_rules import RulesMixin
 from core.cfa_spike import SpikeMixin
@@ -295,6 +296,8 @@ class Agent(BuildMixin, FlowMixin, VerifyMixin, SecurityMixin, ResearchMixin, Op
             return "max_iterations reached"
         if not endless and self.state["elapsed"] + time.time() - started > self.lim["max_hours"] * 3600:
             return "max_hours reached"
+        if self.state.get("llm_outages", 0) >= 4:
+            return "the model server keeps failing or rejecting requests (see the LLM error lines in the log), the tasks were not touched"
         if self.state["consecutive_failures"] >= self.lim["max_consecutive_failures"]:
             return "too many consecutive failures, please check the logs"
         return None
@@ -380,8 +383,13 @@ class Agent(BuildMixin, FlowMixin, VerifyMixin, SecurityMixin, ResearchMixin, Op
                 self.save_state()
                 continue
             self.replan_if_stuck()
-            with self.conducting(item):
-                ok = self.record_outcome(item, self.process(item))
+            try:
+                with self.conducting(item):
+                    ok = self.record_outcome(item, self.process(item))
+            except LLMError as e:
+                self.llm_outage(e)
+                continue
+            self.state["llm_outages"] = 0
             if not ok:
                 self.state["failed_since_reflect"] = self.state.get("failed_since_reflect", 0) + 1
             self.state["consecutive_failures"] = 0 if ok else self.state["consecutive_failures"] + 1

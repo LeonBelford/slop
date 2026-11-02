@@ -221,7 +221,11 @@ Every step ends with a structured instruction for the next one: goal, decisions 
 
 ## Write guard for reasoning models
 
-If a coder call (typically a reasoning model) answers with code only in the chat and no file changed, the agent retries once in Aider whole-file mode with an explicit "write it to disk" instruction, and notes it in the task journal if it still wrote nothing. For Qwen3 coder models `/no_think` is prepended (feature flag `coder_no_think`) so they write code instead of reasoning for minutes. Debug handoffs also remind the model that code shown only in the chat is lost.
+If a coder call changes no file (typically a reasoning model answering only in the chat), the agent retries once in Aider whole-file mode; if that fails too it writes the files named in the answer itself (`core/cfa_write.py`, only files the task may edit), and notes it in the task journal if it still wrote nothing. For Qwen3 coder models `/no_think` is prepended (feature flag `coder_no_think`) so they write code instead of reasoning for minutes. Debug handoffs also remind the model that code shown only in the chat is lost.
+
+## Model server errors are not task failures
+
+If Ollama rejects or drops a request (for example HTTP 400 on a prompt that is too large), the agent logs the server's answer, retries with a smaller prompt, and does not repeat a rejected request unchanged. If it still fails, the task goes back to the queue **without** counting an attempt, splitting or blocking it; the loop waits longer each time and stops after 4 outages in a row with a clear reason, instead of burning hours on tasks that never reached the coder.
 
 ## Models (RTX 3060, 12 GB)
 Rough guidelines, not measured on your hardware; check tags and licenses at [ollama.com/library](https://ollama.com/library).

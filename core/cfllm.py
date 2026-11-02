@@ -12,6 +12,18 @@ import urllib.request
 from core.cfutil import _open_think, _strip_think, aider_tokens, clip, compact_thoughts, last_seq, now, parse_json, read_json, tail, write_json
 
 
+class LLMError(RuntimeError):
+    """The model server failed or rejected the request. This is infrastructure, not a verdict on the task being worked on."""
+    def __init__(self, msg: str, status: int = 0):
+        super().__init__(msg)
+        self.status = status
+
+
+def shrink(system: str, user: str, factor: float = 0.6) -> tuple[str, str]:
+    """Cuts a prompt that the server rejected (usually too large): the user part loses most, the system part a little."""
+    return clip(system, int(len(system) * (0.85 if len(system) > 3000 else 1))), clip(user, int(len(user) * factor))
+
+
 class LLM:
     """Thin OpenAI-compatible client. `mock(tag, role, system, user) -> str` replaces it in the selftest."""
 
@@ -193,7 +205,7 @@ class LLM:
                 self.log(f"... still waiting for the model ({role}/{tag}, {int(time.time() - t0)}s). Normal for big models; see `ollama ps`.")
 
         threading.Thread(target=heartbeat, daemon=True).start()
-        attempt = 0
+        attempt = shrinks = 0
         while attempt < 4:
             try:
                 req = urllib.request.Request(
@@ -215,6 +227,25 @@ class LLM:
             except gpusched.Preempted:
                 self._publish(tag, role, model, t_start, "", "")
                 continue  # not an error: main needs the GPU, wait for it to be idle and ask again
+            except urllib.error.HTTPError as e:
+                detail = ""
+                try:
+                    detail = e.read().decode("utf-8", "replace")[:300]
+                except Exception:  # noqa: BLE001
+                    pass
+                last = LLMError(f"HTTP {e.code} {e.reason} {detail}".strip(), e.code)
+                self.log(f"LLM error ({tag}): {last} (prompt {len(system) + len(user)} chars)")
+                if e.code == 400 and shrinks < 3:
+                    # the request itself was rejected, repeating it unchanged cannot help: send a smaller prompt
+                    shrinks += 1
+                    system, user = shrink(system, user)
+                    body = json.dumps({**json.loads(body), "messages": [{"role": "system", "content": system}, {"role": "user", "content": user}]}).encode()
+                    self.log(f"LLM error ({tag}): retrying with a smaller prompt ({len(system) + len(user)} chars)")
+                    continue
+                if e.code not in (408, 429, 500, 502, 503, 504):
+                    break
+                attempt += 1
+                time.sleep(5 * (attempt + 1))
             except Exception as e:  # network/model briefly unavailable: wait and retry
                 last = e
                 attempt += 1
@@ -224,7 +255,7 @@ class LLM:
         for f in (self.live, self.stream):
             if f:
                 f.unlink(missing_ok=True)
-        raise RuntimeError(f"LLM unreachable: {last}")
+        raise LLMError(f"LLM unreachable: {last}", getattr(last, "status", 0))
 
     def json(self, tag: str, role: str, system: str, user: str):
         system += "\nRespond ONLY with valid JSON, without any explanatory text."
