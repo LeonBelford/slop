@@ -11,7 +11,7 @@ SYSTEM = ("You are a software architect planning a build strategy, not a feature
           "feature cheap and safe (domain model, storage, core logic, public interfaces, error handling, configuration, test harness) "
           "and put it in layer 0. Every next layer builds only on the public interfaces of the layers below and adds user-visible "
           "capability. Keep interfaces stable so lower layers are never reworked. The last layer is polish and hardening. Tasks are "
-          "small enough for one iteration. Realistic and focused, no monetization.")
+          "small enough for one iteration. The tasks form ONE linear chain in build order (Foundation, then basic input, then ...): each task visibly builds on the previous one and lists it in depends_on. Realistic and focused, no monetization.")
 
 SCHEMA = ('{"architecture": {"principles": ["..."], "modules": [{"name": "", "responsibility": ""}], '
           '"contracts": ["stable interface, e.g. function or endpoint signature and its meaning"], "decisions": ["decision and why"]}, '
@@ -56,7 +56,12 @@ class PlanMixin:
 
     def blueprint_ctx(self, item: dict) -> str:
         """Where a task sits in the architecture, for the planning prompt."""
-        return blueprint.context_for(self.blueprint(), item)
+        base = [self.backlog.by_id(d) for d in item.get("depends_on", [])]
+        built = [f"{b['id']} {b['title']}" for b in base if b and b["status"] == "done"]
+        text = blueprint.context_for(self.blueprint(), item)
+        if built:
+            text += "\nBuilds on (already merged, extend it, do not redo it): " + "; ".join(built)
+        return text
 
     def make_blueprint(self, idea: str, brief: dict) -> bool:
         """Plans the layers and seeds the backlog from them. False (nothing changed) if the model gave no usable plan."""

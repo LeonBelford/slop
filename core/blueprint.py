@@ -26,7 +26,7 @@ def _num(v, default: float) -> float:
         return default
 
 
-def normalize(data: dict, mvp: list[dict] | None = None) -> dict:
+def normalize(data: dict, mvp: list[dict] | None = None, chain: bool = True) -> dict:
     """Cleans the model's answer: bounded sizes, unique keys, dependencies only on earlier tasks, every MVP feature present."""
     arch = data.get("architecture") if isinstance(data.get("architecture"), dict) else {}
     out_arch = {"principles": [_s(x) for x in arch.get("principles", []) if x][:8],
@@ -34,7 +34,7 @@ def normalize(data: dict, mvp: list[dict] | None = None) -> dict:
                             for m in arch.get("modules", []) if isinstance(m, dict) and m.get("name")][:12],
                 "contracts": [_s(x) for x in arch.get("contracts", []) if x][:10],
                 "decisions": [_s(x) for x in arch.get("decisions", []) if x][:8]}
-    layers, seen = [], set()
+    layers, seen, last = [], set(), ""
     for li, layer in enumerate(l for l in data.get("layers", []) if isinstance(l, dict)):
         if li >= MAX_LAYERS:
             break
@@ -46,6 +46,9 @@ def normalize(data: dict, mvp: list[dict] | None = None) -> dict:
             if key in seen:
                 key = f"l{li}t{ti}"
             deps = [d for d in (t.get("depends_on") or []) if isinstance(d, str) and d in seen and d != key]
+            if chain and last and last not in deps:
+                deps.append(last)  # strictly sequential: every task builds on its direct predecessor
+            last = key
             seen.add(key)
             tasks.append({"key": key, "title": _s(t["title"], 120), "description": _s(t.get("description"), 800),
                           "acceptance": [_s(a) for a in (t.get("acceptance") or []) if a][:6], "depends_on": deps,
@@ -59,9 +62,10 @@ def normalize(data: dict, mvp: list[dict] | None = None) -> dict:
             title = _s(f.get("title"), 120)
             if title and not any(difflib.SequenceMatcher(None, title.lower(), t).ratio() > 0.6 for t in titles):
                 layers[-1]["tasks"].append({"key": f"mvp{len(titles)}", "title": title, "description": _s(f.get("description"), 800),
-                                            "acceptance": [_s(a) for a in (f.get("acceptance") or []) if a][:6], "depends_on": [],
-                                            "type": "feature", "priority": _num(f.get("value"), 5) * 2 - _num(f.get("effort"), 5)})
+                                            "acceptance": [_s(a) for a in (f.get("acceptance") or []) if a][:6],
+                                            "depends_on": [last] if chain and last else [], "type": "feature", "priority": _num(f.get("value"), 5) * 2 - _num(f.get("effort"), 5)})
                 titles.append(title.lower())
+                last = f"mvp{len(titles) - 1}"
     return {"architecture": out_arch, "layers": layers}
 
 
