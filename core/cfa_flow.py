@@ -6,7 +6,7 @@ import re
 
 from core.cfutil import clip
 
-FEATURE_DEFAULTS = {"test_first": "auto", "step_by_step": "auto", "acceptance_check": True, "retry_replan": True, "protect_tests": True, "spike": True}
+FEATURE_DEFAULTS = {"test_first": "auto", "step_by_step": "auto", "acceptance_check": True, "retry_replan": True, "protect_tests": True, "spike": True, "coder_no_think": True}
 TEST_DEF = re.compile(r"^\s*(?:async\s+def\s+test_|def\s+test_|func\s+Test|fn\s+test_|@Test\b|(?:it|test|describe)\s*\(|public\s+void\s+test)", re.M)
 
 

@@ -5,6 +5,7 @@ import os
 import shlex
 import sys
 import time
+from core.cfllm import LLMError
 from core.cfutil import PRESETS, clip, force_stop_pid, now, read_json, sh, write_text
 
 
@@ -55,7 +56,11 @@ class OpsMixin:
                     break
                 item = max(items, key=lambda i: i["priority"])
                 with self.conducting(item):
-                    done += bool(self.record_outcome(item, self.process(item)))
+                    try:
+                        done += bool(self.record_outcome(item, self.process(item)))
+                    except LLMError as e:
+                        self.llm_outage(e)
+                        break
                 self.save_state()
         finally:
             (self.dir / "agent.pid").unlink(missing_ok=True)
