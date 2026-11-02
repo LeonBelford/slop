@@ -64,3 +64,9 @@ class PackHistoryTest(unittest.TestCase):
         bl.set(step, status="blocked", process="p1")
         nxt = bl.add("Feature", "d", force=True, depends_on=[step["id"]])
         self.assertTrue(bl.ready([nxt]))
+
+    def test_html_css_and_served_paths(self):
+        files = {"web/index.html": "", "web/app.js": "", "web/style.css": "", "web/chat.js": "", "api/server.py": "", "api/models.py": ""}
+        html = '<link href="/static/style.css"><script src="/static/app.js"></script><script src="chat.js"></script><script src="https://x.y/z.js">'
+        self.assertEqual(filegraph.imports_of("web/index.html", html, files), {"web/style.css", "web/app.js", "web/chat.js"})
+        self.assertEqual(filegraph.imports_of("api/server.py", "import models\n", files), {"api/models.py"})

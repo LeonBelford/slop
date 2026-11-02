@@ -5,6 +5,8 @@ import posixpath
 import re
 
 SRC = (".py", ".js", ".mjs", ".ts", ".tsx", ".jsx")
+WEB = (".html", ".htm", ".css", ".vue", ".svelte")
+REF = re.compile(r"""(?:src|href)\s*=\s*["']([^"'#?]+)|@import\s+(?:url\()?["']([^"']+)|url\(\s*["']?([^"')#?]+)""")
 PY = re.compile(r"^\s*(?:from\s+(\.*)([\w.]*)\s+import\s+([^#\n]+)|import\s+([\w., ]+))", re.M)
 JS = re.compile(r"""(?:from\s+|import\s*\(?\s*|require\(\s*)['"]([^'"]+)['"]""")
 RECENT = 4
@@ -31,30 +33,43 @@ def imports_of(path: str, text: str, files: set[str]) -> set[str]:
     found: set[str] = set()
     if path.endswith(".py"):
         for cands in _py_targets(path, text):
-            hits = {h for t in cands for h in [c for c in (t + ".py", t + "/__init__.py") if c in files][:1]}
+            here = posixpath.dirname(path)
+            hits = {h for t in cands + ([posixpath.join(here, c) for c in cands] if here else []) for h in [c for c in (t + ".py", t + "/__init__.py") if c in files][:1]}
             if len(hits) > 1:  # `from pkg import mod`: the module is the link, the package file is just its container
                 hits = {h for h in hits if not h.endswith("/__init__.py")} or hits
             if not hits and "/" in cands[-1]:
                 loose = [f for f in files if f.endswith("/" + cands[-1] + ".py")]  # source roots like src/pkg/x.py imported as pkg.x
                 hits = set(loose) if len(loose) == 1 else set()
             found |= hits
-    elif path.endswith(SRC):
+    elif path.endswith(SRC + WEB):
         base = posixpath.dirname(path)
-        for t in JS.findall(text):
-            if not t.startswith("."):
+        refs = JS.findall(text) if path.endswith(SRC) else [x for m in REF.findall(text) for x in m if x]
+        refs += [x for x in JS.findall(text) if x not in refs] if path.endswith(WEB) else []
+        for t in refs:
+            if t.startswith(("http:", "https:", "data:", "//")):
                 continue
-            p = posixpath.normpath(posixpath.join(base, t))
-            for cand in [p] + [p + e for e in SRC] + [p + "/index" + e for e in SRC]:
-                if cand in files:
-                    found.add(cand)
-                    break
+            if t.startswith("."):
+                p = posixpath.normpath(posixpath.join(base, t))
+            elif t.startswith(("/", "@/", "~/")):
+                p = t.lstrip("/@~")
+            elif path.endswith(WEB):
+                p = posixpath.normpath(posixpath.join(base, t))
+            else:
+                continue
+            cands = [p] + [p + e for e in SRC] + [p + "/index" + e for e in SRC]
+            hit = next((c for c in cands if c in files), None)
+            if not hit:  # served from a folder the path does not show (/static/app.js is web/app.js)
+                loose = [f for f in files if f.endswith("/" + p.split("/", 1)[-1])] if "/" in p else []
+                hit = loose[0] if len(loose) == 1 else None
+            if hit:
+                found.add(hit)
     found.discard(path)
     return found
 
 
 def edges_of(files: list[str], read) -> list[list[str]]:
     fset = set(files)
-    return [[f, t] for f in files if f.endswith(SRC) for t in sorted(imports_of(f, read(f), fset))]
+    return [[f, t] for f in files if f.endswith(SRC + WEB) for t in sorted(imports_of(f, read(f), fset))]
 
 
 def build(files: list[str], read, items: list[dict], edges: list[list[str]] | None = None) -> dict:
