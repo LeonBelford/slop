@@ -8,7 +8,7 @@ import urllib.parse
 import urllib.request
 
 import codefactory as sa
-from dash import diagnostics, history, projectdash, runledger, throughput
+from dash import diagnostics, history, pdextra, projectdash, runledger, throughput
 from infra import perf
 
 from webapi import common
@@ -103,6 +103,9 @@ class DashboardMixin:
             self._pdash = {}
         self._pdash[name] = (time.time(), res)
         return res
+
+    def task_detail(self, name: str, task_id: str) -> dict:
+        return pdextra.task_detail(self.ws(name), task_id)
 
     def diagnostics(self) -> dict:
         """Slow-moving figures for the Dashboard (flow, quality, model time, health, repo, system), cached for a few seconds."""

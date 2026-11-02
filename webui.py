@@ -371,6 +371,9 @@ def make_handler(svc: Service, port: int, token: str | None = None):
                 m = re.fullmatch(r"/api/project/([^/]+)/dashboard", path)
                 if m:
                     return svc.project_dashboard(m.group(1))
+                m = re.fullmatch(r"/api/project/([^/]+)/task", path)
+                if m:
+                    return svc.task_detail(m.group(1), q.get("id", ""))
                 m = re.fullmatch(r"/api/project/([^/]+)/profile", path)
                 if m:
                     return svc.profile(m.group(1))

@@ -311,3 +311,7 @@ Every change passes a security gate (static rules, attacker-minded review, runti
 
 The agent works only in `projects/<name>/repo/`, but runs build and test commands there without a sandbox. Use a container or VM
 if needed. It publishes nothing and spends no money; review the code before deploying.
+
+## Interactive dashboards
+
+The project dashboard is a widget board (`web/widgets.js`): drag tiles to reorder, hide or resize them via *Customize*; the layout is stored per project and shareable via the URL. New tiles: Gantt timeline, failure causes (click opens the task), triage log, layer gates, drift, time per step, models per role. Clicking a task opens a detail drawer (journal, plan, reason). The global dashboard gets drag-and-drop plus *Project comparison* and *Daily report* sections.
