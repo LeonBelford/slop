@@ -133,6 +133,11 @@ class Backlog:
         """Backlog items still waiting to be picked up."""
         return [i for i in self.items if i["status"] == "pending"]
 
+    deadlock = False
+
+    def by_id(self, id_: str) -> dict | None:
+        return next((i for i in self.items if i["id"] == id_), None)
+
     def ready(self, pending: list[dict]) -> list[dict]:
         """Pending items whose dependencies are finished (done or cancelled)."""
         closed = {i["id"] for i in self.items if i["status"] in ("done", "cancelled")}
@@ -146,7 +151,9 @@ class Backlog:
         p = self.pending()
         if not p:
             return None
-        p = self.ready(p) or p  # never deadlock on a blocked dependency
+        ready = self.ready(p)
+        self.deadlock = not ready  # strictly sequential: only a real deadlock (a blocked dependency) may break the order
+        p = ready or p
 
         def key(i):
             light = i["type"] in ("docs", "test")

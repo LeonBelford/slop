@@ -375,6 +375,9 @@ class Agent(BuildMixin, FlowMixin, VerifyMixin, SecurityMixin, ResearchMixin, Op
             self.schedule_hygiene()
             self.triage()
             item = self.backlog.next(getattr(self, "last_light", None))
+            if item and self.backlog.deadlock:
+                waiting = [d for d in item.get("depends_on", []) if d not in {i["id"] for i in self.backlog.items if i["status"] in ("done", "cancelled")}]
+                self.log(f"Dependency deadlock: {item['id']} starts although {', '.join(waiting) or 'a dependency'} is not finished")
             if not item:
                 run = self.cfg["run"]
                 if run["mode"] == "rounds" and self.state.get("rounds_run", 0) >= int(run["rounds"]):

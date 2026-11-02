@@ -228,6 +228,9 @@ Every blocked or cancelled task shows **why** (`reason`, set centrally in `Backl
 ## Essentiality check before blocking
 When a task keeps failing, the strategist first decides whether the project standard needs it (`essential_check` flag). Essential (or others depend on it): it is split into smaller slices and retried. Not essential: cancelled with the reason shown in the overview. LLM errors count as essential.
 
+## Strictly sequential build
+The blueprint is one linear chain: `blueprint.normalize` adds the direct predecessor to `depends_on`, and `Backlog.next` only starts a task once its dependencies are done or cancelled. Only a real deadlock (a blocked dependency) breaks the order, and it is logged. The planning prompt says what the task builds on.
+
 ## Self-Improve uses the same quality standard
 
 The self-improve pipeline shares the helpers of the project pipeline: pinned instruction blocks (`core/cfa_handoff.py`) in front of
