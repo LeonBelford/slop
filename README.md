@@ -335,3 +335,12 @@ Self-improve now reads measured evidence: a rule engine (`dash/sievidence.py`) t
 - **Run replay**: in a task's detail drawer, *Replay in a sandbox copy* plays the task again with another model or a hint (`scripts/run.sh replay <project> <task> [model] [hint]`). The original project is untouched.
 - **Regression tests**: with the flag `regression_tests`, a task of type `bug` is only accepted if the change adds a new test function; the tests are listed in `agent/regressions.jsonl` and in the *Regression tests* dashboard tile.
 - **Model advice** per role is derived from the project's own call statistics and shown in the *Model per role* tile.
+
+## Platform features: rollback, templates, report, export, GPU windows
+
+- **Layer rollback**: the "Roll back here" button on a finished layer resets main to the `layer-N` tag (agent stopped, clean tree, confirmation). A `backup-before-rollback-*` tag keeps the old state.
+- **Templates**: the "New project" dialog offers CLI, Web API and Library; the layer plan is appended to the idea for the blueprint.
+- **Daily report**: "Send daily report" posts built, blocked and open tasks per project to the notify webhook (event `report`).
+- **Export**: "Export as repo" writes tracked files plus README, CI and LICENSE to `<projects>/.exports/<name>` as a fresh git repo.
+- **GPU windows**: `infra/window.py` (`open_now`, `pick`) decides whether a heavy model may run now (e.g. `22:00-07:00`); not wired into the scheduler yet.
+- **Spike and split on small windows**: below 8192 tokens a spike is skipped (it would be blind); a spike that fails really splits the task at once (flag `spike_split`).

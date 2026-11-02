@@ -672,7 +672,7 @@ async function openNew(){
   showHelp();dNew.showModal();
 }
 async function createProject(){
-  try{const r=await api("/api/projects",{idea:$("#nIdea").value,name:$("#nName").value,preset:$("#nPreset").value});dNew.close();toast("Creating project \""+r.name+"\"…");await refresh()}catch(e){toast(e.message,true)}
+  try{const r=await api("/api/projects",{idea:$("#nIdea").value,name:$("#nName").value,preset:$("#nPreset").value,template:$("#nTemplate").value});dNew.close();toast("Creating project \""+r.name+"\"…");await refresh()}catch(e){toast(e.message,true)}
 }
 async function openMaster(){try{$("#mText").value=(await api("/api/master")).text;dMaster.showModal()}catch(e){toast(e.message,true)}}
 async function saveMaster(){try{await api("/api/master",{text:$("#mText").value});toast("Master prompt saved (applies from the next start)");dMaster.close()}catch(e){toast(e.message,true)}}

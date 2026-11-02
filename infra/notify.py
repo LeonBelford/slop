@@ -5,7 +5,7 @@ import json
 import threading
 import urllib.request
 
-EVENTS = ("done", "blocked", "stalled", "stopped")
+EVENTS = ("done", "blocked", "stalled", "stopped", "report")
 
 
 def valid_url(url: str) -> bool:

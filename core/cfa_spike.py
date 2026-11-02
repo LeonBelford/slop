@@ -7,11 +7,31 @@ RISKS_FOR_SPIKE = 4
 KNOWN_FOR_SPIKE = 3
 
 
+SMALL_CTX = 8192  # below this window a spike sees only a cut-down prompt: it would prove nothing and cost many minutes
+
+
 class SpikeMixin:
+    def small_ctx(self) -> bool:
+        ctx = getattr(getattr(self, "llm", None), "server_ctx", 0) or 0
+        return 0 < ctx < SMALL_CTX
+
+    def spike_failed_split(self, item: dict, finding: str) -> bool:
+        """A spike that really failed means the planned approach is too big or wrong: slice the task now instead of spending an attempt on
+        it (spike and split used to run one after the other, each blind). True if the task was split."""
+        if not self.feat("spike_split") or finding == "inconclusive" or int(item.get("split_depth", 0)) >= 1:
+            return False
+        if not self.split_task(item, [f"Pre-check: a spike of the approach failed ({finding}). Cut the task so that the first slice avoids the failing part."]):
+            return False
+        self._spike_split = True
+        return True
+
     def spike_due(self, item: dict, plan: dict) -> bool:
         """Only the first attempt, and only if the task looks uncertain: it was blocked before, the plan lists many risks,
         or the knowledge base knows many consequences/lessons for the files involved."""
         if not self.feat("spike") or self.cur_attempt != 1 or int(item.get("split_depth", 0)) > 0:
+            return False
+        if self.small_ctx():
+            self.log(f"Spike skipped for {item['id']}: the model server window is only {self.llm.server_ctx} tokens, a spike would be blind")
             return False
         if self.feat("risk_spikes") and item.get("risk") == "high":
             return True  # risk-first: unsure libraries, parsers and performance are tested early

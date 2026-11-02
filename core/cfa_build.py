@@ -338,6 +338,11 @@ class BuildMixin:
             self.git.hard_reset()
             self.git.run("checkout", "-q", "main")
             self.git.run("branch", "-D", branch)
+            if getattr(self, "_spike_split", False):
+                self._spike_split = False
+                self.cur_task, self.cur_attempt = "", 0
+                self.phase("Task split after a failed spike", None, item["title"])
+                return False
             if outage:
                 # the model server failed, not the task: do not count the attempt, do not split or block, let the loop back off
                 self.backlog.set(item, status="pending", attempts=max(0, item["attempts"] - 1))
@@ -421,6 +426,8 @@ class BuildMixin:
             self.make_spec(item, plan)
             if self.spike_due(item, plan):
                 worked, finding = self.spike(item, plan)
+                if not worked and self.spike_failed_split(item, finding):
+                    return False, f"Spike failed, the task was split into smaller slices: {finding}"
                 if not worked:
                     previous.append(f"A throwaway spike of the planned approach failed: {finding}. Choose a different approach.")
                     plan = self.impact_analysis(item, previous)
