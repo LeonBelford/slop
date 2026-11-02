@@ -165,6 +165,14 @@ class ChatTests(unittest.TestCase):
         self.assertIn("400", str(cm.exception))
         self.assertIn("context too long", str(cm.exception))
 
+    def test_task_mentions_and_mention_list(self):
+        ws = Path(tempfile.mkdtemp())
+        (ws / "agent").mkdir()
+        (ws / "agent" / "backlog.json").write_text('[{"id": "T0007", "title": "Fix login", "status": "pending", "description": "Users cannot log in"}]')
+        out = chat.mention_context("please look at @T0007", [ws])
+        self.assertIn("Fix login", out)
+        self.assertIn("cannot log in", out)
+
     def test_models_status(self):
         st = self.svc.models_status()
         self.assertIn("up", st)

@@ -28,6 +28,12 @@ class EditorTests(unittest.TestCase):
     def act(self, **body):
         return self.svc.act("demo", "editor", body)
 
+    def test_mentions_lists_files_and_tasks(self):
+        (self.ws / "agent" / "backlog.json").write_text('[{"id": "T0001", "title": "x", "status": "pending"}]')
+        r = self.svc.editor_get("demo", "mentions", {})
+        self.assertIn("app.py", r["files"])
+        self.assertEqual(r["tasks"][0]["id"], "T0001")
+
     def test_save_create_rename_delete_and_path_safety(self):
         self.act(op="save", path="app.py", text="def f():\n    return 2\n")
         self.assertIn("return 2", (self.repo / "app.py").read_text())

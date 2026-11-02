@@ -210,7 +210,16 @@ def mention_context(text: str, workspaces: list[Path], limit: int = 4000) -> str
                     break
             except Exception:  # noqa: BLE001
                 continue
-    return "Files the user mentioned:\n\n" + "\n\n".join(out[:5]) if out else ""
+    for tid in dict.fromkeys(re.findall(r"(?<![\w@])@(T\d{3,})\b", text or "")):
+        for w in workspaces:
+            try:
+                t = next((i for i in json.loads((w / "agent" / "backlog.json").read_text("utf-8")) if i["id"] == tid), None)
+            except (OSError, ValueError, KeyError):
+                continue
+            if t:
+                out.append(f"### @{tid} ({w.name}) [{t['status']}]\n{t['title']}\n{clip(str(t.get('description', '')), 1200)}")
+                break
+    return "Files and tasks the user mentioned:\n\n" + "\n\n".join(out[:8]) if out else ""
 
 
 def build_messages(chat: dict, ws_of: Callable[[str], Path | None], api: str = "", key: str = "", tool_ctx: Callable[[str], str] | None = None,

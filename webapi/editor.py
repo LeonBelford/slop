@@ -52,6 +52,11 @@ class EditorMixin:
             log = [dict(zip(("sha", "subject", "date"), ln.split("\x1f"), strict=False))
                    for ln in git(repo, "log", "-n", "15", "--format=%h\x1f%s\x1f%cI").splitlines()]
             return {"branch": branch, "files": files, "log": log}
+        if what == "mentions":
+            files = [f for f in git(repo, "ls-files").splitlines() if f][:3000]
+            tasks = [{"id": t["id"], "title": t["title"], "status": t["status"]}
+                     for t in sa.read_json(repo.parent / "agent" / "backlog.json", [])][:300]
+            return {"files": files, "tasks": tasks}
         if what == "head":
             _, rel = self._rel(repo, q.get("path", ""))
             rc, out = _git_rc(repo, "show", f"HEAD:{rel}")

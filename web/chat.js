@@ -249,14 +249,33 @@ function chatInput(){
   const i=$("#chIn"),c=chat.cur;if(!i||!c)return;
   localStorage.setItem("cf.draft."+c.id,i.value);
   const m=i.value.match(/^\/(\w*)$/),pal=$("#cxPal");
-  if(!m||!isAgent(c)){pal.style.display="none";return}
+  if(!m||!isAgent(c)){mentionInput(i,c,pal);return}
   chat.pal=CMDS.filter(x=>x[0].startsWith(m[1].toLowerCase()));chat.palI=0;drawPal();
+}
+async function mentionData(n){
+  chat.ment=chat.ment||{};
+  if(!chat.ment[n])chat.ment[n]=api("/api/project/"+encodeURIComponent(n)+"/editor/mentions").catch(()=>({files:[],tasks:[]}));
+  return chat.ment[n];
+}
+async function mentionInput(i,c,pal){
+  const m=i.value.slice(0,i.selectionStart).match(/(^|\s)@([\w./-]*)$/);
+  if(!m||!c.projects.length||i.value.startsWith("/")){pal.style.display="none";chat.pal=null;return}
+  const q=m[2].toLowerCase(),rows=[];
+  for(const n of c.projects){
+    const d=await mentionData(n);
+    d.tasks.filter(t=>!q||t.id.toLowerCase().startsWith(q)||t.title.toLowerCase().includes(q)).slice(0,4).forEach(t=>rows.push({m:1,ins:t.id,label:t.id,desc:`${t.status} · ${t.title}`,s:0}));
+    d.files.filter(f=>f.toLowerCase().includes(q)).forEach(f=>rows.push({m:1,ins:f,label:f,desc:c.projects.length>1?n:"",s:f.split("/").pop().toLowerCase().startsWith(q)?0:1}));
+  }
+  if(i.value.slice(0,i.selectionStart).match(/(^|\s)@([\w./-]*)$/)?.[2].toLowerCase()!==q)return;
+  chat.pal=rows.sort((a,b)=>a.s-b.s).slice(0,8);chat.palI=0;drawPal();
 }
 function drawPal(){
   const pal=$("#cxPal");if(!chat.pal||!chat.pal.length){pal.style.display="none";return}
-  pal.style.display="";pal.innerHTML=chat.pal.map((x,k)=>`<div class="pal-i ${k===chat.palI?"on":""}" onmousedown="event.preventDefault();palPick(${k})"><b>/${x[0]}</b> <span class="hint" style="margin:0">${esc(x[1])}</span><span>${esc(x[2])}</span></div>`).join("");
+  pal.style.display="";pal.innerHTML=chat.pal.map((x,k)=>x.m?`<div class="pal-i ${k===chat.palI?"on":""}" onmousedown="event.preventDefault();palPick(${k})"><b>@${esc(x.label)}</b><span>${esc(x.desc)}</span></div>`:`<div class="pal-i ${k===chat.palI?"on":""}" onmousedown="event.preventDefault();palPick(${k})"><b>/${x[0]}</b> <span class="hint" style="margin:0">${esc(x[1])}</span><span>${esc(x[2])}</span></div>`).join("");
 }
-function palPick(k){const i=$("#chIn"),x=chat.pal[k];i.value="/"+x[0]+(x[1]?" ":"");chat.pal=null;$("#cxPal").style.display="none";i.focus();grow(i);chatInput();if(!x[1])chatSend()}
+function palPick(k){const i=$("#chIn"),x=chat.pal[k];
+  if(x.m){const pos=i.selectionStart,head=i.value.slice(0,pos).replace(/@[\w./-]*$/,"@"+x.ins+" ");i.value=head+i.value.slice(pos);i.selectionStart=i.selectionEnd=head.length;chat.pal=null;$("#cxPal").style.display="none";i.focus();grow(i);chatInput();return}
+i.value="/"+x[0]+(x[1]?" ":"");chat.pal=null;$("#cxPal").style.display="none";i.focus();grow(i);chatInput();if(!x[1])chatSend()}
 function chatKey(e){
   const pal=$("#cxPal");
   if(pal&&pal.style.display!=="none"&&chat.pal&&chat.pal.length){
