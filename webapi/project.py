@@ -8,7 +8,7 @@ import time
 from pathlib import Path
 
 import codefactory as sa
-from core import blueprint, cfprofile, uidetect
+from core import blueprint, cfprofile, templates, uidetect
 from core.cfgit import UNLAYERED
 from dash import throughput
 from infra import models, notify
@@ -137,6 +137,10 @@ class ProjectMixin:
         idea = str(body.get("idea", "")).strip()
         if len(idea) < 5:
             raise UiError("Please describe the idea in a sentence")
+        try:
+            idea = templates.apply(idea, str(body.get("template") or ""))
+        except ValueError as e:
+            raise UiError(str(e)) from None
         preset = str(body.get("preset") or "auto")
         if preset != "auto" and (preset not in sa.PRESETS or preset == "minimal"):
             raise UiError("Unknown language/stack")

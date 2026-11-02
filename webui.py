@@ -26,9 +26,12 @@ from pathlib import Path
 
 from dash import chat as chatlib
 from dash import replay
+from dash import rollback as layerroll
 import codefactory as sa
 from core import cfprofile
+from infra import export as exporter
 from infra import qr
+from infra import report as reporter
 from infra import update
 
 from webapi.chat import ChatMixin
@@ -175,6 +178,23 @@ class Service(ProjectMixin, DashboardMixin, ToolMixin, ModelsMixin, ChatMixin):
                 raise UiError("A replay is already running", 409)
             spawn(f"replay:{name}", ["replay", name, str(body["task"]), str(body.get("model", "")).strip(), str(body.get("hint", ""))], a / "replay.out")
             return {"ok": True, "started": True}
+        elif action == "rollback":
+            if self.summary(ws)["running"] or any(alive(f"{k}:{name}") for k in ("run", "do", "try", "replay")):
+                raise UiError("Stop the agent first (Stop or Force stop)", 409)
+            try:
+                return layerroll.rollback(ws / "repo", int(body.get("layer")))
+            except (ValueError, TypeError) as e:
+                raise UiError(str(e)) from None
+        elif action == "export":
+            ag = sa.Agent(ws)
+            dest = self.projects / ".exports" / name
+            try:
+                files = exporter.export(ag.repo, dest, name, ag.cfg.get("commands", {}).get("test") or "echo no tests configured")
+            except (ValueError, OSError) as e:
+                raise UiError(str(e)) from None
+            return {"ok": True, "path": str(dest), "files": len(files)}
+        elif action == "report":
+            return {"ok": reporter.send(sa.Agent(ws).cfg, self.projects)}
         elif action == "settings":
             self.save_settings(ws, body)
             return {"ok": True, "applies": "next start" if self.summary(ws)["running"] else "now"}

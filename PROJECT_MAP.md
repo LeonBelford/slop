@@ -67,6 +67,11 @@ Code lives in five places: the entry points in the root (`codefactory.py`, `webu
 | `dash/sifiles.py` | Self-improve file selection: dependents, context budget (`_fit`), content and symbol-name candidates (`_keyword_files`) |
 | `dash/siroute.py` | Self-improve model routing, learned job class and the lessons notebook |
 | `dash/sigate.py` | Benchmark gate (`SI_BENCH_GATE=off|warn|block`): the changed code must not lower the benchmark success rate |
+| `dash/rollback.py` | Layer rollback: `git reset --hard layer-N` with a backup tag (agent stopped, clean tree) |
+| `core/templates.py` | Project templates (CLI, Web-API, Library): layer plans appended to the idea |
+| `infra/report.py` | Daily report (built, blocked, needs you) sent through the notify webhook (event `report`) |
+| `infra/export.py` | Export a project as a clean repo with README, CI and LICENSE |
+| `infra/window.py` | GPU time windows (`22:00-07:00`) to choose heavy or light models |
 | `dash/siwatch.py` | Post-merge watchdog: `check` (compile, import web UI, selftest), `rollback` (revert the last self-improve merge), `install_hook` |
 | `dash/modcards.py` | Module cards (purpose, public signatures, users) for small models; `make cards` writes `docs/MODULES.md` |
 | `docs/RECIPES.md` | Step lists for the usual changes (flag, module, pipeline step, tile, route, bug fix) read by the coder |

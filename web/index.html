@@ -40,6 +40,7 @@
     <div><label>Project name (optional)</label><input id="nName" placeholder="invoices"></div>
     <div><label>Language / framework</label><select id="nPreset" onchange="showHelp()"></select></div>
   </div>
+  <label>Template (optional layer plan)</label><select id="nTemplate"><option value="">None, the agent decides</option><option value="cli">CLI tool</option><option value="web-api">Web API</option><option value="library">Library</option></select>
   <div id="nHelp"></div>
   <p class="hint">The agent first writes the goal and initial tasks (a few minutes: the model has to load). Start it afterwards with the Start button.</p>
   <div class="row" style="justify-content:flex-end"><button onclick="dNew.close()">Cancel</button><button class="primary" onclick="createProject()">Create</button></div>
