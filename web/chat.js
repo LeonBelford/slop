@@ -88,7 +88,7 @@ function drawChat(){
     <div class="cx-list"><div class="cx-list-top"><input id="cxQ" type="search" placeholder="Search chats" value="${esc(chat.q)}" oninput="chat.q=this.value;drawList()"><button class="primary" onclick="newChat()">+ New</button></div><div id="cxItems"></div></div>
     <section class="cx-main">${c?`<div id="cxBar"></div><div id="cxModelBar"></div><div id="cxStatus"></div><div class="msgs" id="msgs"></div><div id="cxPal" class="pal" style="display:none"></div>
       <div class="composer"><textarea id="chIn" rows="1" placeholder="${esc(phText(c))}" oninput="grow(this);chatInput()" onkeydown="chatKey(event)"></textarea>
-        <button class="primary send" id="chSend" onclick="chatSend()" title="Send (Enter)">↑</button><button class="send" id="chStop" onclick="chat.ctrl&&chat.ctrl.abort()" title="Stop answering" style="display:none">■</button></div>`
+        <button class="ghost send" id="chMac" onclick="macroMenu()" title="Saved prompts (macros)">★</button><button class="primary send" id="chSend" onclick="chatSend()" title="Send (Enter)">↑</button><button class="send" id="chStop" onclick="chat.ctrl&&chat.ctrl.abort()" title="Stop answering" style="display:none">■</button></div>`
       :`<div class="chat-empty"><div class="big">Start a conversation</div><button class="primary" onclick="newChat()">+ New chat</button></div>`}</section></div>`;
   drawList();if(!c)return;
   drawBar();drawMsgs();drawStatus();drawModelBar();
@@ -276,6 +276,24 @@ function drawPal(){
 function palPick(k){const i=$("#chIn"),x=chat.pal[k];
   if(x.m){const pos=i.selectionStart,head=i.value.slice(0,pos).replace(/@[\w./-]*$/,"@"+x.ins+" ");i.value=head+i.value.slice(pos);i.selectionStart=i.selectionEnd=head.length;chat.pal=null;$("#cxPal").style.display="none";i.focus();grow(i);chatInput();return}
 i.value="/"+x[0]+(x[1]?" ":"");chat.pal=null;$("#cxPal").style.display="none";i.focus();grow(i);chatInput();if(!x[1])chatSend()}
+/* saved prompts: stored in the browser, inserted into the composer; {sel} style placeholders are not needed, edit after inserting */
+const macros=()=>{try{return JSON.parse(localStorage.getItem("cf.macros")||"[]")}catch(e){return[]}};
+const MACRO_DEFAULTS=[["Review my changes","Review the last changes in this project: list bugs, risky spots and missing tests, most important first."],["Add tests","Read the existing tests, then add missing tests for the most important untested code. Run them."],["Refactor","Find the messiest module and propose a small, safe refactoring. Do it in steps."]];
+function macroMenu(){
+  const pal=$("#cxPal"),list=macros().length?macros():MACRO_DEFAULTS.map(([n,t])=>({n,t,d:1})),i=$("#chIn");
+  if(pal.dataset.macro==="1"){pal.style.display="none";pal.dataset.macro="";return}
+  pal.dataset.macro="1";pal.style.display="";
+  pal.innerHTML=list.map((m,k)=>`<div class="pal-i" onmousedown="event.preventDefault();macroUse(${k})"><b>${esc(m.n)}</b><span>${esc(m.t.slice(0,60))}</span></div>`).join("")
+   +`<div class="pal-i" onmousedown="event.preventDefault();macroSave()"><b>＋ Save current text as prompt</b>${macros().length?`<span onmousedown="event.stopPropagation();event.preventDefault();macroDel()">delete last</span>`:""}</div>`;
+  chat.macroList=list;
+}
+function macroUse(k){const i=$("#chIn"),m=chat.macroList[k];i.value=(i.value?i.value+"\n":"")+m.t;$("#cxPal").style.display="none";$("#cxPal").dataset.macro="";i.focus();grow(i);chatInput()}
+function macroSave(){
+  const t=$("#chIn").value.trim();if(!t){toast("Type the prompt into the box first",true);return}
+  const n=prompt("Name of this prompt",t.slice(0,24));if(!n)return;
+  localStorage.setItem("cf.macros",JSON.stringify([...macros(),{n:n.slice(0,40),t}]));$("#cxPal").style.display="none";$("#cxPal").dataset.macro="";toast("Prompt saved")
+}
+function macroDel(){const a=macros();a.pop();localStorage.setItem("cf.macros",JSON.stringify(a));$("#cxPal").style.display="none";$("#cxPal").dataset.macro=""}
 function chatKey(e){
   const pal=$("#cxPal");
   if(pal&&pal.style.display!=="none"&&chat.pal&&chat.pal.length){
