@@ -11,7 +11,7 @@ from pathlib import Path
 
 import codefactory as sa
 from core import control
-from dash import adrs, chatagent, codesearch, directedit, events, refactor, review, roles, sandbox, testgen
+from dash import adrs, chatagent, codesearch, directedit, directtools, events, refactor, review, roles, sandbox, testgen
 from infra import ctxtune
 from webapi import common
 from webapi.common import UiError
@@ -201,7 +201,7 @@ class ExtMixin:
             call = body["call"]
             try:
                 tool, args = chatagent.validate(call, chat["projects"])
-                text, ok = self._run_tool(tool, args), True
+                text, ok = self._run_tool(tool, args, chat.get("route") == "direct"), True
             except (ValueError, UiError) as e:
                 text, ok, tool, args = str(e), False, str(call.get("tool", "")), call
             chat["messages"] += [{"role": "user", "content": str(body.get("text") or chatagent.describe(tool, args)), "t": now, "cmd": True},
@@ -221,14 +221,14 @@ class ExtMixin:
             else:
                 try:
                     tool, args = chatagent.validate(call, chat["projects"])
-                    text, ok = self._run_tool(tool, args), True
+                    text, ok = self._run_tool(tool, args, chat.get("route") == "direct"), True
                 except (ValueError, UiError) as e:
                     text, ok = str(e), False
                 acts[k] = {"status": "done" if ok else "failed", "result": text, "t": now}
         self.chats.save(chat)
         return {"ok": ok, "result": text, "chat": chat}
 
-    def _run_tool(self, tool: str, args: dict) -> str:
+    def _run_tool(self, tool: str, args: dict, direct: bool = False) -> str:
         name = str(args.get("project", ""))
         if tool == "create_project":
             r = self.create({"idea": args["idea"], "name": args.get("name", ""), "template": args.get("template", "")})
@@ -249,10 +249,17 @@ class ExtMixin:
             rows = [i for i in sa.read_json(a / "backlog.json", []) if not want or i["status"] in want]
             return "\n".join(f"{i['id']} [{i['status']}] p{i.get('priority', 0)} {i['title']}" for i in rows[:60]) or "no tasks"
         if tool == "read_file":
-            f = (ws / "repo" / str(args["path"])).resolve()
-            if not f.is_relative_to((ws / "repo").resolve()) or ".git" in f.parts or not f.is_file():
-                raise UiError("File not found in the project repo")
-            return f.read_text("utf-8", "replace")[:6000]
+            try:
+                return directtools.read_range(ws / "repo", str(args["path"]), int(args.get("start") or 1), int(args.get("end") or 0))
+            except (ValueError, TypeError) as e:
+                raise UiError(str(e)) from None
+        if tool == "list_dir":
+            try:
+                return directtools.list_dir(ws / "repo", str(args.get("path") or ""))
+            except ValueError as e:
+                raise UiError(str(e)) from None
+        if tool == "read_docs":
+            return directtools.read_docs(ws)[0] or "no .md files yet"
         if tool == "health":
             h = adrs.health(a, ws / "repo")
             return f"score {h['score']}/100: " + ", ".join(f"{k} {v['value']}" for k, v in h["parts"].items())
@@ -305,9 +312,22 @@ class ExtMixin:
             return directedit.write_note(ws, str(args.get("file") or "notes.md"), str(args["text"]))
         if tool == "make_folder":
             return directedit.make_folder(ws / "repo", str(args["path"]))
-        if tool == "write_file":
+        if tool in ("write_file", "edit_file", "delete_file"):
             cfg = sa.Agent(ws).cfg
-            if not cfg.get("chat", {}).get("direct_edit"):
-                raise UiError('Direct file writes are off for this project. Turn on "Let chat write files directly" in Settings first.', 403)
-            return directedit.write_file(ws / "repo", str(args["path"]), str(args["content"]), cfg.get("commands", {}).get("test") or "")
+            if direct:
+                if self._running(ws, name):
+                    raise UiError("The project's agent is working on the repo right now. Pause or stop it before the chat edits files directly.", 409)
+                test_cmd = ""
+            elif not cfg.get("chat", {}).get("direct_edit"):
+                raise UiError('Direct file writes are off for this project. Turn on "Let chat write files directly" in Settings or switch the chat to Direct.', 403)
+            else:
+                test_cmd = cfg.get("commands", {}).get("test") or ""
+            try:
+                if tool == "edit_file":
+                    return directtools.edit_file(ws / "repo", str(args["path"]), str(args["old"]), str(args["new"]))
+                if tool == "delete_file":
+                    return directtools.delete_file(ws / "repo", str(args["path"]))
+                return directedit.write_file(ws / "repo", str(args["path"]), str(args["content"]), test_cmd)
+            except ValueError as e:
+                raise UiError(str(e)) from None
         raise UiError("Unknown tool", 404)

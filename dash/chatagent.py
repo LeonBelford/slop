@@ -14,7 +14,9 @@ TOOLS: dict[str, tuple[str, bool, bool]] = {
     "search_code": ('args: "query": find symbols in the project code', True, False),
     "list_tasks": ('args: "filter": optional status (open, doing, done, blocked); task ids, titles, status and priority', True, False),
     "show_task": ('args: "task": id. Full detail of one task: description, acceptance, notes, why it is blocked', True, False),
-    "read_file": ('args: "path": a file of the project repo (first 6000 characters)', True, False),
+    "read_file": ('args: "path", optional "start" and "end" line numbers: a file of the project repo with line numbers (long files in parts)', True, False),
+    "list_dir": ('args: optional "path": the files and folders of a repo folder (default: the repo root)', True, False),
+    "read_docs": ("all important .md files of the project (goal, README, architecture, docs/): read them before you change code", True, False),
     "health": ("health score of the project: tests, module size, drift, blockers", True, False),
     "timeline": ("the latest events of the project (what happened, newest first)", True, False),
     "add_task": ('args: "text": queue a task for the agent (it plans, builds, tests and merges it)', True, True),
@@ -38,6 +40,8 @@ TOOLS: dict[str, tuple[str, bool, bool]] = {
     "make_folder": ('args: "path": create an (empty) folder in the project repo, for example "docs/notes"', True, True),
     "write_file": ('args: "path", "content": write a file straight into the repo, skipping plan/build/test. Only works if '
                    '"Let chat write files directly" is on in Settings', True, True),
+    "edit_file": ('args: "path", "old", "new": replace the text "old" (must occur exactly once) with "new" in a repo file; commits', True, True),
+    "delete_file": ('args: "path": delete a repo file; commits', True, True),
     "create_project": ('args: "idea": text, "name": optional, "template": cli, web-api or library (optional)', False, True),
 }
 ACTION_RE = re.compile(r"```action[ \t]*\n(.*?)```", re.S)
@@ -50,6 +54,19 @@ ADDON = ("You are in agent mode: you can act on the linked projects, not only ta
          "The user confirms every action with a button; never claim it already happened. Available tools:\n"
          + "\n".join(f"- {n}: {d[0]}" + (' (needs "project")' if d[1] else "") for n, d in TOOLS.items())
          + "\nOnly use projects linked to this chat. For \"build X in project Y\": add_task (and start if the agent is stopped).")
+
+DIRECT_ADDON = ("You are in DIRECT mode: you work on the linked project yourself, like a pair-programming assistant, and skip the plan/build/test pipeline. "
+                "Your actions run automatically and you get each result back, then you continue until the job is done. Workflow:\n"
+                "1. The project's .md files are given below: read them and follow their rules. Call read_docs if you need more of them.\n"
+                "2. Explore before you change anything: list_dir, search_code, read_file (with start/end for long files). Never guess file contents.\n"
+                "3. Implement in small steps with edit_file (exact old text -> new text) or write_file (whole new file). Every change is committed.\n"
+                "4. Check your work: run_command with the project's test or lint command, read the result and fix what fails.\n"
+                "5. When done, answer with a short summary of what changed and which files.\n"
+                "Notes for the user: write_note. New folders: make_folder. Add exactly the action blocks of the next step to your answer, like this:\n"
+                '```action\n{"tool": "read_file", "project": "<project>", "path": "src/app.py"}\n```\n'
+                "Never claim a change that you did not make with a tool. Tools:\n"
+                + "\n".join(f"- {n}: {d[0]}" + (' (needs "project")' if d[1] else "") for n, d in TOOLS.items() if n not in ("add_task", "create_project"))
+                + "\nOnly use projects linked to this chat. Pipeline tools (add_task, start, ...) exist too if the user explicitly asks for the pipeline.")
 
 
 def parse(text: str) -> list[dict]:
@@ -102,13 +119,15 @@ def validate(call: dict, linked: list[str] | None) -> tuple[str, dict]:
     need = {"search_code": "query", "add_task": "text", "hint": "text", "run_next": "task", "set_priority": "task", "generate_tests": "file",
             "create_project": "idea", "read_file": "path", "cancel_task": "task", "show_task": "task", "reopen_task": "task",
             "delete_task": "task", "feedback": "text", "run_command": "command", "write_note": "text", "make_folder": "path",
-            "write_file": "path"}.get(tool)
+            "write_file": "path", "edit_file": "path", "delete_file": "path", "list_dir": ""}.get(tool)
     if need and not str(args.get(need) or "").strip():
         raise ValueError(f"'{need}' is missing")
     if tool == "edit_task" and not (str(args.get("title") or "").strip() or str(args.get("text") or "").strip()):
         raise ValueError("'title' or 'text' is missing")
     if tool == "write_file" and not str(args.get("content") or "").strip():
         raise ValueError("'content' is missing")
+    if tool == "edit_file" and (not str(args.get("old") or "") or "new" not in args):
+        raise ValueError("'old' and 'new' are needed")
     if tool == "design" and not isinstance(args.get("approve"), bool):
         raise ValueError('"approve" must be true or false')
     if tool == "set_priority" and args.get("priority") != "top":

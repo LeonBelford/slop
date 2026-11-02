@@ -12,7 +12,7 @@ import threading
 import time
 import urllib.request
 
-from dash import chatagent, toolchat
+from dash import chatagent, directtools, toolchat
 from infra import knowledge
 from pathlib import Path
 from collections.abc import Callable, Iterator
@@ -136,6 +136,8 @@ class ChatStore:
             chat["web"] = bool(body["web"])
         if "agent" in body:
             chat["agent"] = bool(body["agent"])
+        if body.get("route") in ("pipeline", "direct"):
+            chat["route"] = body["route"]
         if body.get("auto") in ("off", "safe", "all"):
             chat["auto"] = body["auto"]
         self.save(chat)
@@ -202,7 +204,12 @@ def build_messages(chat: dict, ws_of: Callable[[str], Path | None], api: str = "
     agent = chat.get("agent") and chat["projects"] and not chat.get("tool")
     if chat.get("project") and not agent:
         system += "\n\n" + PROJECT_ADDON
-    if agent:
+    if agent and chat.get("route") == "direct":
+        system += "\n\n" + chatagent.DIRECT_ADDON
+        docs = [directtools.read_docs(w, 8000, 2500)[0] for w in (ws_of(n) for n in chat["projects"]) if w]
+        if any(docs):
+            system += "\n\nProject docs (already read for you):\n\n" + "\n\n".join(docs)
+    elif agent:
         system += "\n\n" + chatagent.ADDON
     if web_ctx:
         system += "\n\n" + web_ctx
