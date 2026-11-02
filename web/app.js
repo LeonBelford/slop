@@ -13,7 +13,8 @@ function pref(){try{return {accent:"",dense:false,hide:[],stats:["merged","open"
 function setPref(k,v){const p=pref();p[k]=v;localStorage.setItem("pref:"+sel,JSON.stringify(p));applyPref();lastHead=lastTabs=lastBody="";renderProject()}
 function togglePref(k,item){const a=pref()[k].slice(),i=a.indexOf(item);i<0?a.push(item):a.splice(i,1);setPref(k,a)}
 function applyPref(){const p=pref();document.documentElement.style.setProperty("--acc",p.accent||"");if(!p.accent)document.documentElement.style.removeProperty("--acc");document.body.classList.toggle("dense",!!p.dense)}
-const STEPS=[["plan","Plan"],["implement","Implement"],["build","Build & test"],["e2e","UI test"],["security","Security"],["review","Review"],["cleanup","Cleanup"],["docs","Docs & memory"],["merge","Merge"]];
+const ALL_STEPS=[["plan","Plan"],["implement","Implement"],["build","Build & test"],["e2e","UI test"],["security","Security"],["review","Review"],["cleanup","Cleanup"],["docs","Docs & memory"],["merge","Merge"]];
+const stepsFor=()=>detail&&detail.has_ui===false?ALL_STEPS.filter(s=>s[0]!=="e2e"):ALL_STEPS; // no UI test step when the product has no UI
 
 async function api(path,body){
   const opt=body===undefined?{}:{method:"POST",headers:{"X-UI":"1","Content-Type":"application/json"},body:JSON.stringify(body)};
@@ -227,8 +228,8 @@ function renderNow(){
   const a=detail.activity||{},n=a.now,t=Date.now()/1000;
   if(!a.running){box.className="now";box.innerHTML=`<div class="what">Agent is not running</div><div class="sub">Press Start for autonomous work, or give it one concrete job on the "Do a task" tab.</div>${a.queued_user_tasks&&a.queued_user_tasks.length?`<div class="sub">Queued for you: ${a.queued_user_tasks.map(esc).join("; ")}</div>`:""}${timeline(a.events)}`;return}
   box.className="now live";
-  const idx=n?STEPS.findIndex(s=>s[0]===n.step):-1;
-  const stepper=idx>=0||(n&&n.task)?stepTimes(STEPS,idx,n&&n.durations,n&&n.step,n&&n.since,t):"";
+  const idx=n?stepsFor().findIndex(s=>s[0]===n.step):-1;
+  const stepper=idx>=0||(n&&n.task)?stepTimes(stepsFor(),idx,n&&n.durations,n&&n.step,n&&n.since,t):"";
   const call=a.cmd?`<div class="call">Running <b>${esc(a.cmd.name)}</b> (<code>${esc(a.cmd.cmd)}</code>), ${fmtDur(t-a.cmd.since)}. Output: "Reasoning" tab.</div>`:a.coder?`<div class="call">Aider (code model <code>${esc(a.coder.model)}</code>) is editing ${a.coder.files.length?esc(a.coder.files.join(", ")):"files"} for <b>${esc(a.coder.tag)}</b>, ${fmtDur(t-a.coder.since)}</div>`
     :a.llm?`<div class="call">Waiting for the <b>${esc(a.llm.role)}</b> model (<code>${esc(a.llm.model)}</code>) on <b>${esc(a.llm.tag)}</b>, ${fmtDur(t-a.llm.since)}. Open "AI activity" to see the prompt once it answers.</div>`:"";
   reasoningLive();
@@ -299,6 +300,10 @@ function setBody(html){
   $("#main").scrollTop=anchored&&keep>20?keep+Math.max(0,$("#main").scrollHeight-h0):keep;
   const nb=$("#logbox");if(nb&&(stick||!lb))nb.scrollTop=nb.scrollHeight;
 }
+function finishedTasks(d){
+  const done=d.backlog_items.filter(i=>i.status==="done"),total=done.reduce((a,i)=>a+(i.runtime_s||0),0);
+  return `<div class="panel"><h3>Finished tasks${done.length?` <span class="meta">${done.length} · ${dur(total)} total</span>`:""}</h3>${done.length?`<table><tr><th>ID</th><th>Task</th><th>Runtime</th><th>Tries</th></tr>${done.map(i=>`<tr><td>${esc(i.id)}</td><td>${esc(i.title)}</td><td>${i.runtime_s?dur(i.runtime_s):"–"}</td><td>${i.attempts||1}</td></tr>`).join("")}</table>`:'<div class="hint">None yet.</div>'}</div>`;
+}
 function projectBody(d){
   if(tab==="pdash")return pdBody(d);
   if(tab==="overview"){
@@ -307,10 +312,10 @@ function projectBody(d){
     const rows=d.backlog_items.filter(i=>!(P.hideDone&&i.status==="done")).map(i=>{
       const cur=i.id===liveId&&i.status!=="done"&&i.status!=="blocked";
       const prog=cur&&livePct!=null?pctBar(livePct):i.status==="done"?`<span class="meta">100%</span>`:`<span class="meta">-</span>`;
-      return `<tr><td>${esc(i.id)}</td><td>${i.layer!=null?`<span class="pill info" title="Build layer: lower layers are built first">L${i.layer}</span> `:""}${esc(i.title)}${i.source==="ideas"?' <span class="pill ok">from you</span>':i.source==="user"?' <span class="pill info">your task</span>':""}</td><td>${esc(i.type)}</td><td>${Math.round(i.priority*10)/10}</td><td><span class="pill ${i.status==="done"?"ok":i.status==="blocked"?"bad":""}">${esc(i.status)}</span></td><td style="min-width:90px">${prog}</td><td style="white-space:nowrap">${taskBtns(i)}</td></tr>`}).join("");
+      return `<tr><td>${esc(i.id)}</td><td>${i.layer!=null?`<span class="pill info" title="Build layer: lower layers are built first">L${i.layer}</span> `:""}${esc(i.title)}${i.source==="ideas"?' <span class="pill ok">from you</span>':i.source==="user"?' <span class="pill info">your task</span>':""}</td><td>${esc(i.type)}</td><td>${Math.round(i.priority*10)/10}</td><td><span class="pill ${i.status==="done"?"ok":i.status==="blocked"?"bad":""}">${esc(i.status)}</span>${(i.status==="blocked"||i.status==="cancelled")&&i.reason?`<div class="meta reason" title="${esc(i.reason)}">Why: ${esc(i.reason)}</div>`:""}</td><td style="min-width:90px">${prog}</td><td style="white-space:nowrap">${taskBtns(i)}</td></tr>`}).join("");
     const plan=(d.plan||[]).length?`<div class="panel" style="margin-bottom:16px"><h3>Build plan (core first)</h3>${d.plan.map(l=>`<div class="cap"><div><b>L${l.layer} ${esc(l.name)}</b> <span class="meta">${esc(l.goal)}</span></div><div style="min-width:140px">${pctBar(l.total?Math.round(100*l.done/l.total):0)} <span class="meta">${l.done}/${l.total}</span></div></div>`).join("")}</div>`:"";
     return plan+`<div class="${P.showFeatures?"grid2":""}"><div class="panel"><h3>Backlog</h3><table><tr><th>ID</th><th>Task</th><th>Type</th><th>Prio</th><th>Status</th><th>Progress</th><th></th></tr>${rows||'<tr><td colspan=7 class="hint">empty</td></tr>'}</table></div>
-    ${P.showFeatures?`<div class="panel"><h3>Finished features</h3>${d.features.length?d.features.map(f=>`<div style="padding:5px 0;border-top:1px solid var(--line)">${esc(f.title)}</div>`).join(""):'<div class="hint">None yet.</div>'}</div>`:""}</div>`;
+    ${P.showFeatures?finishedTasks(d):""}</div>`;
   }
   if(tab==="task"){
     const mine=d.backlog_items.filter(i=>i.source==="user");

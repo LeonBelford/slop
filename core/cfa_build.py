@@ -262,6 +262,14 @@ class BuildMixin:
 
     # ---- Process one task completely
     def process(self, item: dict) -> bool:
+        """Runs one task and adds the wall-clock time of every attempt to the task's total runtime."""
+        t0 = time.time()
+        try:
+            return self._process(item)
+        finally:
+            self.backlog.set(item, runtime_s=round(float(item.get("runtime_s", 0)) + time.time() - t0, 1))
+
+    def _process(self, item: dict) -> bool:
         self.run_dir = self.dir / "runs" / f"{self.state['iteration']:04d}-{item['id']}"
         self.run_dir.mkdir(parents=True, exist_ok=True)
         previous: list[str] = []
@@ -339,7 +347,7 @@ class BuildMixin:
             self.cur_task, self.cur_attempt = "", 0
             self.phase("Task split into smaller slices", None, item["title"])
             return False
-        self.block_task(item)
+        self.block_task(item, previous[-1] if previous else "")
         self.phase("Task blocked after repeated failures", None, item["title"])
         notify.send(self.cfg, "blocked", self.ws.name, f"{item['id']} {item['title']} is blocked after repeated failures")
         return False

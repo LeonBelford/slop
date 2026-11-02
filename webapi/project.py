@@ -8,7 +8,7 @@ import time
 from pathlib import Path
 
 import codefactory as sa
-from core import blueprint, cfprofile
+from core import blueprint, cfprofile, uidetect
 from core.cfgit import UNLAYERED
 from dash import throughput
 from infra import models, notify
@@ -36,9 +36,14 @@ class ProjectMixin:
                 "activity": self.activity(ws), "log": tail(a / "agent.log"), "run_out": tail(a / "run.out", 15), "do_out": tail(a / "do.out", 15), "try_out": tail(a / "try.out", 15),
                 "features": [{"id": k, "title": v.get("title", k)} if isinstance(v, dict) else {"id": k, "title": str(v)}
                              for k, v in feats.items()],
-                "backlog_items": [{k: i.get(k) for k in ("id", "title", "type", "priority", "status", "source", "attempts", "layer")}
+                "backlog_items": [{k: i.get(k) for k in ("id", "title", "type", "priority", "status", "source", "attempts", "layer", "reason", "runtime_s", "estimate_s")}
                                   for i in backlog],
+                "has_ui": self.project_has_ui(ws),
                 "plan": blueprint.progress(blueprint.load(a / "blueprint.json"), backlog)}
+
+    @staticmethod
+    def project_has_ui(ws: Path) -> bool:
+        return uidetect.has_ui(ws / "repo", ws / "agent" / "interface.json")
 
     def activity(self, ws: Path) -> dict:
         """What the agent is doing right now: phase, task, current model/Aider call and the recent event timeline."""
@@ -254,7 +259,7 @@ class ProjectMixin:
         if action == "task-cancel":
             if item["status"] not in ("pending", "blocked"):
                 raise UiError("Only open tasks can be cancelled")
-            bl.set(item, status="cancelled", notes=item.get("notes", []) + ["cancelled by you in the UI"])
+            bl.set(item, status="cancelled", notes=item.get("notes", []) + ["cancelled by you in the UI"], reason="cancelled by you in the UI")
         elif action == "task-reopen":
             if item["status"] not in ("blocked", "cancelled"):
                 raise UiError("Only blocked or cancelled tasks can be reopened")
