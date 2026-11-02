@@ -100,9 +100,10 @@ from core.cfllm import LLMError
 from core.cfa_milestone import MilestoneMixin
 from core.cfa_rules import RulesMixin
 from core.cfa_spike import SpikeMixin
+from core.cfa_triage import TriageMixin
 
 
-class Agent(BuildMixin, FlowMixin, VerifyMixin, SecurityMixin, ResearchMixin, OpsMixin, PlanMixin, SplitMixin, ConductorMixin, SpikeMixin, MilestoneMixin, RulesMixin, HandoffMixin):
+class Agent(BuildMixin, FlowMixin, VerifyMixin, SecurityMixin, ResearchMixin, OpsMixin, PlanMixin, SplitMixin, ConductorMixin, SpikeMixin, MilestoneMixin, RulesMixin, HandoffMixin, TriageMixin):
     def __init__(self, ws: Path, cfg: dict | None = None):
         self.ws = ws.resolve()
         self.repo, self.dir = self.ws / "repo", self.ws / "agent"
@@ -372,6 +373,7 @@ class Agent(BuildMixin, FlowMixin, VerifyMixin, SecurityMixin, ResearchMixin, Op
             if self.reflect_due():
                 self.reflect()
             self.schedule_hygiene()
+            self.triage()
             item = self.backlog.next(getattr(self, "last_light", None))
             if not item:
                 run = self.cfg["run"]
@@ -383,7 +385,6 @@ class Agent(BuildMixin, FlowMixin, VerifyMixin, SecurityMixin, ResearchMixin, Op
                     break
                 self.save_state()
                 continue
-            self.replan_if_stuck()
             try:
                 with self.conducting(item):
                     ok = self.record_outcome(item, self.process(item))

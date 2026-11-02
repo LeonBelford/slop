@@ -152,7 +152,7 @@ class Backlog:
             light = i["type"] in ("docs", "test")
             bonus = 0.75 if prefer_light is not None and light == prefer_light else 0
             layer = i["layer"] if i.get("layer") is not None else UNLAYERED
-            return (i.get("source") == "user", i["type"] == "bug", -layer, i["priority"] + bonus)
+            return (i.get("source") == "user", i["type"] == "bug", -layer, i["priority"] + bonus + i.get("dyn", 0))
         return max(p, key=key)
 
     def set(self, item: dict, **kw) -> None:

@@ -49,7 +49,7 @@ class RepairLoopTests(unittest.TestCase):
             prompts.append(prompt)
             if prompt.startswith(("Add tests", "Documentation update")):
                 return
-            (work / "app.py").write_text(f"X = {2 if prompts and any(p.startswith('Repair round') for p in prompts) else 99}\n")
+            (work / "app.py").write_text(f"X = {2 if prompts and any('Repair round' in p for p in prompts) else 99}\n")
 
         def tests_green(work, t):
             calls["n"] += 1
@@ -57,7 +57,7 @@ class RepairLoopTests(unittest.TestCase):
 
         res, run, _ = self.run_directed(coder, tests_green)
         self.assertTrue(res["branch"])
-        self.assertTrue(any(p.startswith("Repair round 1") and "AssertionError: X is 99" in p for p in prompts))
+        self.assertTrue(any('Repair round 1' in p and "AssertionError: X is 99" in p for p in prompts))
         self.assertEqual(run["proposals"][0]["rounds"], 1)
         self.assertEqual(run["proposals"][0]["status"], "kept")
 
@@ -269,7 +269,7 @@ class NoEditTests(unittest.TestCase):
 
         def coder(work, files, prompt):
             prompts.append(prompt)
-            if prompt.startswith("Repair round"):
+            if 'Repair round' in prompt:
                 (work / "app.py").write_text("X = 7\n")
                 return "ok"
             return "I would change X to 7 but did not output an edit block"
@@ -284,7 +284,7 @@ class NoEditTests(unittest.TestCase):
             finally:
                 sa.LLM.mock = None
                 selfimprove._tests_green = real
-        rep = next(p for p in prompts if p.startswith("Repair round 1"))
+        rep = next(p for p in prompts if 'Repair round 1' in p)
         self.assertIn("did not output an edit block", rep)
         self.assertIn("changed no file", rep)
         self.assertTrue(res["branch"])
