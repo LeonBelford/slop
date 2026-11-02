@@ -109,11 +109,11 @@ class BuildMixin:
         """Build, test, lint. Skipped when the tree is the one that passed last, or differs from it only in documentation files."""
         tree = self.tree_now()
         if tree and self.unchanged_since_green(tree):
-            self.log("Build and tests skipped: nothing but documentation changed since the last green run")
+            self.log("Build and tests not repeated: the tree is the last green one" + ("" if tree == self.ok_tree else " plus documentation changes"))
             self.ok_tree = tree
             return True, "build + tests ok (unchanged since the last green run)"
         ok, report = self._verify()
-        self.ok_tree = tree if ok else ""
+        self.ok_tree = self.tree_now() if ok else ""  # taken after the run: build artefacts it produced belong to the green tree
         return ok, report
 
     def _verify(self) -> tuple[bool, str]:
@@ -460,12 +460,15 @@ class BuildMixin:
         ok, report = self.debug_loop(item)
         if not ok:
             return False, "Build/test red after debug rounds:\n" + report
+        ok, report = self.full_gate(item)  # the one full run: the saved work and every gate below see a truly green tree
+        if not ok:
+            return False, "Build/test red in the full run:\n" + report
         self.save_wip(item)
         self.note("green", f"build and tests pass; changed files: {self.git.changed_files()[:12]}")
         ok, why, review = self.run_gates(item, plan, base_sha)
         if not ok:
             return False, why
-        ok, report = self.full_gate(item)
+        ok, report = self.full_gate(item)  # free when no gate touched the code (same tree as the last green run)
         if not ok:
             return False, "Build/test red in the full run before the commit:\n" + report
         self.git.commit_all(f"{item['id']}: {item['title']}")

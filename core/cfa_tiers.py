@@ -144,6 +144,9 @@ class TierMixin:
                 "known_consequences": self.mem.consequences_for(files, item["title"]), "light": True}
         write_json(self.run_dir / "plan.json", plan)
         write_text(self.run_dir / "context.md", ctx + ("\n" + pack["text"] if pack["text"] else ""))
+        self.handoff("implementation", "planning", goal=f"{item['id']} {item['title']}: {plan['understanding']}", do=plan["steps"],
+                     do_not=["touch files outside the plan", "delete or weaken tests"], done_when=plan["done_when"] or [item["title"]],
+                     open=[f"watch dependents: {plan['affected_dependents']}"] if plan["affected_dependents"] else [])
         self.note("plan", f"light plan from the graph: change {files}, read {plan['read_only_context']}")
         return plan
 
