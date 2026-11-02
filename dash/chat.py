@@ -242,6 +242,7 @@ def build_messages(chat: dict, ws_of: Callable[[str], Path | None], api: str = "
             rm = repo_map_context(w, last)
             ctx.append(project_context(w) + ("\n\n" + rm if rm else "") + ("\n\n" + k if k else ""))
     is_tool = bool(chat.get("tool"))
+    tail_docs = ""
     if is_tool and tool_ctx:
         system = toolchat.SYSTEM + "\n\n" + tool_ctx(last)
     else:
@@ -254,19 +255,21 @@ def build_messages(chat: dict, ws_of: Callable[[str], Path | None], api: str = "
         system += "\n\n" + chatagent.DIRECT_ADDON
         docs = [directtools.read_docs(w / "repo", 8000, 2500, goal=w / "agent" / "GOAL.md")[0] for w in (ws_of(n) for n in chat["projects"]) if w]
         if any(docs):
-            system += "\n\nProject docs (already read for you):\n\n" + "\n\n".join(docs)
+            tail_docs = DOCS_MARK + "\n\n" + "\n\n".join(docs)
     elif agent:
         system += "\n\n" + chatagent.ADDON
     elif tool_direct:
         system += "\n\n" + chatagent.SELF_DIRECT_ADDON
         doc_text = directtools.read_docs(root, 8000, 3000)[0]
         if doc_text:
-            system += "\n\nCodeFactory's own docs (already read for you):\n\n" + doc_text
+            tail_docs = DOCS_MARK + "\n\n" + doc_text
     mentions = mention_context(last, [w for w in (ws_of(n) for n in chat["projects"]) if w])
     if mentions:
         system += "\n\n" + mentions
     if web_ctx:
         system += "\n\n" + web_ctx
+    if tail_docs:  # last, so that a small context window can drop it without losing the rest
+        system += "\n\n" + tail_docs
     kept, used = [], 0
     for m in reversed(chat["messages"]):
         if m.get("tool") == "read_docs":  # a UI-only note: the docs are already in the system prompt
@@ -277,6 +280,40 @@ def build_messages(chat: dict, ws_of: Callable[[str], Path | None], api: str = "
             break
         kept.append({"role": m["role"], "content": content})
     return [{"role": "system", "content": system}] + merge_turns(kept[::-1])
+
+
+DOCS_MARK = "Docs (already read for you):"
+CTX_ANSWER_SHARE = 0.4  # of a small context window kept free for the (reasoning) answer
+KNOWN_CTX: dict[str, int] = {}  # model -> context size (tokens) learned from a server's 400 error
+
+
+def server_ctx(detail: str) -> int:
+    m = re.search(r"context (?:size|length|window)[^0-9]{0,30}(\d{3,7})", detail, re.I) or re.search(r"(\d{3,7}) tokens?\)?[^.]{0,40}context", detail, re.I)
+    return int(m.group(1)) if m else 0
+
+
+def fit_messages(msgs: list[dict], ctx: int) -> list[dict]:
+    """Shrinks a chat request to a server's real context window (tokens ~ 3 chars): the docs section goes first, then
+    old history, and only then the system prompt is clipped. The newest message is always kept."""
+    budget = int(ctx * (1 - CTX_ANSWER_SHARE) * 3)
+    system, hist = msgs[0]["content"], list(msgs[1:])
+    if len(system) + sum(len(m["content"]) for m in hist) <= budget:
+        return msgs
+    if DOCS_MARK in system:
+        system = system[:system.index(DOCS_MARK)].rstrip()
+    keep, used = [], 0
+    for m in reversed(hist):
+        if keep and used + len(m["content"]) > budget // 2:
+            break
+        keep.append(m)
+        used += len(m["content"])
+    hist = keep[::-1]
+    room = max(budget - used, 800)
+    if len(system) > room:
+        system = system[:room // 2] + "\n[...]\n" + system[-room // 2:]
+    if hist and len(hist[-1]["content"]) > budget // 2:
+        hist[-1] = {**hist[-1], "content": hist[-1]["content"][: budget // 2]}
+    return [{"role": "system", "content": system}, *hist]
 
 
 def merge_turns(msgs: list[dict]) -> list[dict]:
