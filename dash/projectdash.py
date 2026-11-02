@@ -8,7 +8,7 @@ import time
 from pathlib import Path
 
 from core.cfgit import UNLAYERED
-from dash import diagnostics, history
+from dash import diagnostics, history, pdextra
 
 QUEUE_SIZE = 6
 EVENTS_SHOWN = 14
@@ -127,5 +127,6 @@ def build(ws: Path, running: bool, now: float | None = None, has_ui: bool = True
         "outcomes": outcomes, "flow": diag["flow"], "models": diag["models"], "health": diag["health"], "repo": diag.get("repo", {}),
         "forecast": diag.get("forecast"), "quality": history.quality(a), "journal": journal(a),
     }
+    snap.update(pdextra.extras(ws, backlog, state))
     snap["findings"] = findings(snap)
     return snap

@@ -489,6 +489,7 @@ function setTab(k){if(k==="chat")return openProjectChat(sel);$("#main").scrollTo
 async function fetchExtra(){
   try{
     if(view==="chat"||view==="dash")return;
+    if(tab==="pdash"&&view==="project"&&PD.paused&&extra&&extra.kind==="pdash")return;
     if(view==="tool"){
       const [t,act]=await Promise.all([api("/api/tool"),api("/api/tool/activity")]);
       extra={kind:"tool",...t,act};
