@@ -229,6 +229,14 @@ If Ollama rejects or drops a request (for example HTTP 400 on a prompt that is t
 
 **Context window too small (HTTP 400 "exceeds the available context size (4096 tokens)").** Ollama's OpenAI endpoint uses the server default (4096) for models without their own `num_ctx`, e.g. `deepseek-r1:14b`. The agent now reads that size from the error, cuts every later prompt and the answer budget to fit it, and logs the fix. Quality is much better with a real window: `OLLAMA_CONTEXT_LENGTH=16384 ollama serve` (systemd: `Environment=OLLAMA_CONTEXT_LENGTH=16384`) or a Modelfile with `num_ctx` (see `scripts/Modelfile.qwen-coder-14b`).
 
+## Debugging that converges
+
+- **Test protection knows Rust** (`#[test]`, `#[tokio::test] async fn`): converting tests to async is no longer mistaken for deleting them, and a real deletion names the removed tests in the message to the coder.
+- **Root cause first:** build/setup output is cut from the first `error` line on (compilers print the cause first, cascades after), and files named in a report are found for every language (`.rs`, `.toml`, `.go`, ...).
+- **A retry never shrinks the task** to repairing an earlier error; the plan prompt says the full task and all acceptance criteria still apply.
+- **Spikes** are skipped for slices, and a spike whose throwaway code does not even compile counts as inconclusive instead of forcing a re-plan.
+- **Chat-only answers:** complete files named in the answer are written directly (a snippet never overwrites a big file); only if that is not possible, one whole-file retry costs another model call.
+
 ## Models (RTX 3060, 12 GB)
 Rough guidelines, not measured on your hardware; check tags and licenses at [ollama.com/library](https://ollama.com/library).
 

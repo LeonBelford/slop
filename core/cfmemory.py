@@ -422,8 +422,11 @@ class Memory:
             d = self.llm.json("consolidate", "summarizer", "You condense lessons learned without losing information.",
                               "Summarize into at most 30 concise lessons. Schema: "
                               '{"lessons": [{"lesson": "...", "files": ["..."]}]}\n' + json.dumps(rows)[:14000])
+            items = d if isinstance(d, list) else next((v for v in d.values() if isinstance(v, list)), [])  # the model names the list freely
             new = [{"id": sha(x["lesson"])[:10], "time": now(), "confirmed": now(), "item": "consolidated",
-                    "files": x.get("files", []), "lesson": x["lesson"], "hits": 0, "misses": 0} for x in d["lessons"]]
+                    "files": x.get("files", []), "lesson": x["lesson"], "hits": 0, "misses": 0} for x in items if isinstance(x, dict) and x.get("lesson")]
+            if not new:
+                raise ValueError("no lessons in the answer")
             with open(self.dir / "lessons_archive.jsonl", "a", encoding="utf-8") as f:  # nothing is lost
                 f.writelines(json.dumps({**r, "archived": now(), "reason": "consolidated"}, ensure_ascii=False) + "\n" for r in rows)
             write_text(p, "".join(json.dumps(r, ensure_ascii=False) + "\n" for r in new))

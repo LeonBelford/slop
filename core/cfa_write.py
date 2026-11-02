@@ -22,10 +22,15 @@ def extract_files(answer: str, allowed: list[str]) -> dict[str, str]:
 
 
 def write_files(repo: Path, files: dict[str, str]) -> list[str]:
+    """Writes the files inside the repo. A reply that is much shorter than the existing file is a snippet, not the whole file:
+    writing it would destroy the file, so it is skipped."""
     done = []
     for name, body in files.items():
         p = (repo / name).resolve()
         if repo.resolve() in p.parents:
+            old = p.read_text("utf-8", "replace").count("\n") if p.is_file() else 0
+            if old >= 20 and body.count("\n") < old * 0.6:
+                continue
             p.parent.mkdir(parents=True, exist_ok=True)
             p.write_text(body, "utf-8")
             done.append(name)
