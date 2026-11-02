@@ -334,7 +334,7 @@ def make_handler(svc: Service, port: int, token: str | None = None):
                 self.wfile.write(b"data: " + json.dumps(obj, ensure_ascii=False).encode() + b"\n\n")
                 self.wfile.flush()
             try:
-                svc.chat_stream(cid, str(body.get("content", "")), write)
+                svc.chat_stream(cid, str(body.get("content", "")), write, str(body.get("mode", "")))
                 write("[DONE]")
             except (UiError, chatlib.ChatError) as e:
                 write({"error": str(e)})

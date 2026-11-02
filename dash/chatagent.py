@@ -12,6 +12,11 @@ import re
 TOOLS: dict[str, tuple[str, bool, bool]] = {
     "status": ("status of the linked project: agent state, task counts, current task", True, False),
     "search_code": ('args: "query": find symbols in the project code', True, False),
+    "list_tasks": ('args: "filter": optional status (open, doing, done, blocked); task ids, titles, status and priority', True, False),
+    "show_task": ('args: "task": id. Full detail of one task: description, acceptance, notes, why it is blocked', True, False),
+    "read_file": ('args: "path": a file of the project repo (first 6000 characters)', True, False),
+    "health": ("health score of the project: tests, module size, drift, blockers", True, False),
+    "timeline": ("the latest events of the project (what happened, newest first)", True, False),
     "add_task": ('args: "text": queue a task for the agent (it plans, builds, tests and merges it)', True, True),
     "start": ("start the agent", True, True),
     "stop": ("stop the agent after the current task", True, True),
@@ -20,30 +25,63 @@ TOOLS: dict[str, tuple[str, bool, bool]] = {
     "step_mode": ('args: "on": true or false. The agent waits after every task when on', True, True),
     "run_next": ('args: "task": task id such as T0012. Make that task the next one', True, True),
     "set_priority": ('args: "task": id, "priority": a number or "top"', True, True),
+    "reopen_task": ('args: "task": id. Puts a blocked or cancelled task back into the queue', True, True),
+    "delete_task": ('args: "task": id. Removes a blocked or cancelled task for good', True, True),
+    "edit_task": ('args: "task": id, "title" and/or "text": new title or description of an open or blocked task', True, True),
+    "feedback": ('args: "text": a remark for the project\'s ideas/feedback list; the agent considers it when it plans', True, True),
+    "design": ('args: "approve": true or false. Answers the design (spec) that waits for review', True, True),
+    "run_command": ('args: "command": shell command in a throwaway copy of the repo (tests, linters, scripts)', True, True),
+    "cancel_task": ('args: "task": id. Cancels a task that is not wanted anymore', True, True),
     "hint": ('args: "text": an instruction pinned into the prompts of the current task', True, True),
     "generate_tests": ('args: "file": queue a task that writes tests for that source file', True, True),
     "create_project": ('args: "idea": text, "name": optional, "template": cli, web-api or library (optional)', False, True),
 }
 ACTION_RE = re.compile(r"```action[ \t]*\n(.*?)```", re.S)
+READ_ONLY = frozenset(n for n, d in TOOLS.items() if not d[2])
 
-ADDON = ("You can act, not only talk. When the user wants something done, answer briefly and add ONE action block per step, exactly like this:\n"
+ADDON = ("You are in agent mode: you can act on the linked projects, not only talk. Look before you act: use the read-only tools (status, list_tasks, "
+         "show_task, search_code, read_file, health, timeline) first; they run automatically and you get their results back, then you continue. "
+         "Never invent task ids or file names. When the user wants something done, answer briefly and add one action block per step, exactly like this:\n"
          '```action\n{"tool": "add_task", "project": "<linked project name>", "text": "what to build and how to check it"}\n```\n'
          "The user confirms every action with a button; never claim it already happened. Available tools:\n"
          + "\n".join(f"- {n}: {d[0]}" + (' (needs "project")' if d[1] else "") for n, d in TOOLS.items())
          + "\nOnly use projects linked to this chat. For \"build X in project Y\": add_task (and start if the agent is stopped).")
 
 
-def extract(text: str) -> list[dict]:
-    """Valid action blocks of a model answer (invalid JSON or unknown tools are dropped)."""
+def parse(text: str) -> list[dict]:
+    """The action blocks of a model answer that are valid JSON objects, in order. The UI numbers its cards with the same list."""
     out = []
     for m in ACTION_RE.finditer(text or ""):
         try:
             c = json.loads(m.group(1))
-            validate(c, None)
+        except ValueError:
+            continue
+        if isinstance(c, dict):
             out.append(c)
+    return out
+
+
+def extract(text: str) -> list[dict]:
+    """Valid action blocks of a model answer (unknown tools or missing arguments are dropped)."""
+    out = []
+    for c in parse(text):
+        try:
+            validate(c, None)
         except (ValueError, TypeError):
             continue
+        out.append(c)
     return out
+
+
+def results_text(msg: dict) -> str:
+    """What happened to the action blocks of a stored answer, as text for the model's next turn."""
+    calls, acts = parse(msg.get("content", "")), msg.get("acts") or {}
+    lines = []
+    for k, c in enumerate(calls):
+        a = acts.get(str(k)) or {}
+        state = a.get("status", "not run yet")
+        lines.append(f"- {describe(str(c.get('tool')), c)} -> {state}" + (f": {a['result'][:1500]}" if a.get("result") else ""))
+    return ("\n\n[Results of your actions]\n" + "\n".join(lines)) if lines else ""
 
 
 def validate(call: dict, linked: list[str] | None) -> tuple[str, dict]:
@@ -58,9 +96,14 @@ def validate(call: dict, linked: list[str] | None) -> tuple[str, dict]:
         if not p or (linked is not None and p not in linked):
             raise ValueError(f"Project '{p}' is not linked to this chat")
     need = {"search_code": "query", "add_task": "text", "hint": "text", "run_next": "task", "set_priority": "task", "generate_tests": "file",
-            "create_project": "idea"}.get(tool)
+            "create_project": "idea", "read_file": "path", "cancel_task": "task", "show_task": "task", "reopen_task": "task",
+            "delete_task": "task", "feedback": "text", "run_command": "command"}.get(tool)
     if need and not str(args.get(need) or "").strip():
         raise ValueError(f"'{need}' is missing")
+    if tool == "edit_task" and not (str(args.get("title") or "").strip() or str(args.get("text") or "").strip()):
+        raise ValueError("'title' or 'text' is missing")
+    if tool == "design" and not isinstance(args.get("approve"), bool):
+        raise ValueError('"approve" must be true or false')
     if tool == "set_priority" and args.get("priority") != "top":
         try:
             float(args.get("priority"))
@@ -70,5 +113,5 @@ def validate(call: dict, linked: list[str] | None) -> tuple[str, dict]:
 
 
 def describe(tool: str, args: dict) -> str:
-    detail = args.get("text") or args.get("idea") or args.get("query") or args.get("task") or args.get("file") or ""
+    detail = args.get("text") or args.get("command") or args.get("idea") or args.get("query") or args.get("task") or args.get("file") or ""
     return f"{tool}" + (f" on {args['project']}" if args.get("project") else "") + (f": {str(detail)[:200]}" if detail else "")

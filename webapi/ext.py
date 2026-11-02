@@ -19,7 +19,7 @@ from webapi.common import UiError
 JOBS: dict[tuple[str, str], dict] = {}
 JOB_LOCK = threading.Lock()
 ACTIONS = ("control", "spec-decide", "role-save", "role-reset", "task-prio", "review-comment", "testgen", "mutation", "sandbox-run",
-           "play-start", "play-stop", "refactor-rename", "refactor-dead", "refactor-split")
+           "task-edit", "play-start", "play-stop", "refactor-rename", "refactor-dead", "refactor-split")
 
 
 def _job(name: str, kind: str, fn) -> None:
@@ -56,6 +56,15 @@ class ExtMixin:
             if what == "control":
                 p, d = control.spec_paths(a)
                 return {**control.load(a), "running": self._running(ws, name), "spec": sa.read_json(p, None)}
+            if what == "brief":
+                bl, c = sa.read_json(a / "backlog.json", []), control.load(a)
+                cur = next((i for i in bl if i["status"] == "in_progress"), None)
+                return {**self.summary(ws), "paused": c["paused"], "step_mode": c["step_mode"], "next": c.get("next", ""), "hints": len(c.get("hints", [])),
+                        "current": f"{cur['id']} {cur['title']}" if cur else "", "spec": control.spec_paths(a)[0].exists()}
+            if what == "queue":
+                c = control.load(a)
+                return {"tasks": [{k: i.get(k) for k in ("id", "title", "status", "priority", "layer", "attempts", "type", "reason", "depends_on", "description")}
+                                  for i in sa.read_json(a / "backlog.json", [])], "next": c.get("next", ""), "running": self._running(ws, name)}
             if what == "roles":
                 eff = sa.Agent(ws).cfg["models"]
                 return {"roles": sorted(eff), "defaults": eff, "custom": roles.load(a / "roles.json")}
@@ -108,6 +117,15 @@ class ExtMixin:
                     raise UiError("Only open tasks can change priority", 404 if not item else 400)
                 bl.set(item, priority=float(body.get("priority")))
                 events.add(a, "control", f"{item['id']} priority set to {body.get('priority')}")
+                return {"ok": True}
+            if action == "task-edit":
+                bl = sa.Backlog(a / "backlog.json")
+                item = next((i for i in bl.items if i["id"] == body.get("id")), None)
+                if not item or item["status"] not in ("pending", "blocked"):
+                    raise UiError("Only open or blocked tasks can be edited", 404 if not item else 400)
+                kw = {k: str(body[k]).strip()[:2000] for k in ("title", "description") if str(body.get(k) or "").strip()}
+                bl.set(item, **kw)
+                events.add(a, "control", f"{item['id']} edited")
                 return {"ok": True}
             if action == "review-comment":
                 bl = sa.Backlog(a / "backlog.json")
@@ -175,16 +193,40 @@ class ExtMixin:
         raise UiError("Not found", 404)
 
     # ---- chat agent
-    def chat_action(self, cid: str, call: dict) -> dict:
+    def chat_action(self, cid: str, body: dict) -> dict:
+        """Runs one action: a card of a stored answer ({msg, k[, skip]}) or a direct slash command ({call}). A failure is stored on the card, not raised."""
         chat = self.chats.load(cid)
-        try:
-            tool, args = chatagent.validate(call, chat["projects"])
-        except ValueError as e:
-            raise UiError(str(e)) from None
-        text = self._run_tool(tool, args)
-        chat["messages"].append({"role": "user", "content": f"[action done] {chatagent.describe(tool, args)}\n{text}", "t": time.time(), "action": True})
+        now = time.time()
+        if "call" in body:
+            call = body["call"]
+            try:
+                tool, args = chatagent.validate(call, chat["projects"])
+                text, ok = self._run_tool(tool, args), True
+            except (ValueError, UiError) as e:
+                text, ok, tool, args = str(e), False, str(call.get("tool", "")), call
+            chat["messages"] += [{"role": "user", "content": str(body.get("text") or chatagent.describe(tool, args)), "t": now, "cmd": True},
+                                 {"role": "assistant", "content": text, "t": now, "cmd": True, "ok": ok, "tool": tool}]
+        else:
+            try:
+                msg = chat["messages"][int(body["msg"])]
+                k = str(int(body.get("k", 0)))
+                call = chatagent.parse(msg["content"])[int(k)]
+            except (IndexError, KeyError, ValueError, TypeError):
+                raise UiError("Action not found", 404) from None
+            acts = msg.setdefault("acts", {})
+            if acts.get(k, {}).get("status") in ("done", "skipped"):
+                raise UiError("This action was already handled")
+            if body.get("skip"):
+                acts[k], ok, text = {"status": "skipped", "t": now}, True, "skipped"
+            else:
+                try:
+                    tool, args = chatagent.validate(call, chat["projects"])
+                    text, ok = self._run_tool(tool, args), True
+                except (ValueError, UiError) as e:
+                    text, ok = str(e), False
+                acts[k] = {"status": "done" if ok else "failed", "result": text, "t": now}
         self.chats.save(chat)
-        return {"ok": True, "result": text, "chat": chat}
+        return {"ok": ok, "result": text, "chat": chat}
 
     def _run_tool(self, tool: str, args: dict) -> str:
         name = str(args.get("project", ""))
@@ -202,6 +244,43 @@ class ExtMixin:
             return f"running={s['running']}, tasks={counts}, phase={s.get('phase', '')}"
         if tool == "search_code":
             return "\n".join(f"{h['kind']} {h['name']} {h['file']}:{h['line']}" for h in codesearch.search(ws / "repo", args["query"], 8)) or "no hits"
+        if tool == "list_tasks":
+            want = {"open": ("pending",), "doing": ("in_progress",)}.get(str(args.get("filter", "")), (str(args["filter"]),) if args.get("filter") else None)
+            rows = [i for i in sa.read_json(a / "backlog.json", []) if not want or i["status"] in want]
+            return "\n".join(f"{i['id']} [{i['status']}] p{i.get('priority', 0)} {i['title']}" for i in rows[:60]) or "no tasks"
+        if tool == "read_file":
+            f = (ws / "repo" / str(args["path"])).resolve()
+            if not f.is_relative_to((ws / "repo").resolve()) or ".git" in f.parts or not f.is_file():
+                raise UiError("File not found in the project repo")
+            return f.read_text("utf-8", "replace")[:6000]
+        if tool == "health":
+            h = adrs.health(a, ws / "repo")
+            return f"score {h['score']}/100: " + ", ".join(f"{k} {v['value']}" for k, v in h["parts"].items())
+        if tool == "timeline":
+            return "\n".join(f"{e['time']} {e['kind']}: {e['text']}" for e in events.timeline(a, 15)) or "nothing yet"
+        if tool == "show_task":
+            i = next((t for t in sa.read_json(a / "backlog.json", []) if t["id"] == args["task"]), None)
+            if not i:
+                raise UiError("Task not found", 404)
+            return "\n".join(f"{k}: {i[k]}" for k in ("id", "title", "status", "priority", "layer", "attempts", "reason", "description", "acceptance", "depends_on", "notes") if i.get(k))[:3000]
+        if tool in ("reopen_task", "delete_task"):
+            self.act(name, "task-" + tool.split("_")[0], {"id": args["task"]})
+            return f"task {tool.split('_')[0]}ed".replace("deleteed", "deleted")
+        if tool == "edit_task":
+            self.ext_act(ws, name, "task-edit", {"id": args["task"], "title": args.get("title", ""), "description": args.get("text", "")})
+            return "task updated"
+        if tool == "feedback":
+            self.act(name, "say", {"msg": args["text"]})
+            return "added to the feedback list"
+        if tool == "design":
+            control.decide_spec(a, args["approve"])
+            return "design " + ("approved" if args["approve"] else "rejected: the agent re-plans")
+        if tool == "run_command":
+            r = sandbox.run(ws, str(args["command"]), 120)
+            return f"exit {r['rc']}\n{r['out'][-3000:]}"
+        if tool == "cancel_task":
+            self.act(name, "task-cancel", {"id": args["task"]})
+            return "task cancelled"
         if tool == "add_task":
             r = self.act(name, "do", {"task": args["text"]})
             return "queued for the running agent" if r.get("queued") else "task started"
