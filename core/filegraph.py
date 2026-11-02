@@ -52,19 +52,20 @@ def imports_of(path: str, text: str, files: set[str]) -> set[str]:
     return found
 
 
-def build(files: list[str], read, items: list[dict]) -> dict:
-    """`read(path)` returns the text of a file (or ''). Nodes carry size, number of importers and the tasks that touched the file:
-    the newest RECENT in full, the rest only as a count."""
+def edges_of(files: list[str], read) -> list[list[str]]:
     fset = set(files)
+    return [[f, t] for f in files if f.endswith(SRC) for t in sorted(imports_of(f, read(f), fset))]
+
+
+def build(files: list[str], read, items: list[dict], edges: list[list[str]] | None = None) -> dict:
+    """`read(path)` returns the text of a file (or ''). Nodes carry size, number of importers and the tasks that touched the file:
+    the newest RECENT in full, the rest only as a count. Pass `edges` (from `edges_of`) to reuse an earlier scan of unchanged files."""
     touched: dict[str, list[dict]] = {}
     for it in sorted(items, key=lambda i: i["id"]):
         for f in it.get("files") or []:
             touched.setdefault(f, []).append({"id": it["id"], "title": it["title"], "status": it["status"]})
-    edges: list[list[str]] = []
-    for f in files:
-        if f.endswith(SRC):
-            edges += [[f, t] for t in sorted(imports_of(f, read(f), fset))]
-    used = {}
+    edges = edges_of(files, read) if edges is None else edges
+    used: dict[str, int] = {}
     for _, t in edges:
         used[t] = used.get(t, 0) + 1
     nodes = []

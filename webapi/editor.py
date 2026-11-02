@@ -66,7 +66,18 @@ class EditorMixin:
                     return (repo / f).read_text("utf-8")[:60000]
                 except (OSError, UnicodeDecodeError):
                     return ""
-            return filegraph.build(files, read, sa.read_json(repo.parent / "agent" / "backlog.json", []))
+
+            def stamp(f: str) -> int:
+                try:
+                    return (repo / f).stat().st_mtime_ns
+                except OSError:
+                    return 0
+            sig = tuple((f, stamp(f)) for f in files)  # the page polls: rescan the imports only when a file changed
+            cache = self.__dict__.setdefault("_fg_cache", {})
+            hit = cache.get(name)
+            if not hit or hit[0] != sig:
+                hit = cache[name] = (sig, filegraph.edges_of(files, read))
+            return filegraph.build(files, read, sa.read_json(repo.parent / "agent" / "backlog.json", []), hit[1])
         if what == "head":
             _, rel = self._rel(repo, q.get("path", ""))
             rc, out = _git_rc(repo, "show", f"HEAD:{rel}")
