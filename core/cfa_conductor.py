@@ -75,6 +75,7 @@ class ConductorMixin:
         if mode != "standard":
             self.log(f"Conductor: {mode} mode for {item['id']} ({why})")
         self.metric(kind="conductor", item=item["id"], mode=mode)
+        self.state["profile_mode"], self.state["profile_reason"] = mode, why
         self.force_heavy = mode == "careful"
         try:
             yield mode

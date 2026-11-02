@@ -8,7 +8,7 @@ import urllib.parse
 import urllib.request
 
 import codefactory as sa
-from dash import diagnostics, history, runledger, throughput
+from dash import diagnostics, history, projectdash, runledger, throughput
 from infra import perf
 
 from webapi import common
@@ -89,6 +89,20 @@ class DashboardMixin:
                 "tps": round(sum(r["live"]["tps"] for r in running), 1),
                 "live_tokens": sum(r["live"]["tokens"] for r in running), "live_chars": sum(r["live"]["chars"] for r in running),
                 "totals": tot, "gpu": self.gpu_stats(), "models": self.loaded_models()}
+
+    def project_dashboard(self, name: str) -> dict:
+        """One project's dashboard: status, current step, queue, quality, model time, triage and findings (cached for 2 s)."""
+        ws = self.ws(name)
+        c = getattr(self, "_pdash", {}).get(name)
+        if c and time.time() - c[0] < 2:
+            return c[1]
+        res = projectdash.build(ws, self.summary(ws)["running"])
+        res["perf"] = throughput.perf(sa.read_json(ws / "agent" / "metrics.json", {}))
+        res["gpu"] = self.gpu_stats()
+        if not hasattr(self, "_pdash"):
+            self._pdash = {}
+        self._pdash[name] = (time.time(), res)
+        return res
 
     def diagnostics(self) -> dict:
         """Slow-moving figures for the Dashboard (flow, quality, model time, health, repo, system), cached for a few seconds."""

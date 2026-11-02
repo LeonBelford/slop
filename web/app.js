@@ -4,8 +4,8 @@ let sel=localStorage.getItem("sel")||null, view="project", tab="overview", list=
 let taskModel="",toolMcfg=null,toolTab_="tool",toolBranch="",planId="",taskPrefill="",codeBase="head",codeOpen=new Set(),codeView=null,codeInit=false;
 let diffView=null, lastBody="", lastHead="", lastTabs="", openKeys=new Set();
 const EDITABLE=["ideas","sources","task","tool","settings","goal","profile","knowledge"];
-const GROUPS=[["overview","Overview",["overview"]],["chat","Chat",["chat"]],["task","Do a task",["task"]],["agent","Agent",["profile","knowledge","goal","ideas","sources","settings"]],["activity","Activity",["log","reasoning","llm"]],["code","Code & test",["changes","testing"]],["customize","Customize",["customize"]]];
-const LEAF={profile:"Instructions & capabilities",knowledge:"Knowledge files",goal:"Goal",ideas:"Ideas",sources:"Web sources",settings:"Models & limits",log:"Live log",reasoning:"Reasoning",llm:"AI activity",changes:"File changes",testing:"Test version"};
+const GROUPS=[["overview","Overview",["overview"]],["pdash","Dashboard",["pdash"]],["chat","Chat",["chat"]],["task","Do a task",["task"]],["agent","Agent",["profile","knowledge","goal","ideas","sources","settings"]],["activity","Activity",["log","reasoning","llm"]],["code","Code & test",["changes","testing"]],["customize","Customize",["customize"]]];
+const LEAF={pdash:"Dashboard",profile:"Instructions & capabilities",knowledge:"Knowledge files",goal:"Goal",ideas:"Ideas",sources:"Web sources",settings:"Models & limits",log:"Live log",reasoning:"Reasoning",llm:"AI activity",changes:"File changes",testing:"Test version"};
 const ACCENTS=["","#5fb36b","#6fa3d8","#d6a23c","#c678dd","#e06c75","#56b6c2"];
 const STAT_KEYS=[["merged","Features merged"],["open","Open tasks"],["done","Done"],["blocked","Blocked"],["iterations","Iterations"],["hours","Runtime"],["tokens","Tokens used"],["tps","Tokens / s"],["wps","Words / s"],["tpm","Tokens / min"],["gpu","GPU"],["avgcall","Avg. call time"]];
 let lastLeaf={};
@@ -300,6 +300,7 @@ function setBody(html){
   const nb=$("#logbox");if(nb&&(stick||!lb))nb.scrollTop=nb.scrollHeight;
 }
 function projectBody(d){
+  if(tab==="pdash")return pdBody(d);
   if(tab==="overview"){
     const P=pref();
     const live=d.activity&&d.activity.now,liveId=live&&live.task?live.task.split(" ")[0]:null,livePct=live?live.pct:null;
@@ -493,7 +494,8 @@ async function fetchExtra(){
           if(!codeInit&&extra.tree.files.length){codeInit=true;extra.tree.files.forEach(f=>f.path.split("/").slice(0,-1).forEach((_,i,a)=>codeOpen.add(a.slice(0,i+1).join("/"))))}}}
       return}
     if(!sel)return;
-    if(tab==="llm")extra={kind:"llm",...await api(`/api/project/${encodeURIComponent(sel)}/llm`)};
+    if(tab==="pdash")extra={kind:"pdash",name:sel,...await api(`/api/project/${encodeURIComponent(sel)}/dashboard`)};
+    else if(tab==="llm")extra={kind:"llm",...await api(`/api/project/${encodeURIComponent(sel)}/llm`)};
     else if(tab==="profile"||tab==="knowledge")extra={kind:"profile",...await api(`/api/project/${encodeURIComponent(sel)}/profile`)};
     else if(tab==="settings"){if(!extra||extra.kind!=="settings")extra={kind:"settings",...await api(`/api/project/${encodeURIComponent(sel)}/settings`)}}
     else if(tab==="changes"){const n=encodeURIComponent(sel);const [c,t]=await Promise.all([api(`/api/project/${n}/changes`),api(`/api/project/${n}/tree?base=${encodeURIComponent(codeBase)}`)]);extra={kind:"changes",...c,tree:t};
