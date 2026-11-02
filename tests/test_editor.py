@@ -28,6 +28,16 @@ class EditorTests(unittest.TestCase):
     def act(self, **body):
         return self.svc.act("demo", "editor", body)
 
+    def test_terminal_runs_in_the_repo_and_is_blocked_while_the_agent_runs(self):
+        r = self.act(op="exec", cmd="ls && echo $((1+2))")
+        self.assertEqual(r["rc"], 0)
+        self.assertIn("app.py", r["out"])
+        self.assertIn("3", r["out"])
+        self.assertEqual(self.act(op="exec", cmd="exit 3")["rc"], 3)
+        self.svc._running = lambda ws, name: True
+        with self.assertRaises(UiError):
+            self.act(op="exec", cmd="ls")
+
     def test_mentions_lists_files_and_tasks(self):
         (self.ws / "agent" / "backlog.json").write_text('[{"id": "T0001", "title": "x", "status": "pending"}]')
         r = self.svc.editor_get("demo", "mentions", {})

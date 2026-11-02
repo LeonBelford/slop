@@ -185,6 +185,12 @@ class ChatTests(unittest.TestCase):
         self.assertTrue(m.splitlines()[1].startswith("auth.py: login, Session"))
         self.assertIn("util.py: helper", m)
 
+    def test_read_docs_note_never_reaches_the_model(self):
+        c = {"projects": [], "messages": [{"role": "user", "content": "build x", "t": 1},
+                                          {"role": "assistant", "content": "Read first: demo: GOAL.md", "t": 2, "cmd": True, "tool": "read_docs"}]}
+        msgs = chat.build_messages(c, lambda n: None)
+        self.assertEqual([m["role"] for m in msgs], ["system", "user"])
+
     def test_models_status(self):
         st = self.svc.models_status()
         self.assertIn("up", st)

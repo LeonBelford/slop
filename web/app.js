@@ -4,8 +4,8 @@ let sel=localStorage.getItem("sel")||null, view="project", tab="overview", list=
 let taskModel="",toolMcfg=null,toolTab_="tool",toolBranch="",planId="",taskPrefill="",codeBase="head",codeOpen=new Set(),codeView=null,codeInit=false;
 let diffView=null, lastBody="", lastHead="", lastTabs="", openKeys=new Set();
 const EDITABLE=["ideas","sources","task","tool","settings","goal","profile","knowledge"];
-const GROUPS=[["overview","Overview",["overview"]],["pdash","Dashboard",["pdash"]],["task","Do a task",["task"]],["agent","Agent",["profile","knowledge","goal","ideas","sources","settings"]],["activity","Activity",["log","reasoning","llm"]],["code","Code & test",["editor","changes","testing"]],["customize","Customize",["customize"]]];
-const LEAF={pdash:"Dashboard",profile:"Instructions & capabilities",knowledge:"Knowledge files",goal:"Goal",ideas:"Ideas",sources:"Web sources",settings:"Models & limits",log:"Live log",reasoning:"Reasoning",llm:"AI activity",editor:"Editor",changes:"Review changes",testing:"Test version"};
+const GROUPS=[["overview","Overview",["overview","graph"]],["pdash","Dashboard",["pdash"]],["task","Do a task",["task"]],["agent","Agent",["profile","knowledge","goal","ideas","sources","settings"]],["activity","Activity",["log","reasoning","llm"]],["code","Code & test",["editor","changes","testing"]],["customize","Customize",["customize"]]];
+const LEAF={overview:"Backlog",graph:"Task graph",pdash:"Dashboard",profile:"Instructions & capabilities",knowledge:"Knowledge files",goal:"Goal",ideas:"Ideas",sources:"Web sources",settings:"Models & limits",log:"Live log",reasoning:"Reasoning",llm:"AI activity",editor:"Editor",changes:"Review changes",testing:"Test version"};
 const ACCENTS=["","#5fb36b","#6fa3d8","#d6a23c","#c678dd","#e06c75","#56b6c2"];
 const STAT_KEYS=[["merged","Features merged"],["open","Open tasks"],["done","Done"],["blocked","Blocked"],["iterations","Iterations"],["hours","Runtime"],["tokens","Tokens used"],["tps","Tokens / s"],["wps","Words / s"],["tpm","Tokens / min"],["gpu","GPU"],["avgcall","Avg. call time"]];
 let lastLeaf={};
@@ -328,6 +328,7 @@ function finishedTasks(d){
 }
 function projectBody(d){
   if(tab==="pdash")return pdBody(d);
+  if(tab==="graph")return taskGraphBody(d);
   if(tab==="overview"){
     const P=pref();
     const live=d.activity&&d.activity.now,liveId=live&&live.task?live.task.split(" ")[0]:null,livePct=live?live.pct:null;

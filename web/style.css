@@ -419,3 +419,6 @@ body.dock-on main{flex:1 1 0;margin:0}
 
 .ck-diff{margin-top:8px}.diff{margin:0;max-height:260px;overflow:auto;font-size:12px;line-height:1.45;background:#0d0d0d;border:1px solid var(--line);border-radius:8px;padding:6px 0;white-space:pre}
 .diff span{display:block;padding:0 10px}.d-add{background:rgba(95,179,107,.16);color:#9bd7a4}.d-del{background:rgba(224,108,117,.16);color:#f0a1a8}.d-hunk{color:#6fa3d8}
+.tg-wrap{overflow:auto;border:1px solid var(--line);border-radius:var(--r);background:#141414;padding:6px}.tg-wrap svg{display:block}
+.ed-term-in{display:flex;gap:8px;align-items:center;padding:6px 12px;border-top:1px solid var(--line);font-family:ui-monospace,monospace}
+.ed-term-in input{flex:1;background:transparent;border:0;outline:0;font-family:inherit;padding:2px}

@@ -15,7 +15,7 @@ import codefactory as sa
 from dash.directedit import _safe
 from webapi.common import MAX_FILE, UiError, git
 
-OPS = ("save", "create", "mkdir", "delete", "rename", "revert", "commit", "run-tests")
+OPS = ("save", "create", "mkdir", "delete", "rename", "revert", "commit", "run-tests", "exec")
 IDENT = ("-c", "user.name=CodeFactory", "-c", "user.email=codefactory@localhost")
 
 
@@ -90,6 +90,8 @@ class EditorMixin:
             return self._editor_tests(ws, repo)
         if self._running(ws, name):
             raise UiError("The agent is working on this project. Stop it first, or edit when it is idle.", 409)
+        if op == "exec":
+            return self._editor_exec(repo, str(body.get("cmd", "")))
         if op == "commit":
             msg = str(body.get("message", "")).strip() or "Edit in the code editor"
             _git_rc(repo, "add", "-A")
@@ -140,6 +142,18 @@ class EditorMixin:
         elif p.is_file():
             p.unlink()
         return {"ok": True, "path": rel, "removed": not tracked}
+
+    @staticmethod
+    def _editor_exec(repo: Path, cmd: str) -> dict:
+        """Terminal panel: one shell command in the project repo (no state between commands, 120 s limit)."""
+        cmd = cmd.strip()
+        if not cmd or len(cmd) > 2000:
+            raise UiError("Type a command")
+        try:
+            p = subprocess.run(cmd, shell=True, cwd=str(repo), capture_output=True, timeout=120, stdin=subprocess.DEVNULL)
+        except subprocess.TimeoutExpired:
+            return {"cmd": cmd, "rc": -1, "out": "Timed out after 120 s"}
+        return {"cmd": cmd, "rc": p.returncode, "out": (p.stdout + p.stderr).decode("utf-8", "replace")[-20000:]}
 
     def _editor_tests(self, ws: Path, repo: Path) -> dict:
         cmd = sa.Agent(ws).cfg.get("commands", {}).get("test") or ""
