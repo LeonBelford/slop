@@ -140,6 +140,31 @@ class ChatTests(unittest.TestCase):
         self.assertIn("x=1", out)
         self.assertNotIn("root:", out)
 
+    def test_history_is_sanitised_for_strict_servers(self):
+        out = chat.merge_turns([{"role": "user", "content": "a"}, {"role": "user", "content": " "}, {"role": "user", "content": "b"},
+                                {"role": "assistant", "content": "c"}])
+        self.assertEqual([m["role"] for m in out], ["user", "assistant"])
+        self.assertEqual(out[0]["content"], "a\n\nb")
+
+    def test_http_errors_show_the_server_message(self):
+        class Bad(http.server.BaseHTTPRequestHandler):
+            def log_message(self, *a):
+                pass
+
+            def do_POST(self):
+                self.send_response(400)
+                self.end_headers()
+                self.wfile.write(b'{"error":"context too long"}')
+        srv = http.server.ThreadingHTTPServer(("127.0.0.1", 0), Bad)
+        threading.Thread(target=srv.serve_forever, daemon=True).start()
+        try:
+            with self.assertRaises(RuntimeError) as cm:
+                list(chat.stream_completion(f"http://127.0.0.1:{srv.server_address[1]}/v1/chat/completions", "k", "m", []))
+        finally:
+            srv.shutdown()
+        self.assertIn("400", str(cm.exception))
+        self.assertIn("context too long", str(cm.exception))
+
     def test_models_status(self):
         st = self.svc.models_status()
         self.assertIn("up", st)

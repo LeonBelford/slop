@@ -88,7 +88,7 @@ class ChatMixin:
         web_ctx, sources = self.chat_web(chat, text or next((m["content"] for m in reversed(chat["messages"]) if m["role"] == "user"), ""))
         if sources:
             write({"sources": sources})
-        direct = bool(chat.get("agent") and chat.get("route") == "direct" and (chat["projects"] or chat.get("tool")))
+        direct = bool(chat.get("agent") and chatlib.route_of(chat) == "direct" and (chat["projects"] or chat.get("tool")))
         self_mode = bool(chat.get("tool"))
         if direct and mode == "":
             self._announce_docs(chat, write, self_mode)
@@ -98,6 +98,7 @@ class ChatMixin:
             msgs = chatlib.build_messages(chat, self.chat_ws, cfg["llm_api"], cfg["api_key"], self.tool_context, web_ctx, root=common.ROOT)
             if mode == "continue" or step:
                 msgs.append({"role": "user", "content": "The results of your actions are above. Continue: take the next step, or if the job is done, answer with a short summary."})
+                msgs = msgs[:1] + chatlib.merge_turns(msgs[1:])
             answer, err = self._stream_answer(chat, msgs, write, sources)
             if err:
                 try:

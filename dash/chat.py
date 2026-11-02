@@ -10,6 +10,7 @@ import re
 import secrets
 import threading
 import time
+import urllib.error
 import urllib.request
 
 from core.cfutil import _open_think, _strip_think
@@ -191,6 +192,11 @@ def knowledge_context(ws: Path, query: str, api: str, key: str, embed_model: str
     return ("Knowledge base hits for the latest question:\n" + "\n".join(lines)) if lines else ""
 
 
+def route_of(chat: dict) -> str:
+    """Direct is the default for project chats; the self-improve chat stays on the reviewed pipeline unless switched."""
+    return chat.get("route") or ("pipeline" if chat.get("tool") else "direct")
+
+
 def mention_context(text: str, workspaces: list[Path], limit: int = 4000) -> str:
     """Inlines files the user referenced as @path/to/file (relative to a linked project's repo)."""
     out, seen = [], set()
@@ -221,10 +227,10 @@ def build_messages(chat: dict, ws_of: Callable[[str], Path | None], api: str = "
     else:
         system = SYSTEM + ("\n\nLinked projects (current state):\n\n" + "\n\n".join(ctx) if ctx else "")
     agent = chat.get("agent") and chat["projects"] and not is_tool
-    tool_direct = is_tool and chat.get("agent") and chat.get("route") == "direct" and root is not None
+    tool_direct = is_tool and chat.get("agent") and route_of(chat) == "direct" and root is not None
     if chat.get("project") and not agent:
         system += "\n\n" + PROJECT_ADDON
-    if agent and chat.get("route") == "direct":
+    if agent and route_of(chat) == "direct":
         system += "\n\n" + chatagent.DIRECT_ADDON
         docs = [directtools.read_docs(w / "repo", 8000, 2500, goal=w / "agent" / "GOAL.md")[0] for w in (ws_of(n) for n in chat["projects"]) if w]
         if any(docs):
@@ -243,12 +249,27 @@ def build_messages(chat: dict, ws_of: Callable[[str], Path | None], api: str = "
         system += "\n\n" + web_ctx
     kept, used = [], 0
     for m in reversed(chat["messages"]):
+        if m.get("tool") == "read_docs":  # a UI-only note: the docs are already in the system prompt
+            continue
         content = m["content"] + (chatagent.results_text(m) if (agent or tool_direct) and m["role"] == "assistant" else "")
         used += len(content)
         if used > HISTORY_CHARS and kept:
             break
         kept.append({"role": m["role"], "content": content})
-    return [{"role": "system", "content": system}] + kept[::-1]
+    return [{"role": "system", "content": system}] + merge_turns(kept[::-1])
+
+
+def merge_turns(msgs: list[dict]) -> list[dict]:
+    """Drops empty messages and merges neighbours with the same role: some servers answer HTTP 400 to either."""
+    out: list[dict] = []
+    for m in msgs:
+        if not str(m["content"]).strip():
+            continue
+        if out and out[-1]["role"] == m["role"]:
+            out[-1] = {"role": m["role"], "content": out[-1]["content"] + "\n\n" + m["content"]}
+        else:
+            out.append(dict(m))
+    return out
 
 
 def stream_completion(api: str, key: str, model: str, messages: list[dict], timeout: int = 600) -> Iterator[tuple[str, str]]:
@@ -259,7 +280,12 @@ def stream_completion(api: str, key: str, model: str, messages: list[dict], time
         api, data=json.dumps({"model": model, "messages": messages, "stream": True, "temperature": 0.5}).encode(),
         headers={"Content-Type": "application/json", "Authorization": "Bearer " + key})
     raw_content, think_field, seen_visible, seen_think = "", "", 0, 0
-    with urllib.request.urlopen(req, timeout=timeout) as r:
+    try:
+        r = urllib.request.urlopen(req, timeout=timeout)
+    except urllib.error.HTTPError as e:
+        body = e.read(600).decode("utf-8", "replace")
+        raise RuntimeError(f"Model server answered HTTP {e.code}: {body}") from e
+    with r:
         for raw in r:
             line = raw.decode("utf-8", "replace").strip()
             if not line.startswith("data:"):

@@ -56,8 +56,9 @@ const stripActions=t=>t.replace(/```action[ \t]*\n[\s\S]*?```/g,"").replace(/```
 function taskBlocks(t){return[...t.matchAll(/```task[ \t]*\n([\s\S]*?)```/g)].map(m=>m[1].trim()).filter(x=>x.length>=10)}
 function actionBlocks(t){return[...t.matchAll(/```action[ \t]*\n([\s\S]*?)```/g)].map(m=>{try{const j=JSON.parse(m[1].trim());return j&&typeof j==="object"?j:null}catch(e){return null}}).filter(Boolean)}
 const hhmm=t=>t?new Date(t*1000).toLocaleTimeString([],{hour:"2-digit",minute:"2-digit"}):"";
-const isAgent=c=>!!(c&&c.agent&&(c.tool?c.route==="direct":c.projects.length));
-const isDirect=c=>isAgent(c)&&c.route==="direct";
+const routeOf=c=>c.route||(c.tool?"pipeline":"direct");
+const isAgent=c=>!!(c&&c.agent&&(c.tool?routeOf(c)==="direct":c.projects.length));
+const isDirect=c=>isAgent(c)&&routeOf(c)==="direct";
 const phText=c=>(isDirect(c)&&c.tool?"Tell me what to change in CodeFactory itself: I read its docs and edit the repo myself"
   :isDirect(c)?"Tell me what to build or change: I read the docs and edit the project myself":isAgent(c)?"Tell the agent what to do, or type / for commands":"Message CodeFactory…")+"  (Enter sends, Shift+Enter: new line)";
 
@@ -83,7 +84,7 @@ const SUGGEST_FREE=["Help me turn a rough idea into a project plan","Compare two
 const chatOn=()=>view==="chat"||(chat.dock&&view==="project");
 function drawChat(){
   const c=chat.cur,b=chat.dock?$("#dock"):$("#body");if(!chat.dock)b.dataset.tab="chat";
-  b.innerHTML=(chat.dock?`<div class="dock-h"><b>Side chat</b><span class="meta">${esc(sel||"")}</span><span class="spacer"></span><button class="small" onclick="sideNew()" title="New side chat">+ New</button><button class="small" onclick="sideClose()" title="Close (Ctrl+J)">×</button></div>`:"")+`<div class="cx${chat.listOpen?" list-open":""}">
+  b.innerHTML=(chat.dock?`<div class="dock-grip" onpointerdown="dockResize(event)" ondblclick="dockWidth(440);localStorage.setItem('cf.dockw',440)" title="Drag to resize"></div><div class="dock-h"><b>Side chat</b><span class="meta">${esc(sel||"")}</span><span class="spacer"></span><button class="small" onclick="sideNew()" title="New side chat">+ New</button><button class="small" onclick="sideClose()" title="Close (Ctrl+J)">×</button></div>`:"")+`<div class="cx${chat.listOpen?" list-open":""}">
     <div class="cx-list"><div class="cx-list-top"><input id="cxQ" type="search" placeholder="Search chats" value="${esc(chat.q)}" oninput="chat.q=this.value;drawList()"><button class="primary" onclick="newChat()">+ New</button></div><div id="cxItems"></div></div>
     <section class="cx-main">${c?`<div id="cxBar"></div><div id="cxModelBar"></div><div id="cxStatus"></div><div class="msgs" id="msgs"></div><div id="cxPal" class="pal" style="display:none"></div>
       <div class="composer"><textarea id="chIn" rows="1" placeholder="${esc(phText(c))}" oninput="grow(this);chatInput()" onkeydown="chatKey(event)"></textarea>

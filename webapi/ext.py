@@ -11,6 +11,7 @@ from pathlib import Path
 
 import codefactory as sa
 from core import control
+from dash.chat import route_of
 from dash import adrs, chatagent, codesearch, directedit, directtools, events, refactor, review, roles, sandbox, testgen
 from infra import ctxtune
 from webapi import common
@@ -202,7 +203,7 @@ class ExtMixin:
             call = body["call"]
             try:
                 tool, args = chatagent.validate(call, chat["projects"], self_mode)
-                text, ok = self._run_tool(tool, args, chat.get("route") == "direct"), True
+                text, ok = self._run_tool(tool, args, route_of(chat) == "direct"), True
             except (ValueError, UiError) as e:
                 text, ok, tool, args = str(e), False, str(call.get("tool", "")), call
             chat["messages"] += [{"role": "user", "content": str(body.get("text") or chatagent.describe(tool, args)), "t": now, "cmd": True},
@@ -222,7 +223,7 @@ class ExtMixin:
             else:
                 try:
                     tool, args = chatagent.validate(call, chat["projects"], self_mode)
-                    text, ok = self._run_tool(tool, args, chat.get("route") == "direct"), True
+                    text, ok = self._run_tool(tool, args, route_of(chat) == "direct"), True
                 except (ValueError, UiError) as e:
                     text, ok = str(e), False
                 acts[k] = {"status": "done" if ok else "failed", "result": text, "t": now}
