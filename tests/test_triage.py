@@ -42,9 +42,24 @@ class TriageTests(unittest.TestCase):
         self.ag.reevaluate = lambda **kw: self.calls.append(kw) or {}
         self.ag.replan_if_stuck = lambda: False
         self.ag.light_check = lambda: False
+        self.ag.cfg["features"]["graph_replan"] = False
 
     def tearDown(self):
         self.tmp.cleanup()
+
+    def test_graph_replan_runs_once_at_the_start_and_only_for_a_changed_backlog(self):
+        self.ag.cfg["features"]["graph_replan"] = True
+        for n in range(3):
+            self.ag.backlog.add(f"Task {n}", "d", priority=5, force=True, layer=0)
+        self.ag.triage()
+        self.assertEqual(len(self.calls), 1)
+        self.ag.triage()
+        self.assertEqual(len(self.calls), 1)  # only once per run
+        from core import taskgraph
+        self.ag.state["graph_sig"] = taskgraph.signature(self.ag.backlog.items)
+        self.ag._graph_started = False
+        self.ag.triage()
+        self.assertEqual(len(self.calls), 1)  # nothing changed since the last plan
 
     def test_dyn_changes_the_pick(self):
         a = self.ag.backlog.add("Base", "d", priority=5, force=True, layer=0)

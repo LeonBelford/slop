@@ -4,12 +4,12 @@ let sel=localStorage.getItem("sel")||null, view="project", tab="overview", list=
 let taskModel="",toolMcfg=null,toolTab_="tool",toolBranch="",planId="",taskPrefill="",codeBase="head",codeOpen=new Set(),codeView=null,codeInit=false;
 let diffView=null, lastBody="", lastHead="", lastTabs="", openKeys=new Set();
 const EDITABLE=["ideas","sources","task","tool","settings","goal","profile","knowledge"];
-const GROUPS=[["overview","Overview",["overview","graph"]],["pdash","Dashboard",["pdash"]],["task","Do a task",["task"]],["agent","Agent",["profile","knowledge","goal","ideas","sources","settings"]],["activity","Activity",["log","reasoning","llm"]],["code","Code & test",["editor","changes","testing"]],["customize","Customize",["customize"]]];
-const LEAF={overview:"Backlog",graph:"Task graph",pdash:"Dashboard",profile:"Instructions & capabilities",knowledge:"Knowledge files",goal:"Goal",ideas:"Ideas",sources:"Web sources",settings:"Models & limits",log:"Live log",reasoning:"Reasoning",llm:"AI activity",editor:"Editor",changes:"Review changes",testing:"Test version"};
+const GROUPS=[["overview","Overview",["overview"]],["pdash","Dashboard",["pdash"]],["task","Do a task",["task"]],["agent","Agent",["profile","knowledge","goal","ideas","sources","settings"]],["activity","Activity",["log","reasoning","llm"]],["code","Code & test",["editor","changes","testing"]],["customize","Customize",["customize"]]];
+const LEAF={overview:"Task graph",pdash:"Dashboard",profile:"Instructions & capabilities",knowledge:"Knowledge files",goal:"Goal",ideas:"Ideas",sources:"Web sources",settings:"Models & limits",log:"Live log",reasoning:"Reasoning",llm:"AI activity",editor:"Editor",changes:"Review changes",testing:"Test version"};
 const ACCENTS=["","#5fb36b","#6fa3d8","#d6a23c","#c678dd","#e06c75","#56b6c2"];
 const STAT_KEYS=[["merged","Features merged"],["open","Open tasks"],["done","Done"],["blocked","Blocked"],["iterations","Iterations"],["hours","Runtime"],["tokens","Tokens used"],["tps","Tokens / s"],["wps","Words / s"],["tpm","Tokens / min"],["gpu","GPU"],["avgcall","Avg. call time"]];
 let lastLeaf={};
-function pref(){try{return {accent:"",dense:false,hide:[],stats:["merged","open","done","blocked","hours","tokens","tps","tpm","gpu"],start:"overview",hideDone:false,showFeatures:true,...JSON.parse(localStorage.getItem("pref:"+sel)||"{}")}}catch(e){return {accent:"",dense:false,hide:[],stats:["merged","open","done","blocked","hours","tokens","tps","tpm","gpu"],start:"overview",hideDone:false,showFeatures:true}}}
+function pref(){try{return {accent:"",dense:false,hide:[],stats:["merged","open","done","blocked","hours","tokens","tps","tpm","gpu"],start:"overview",hideDone:false,showFeatures:true,showDone:false,...JSON.parse(localStorage.getItem("pref:"+sel)||"{}")}}catch(e){return {accent:"",dense:false,hide:[],stats:["merged","open","done","blocked","hours","tokens","tps","tpm","gpu"],start:"overview",hideDone:false,showFeatures:true,showDone:false}}}
 function setPref(k,v){const p=pref();p[k]=v;localStorage.setItem("pref:"+sel,JSON.stringify(p));applyPref();lastHead=lastTabs=lastBody="";renderProject()}
 function togglePref(k,item){const a=pref()[k].slice(),i=a.indexOf(item);i<0?a.push(item):a.splice(i,1);setPref(k,a)}
 function applyPref(){const p=pref();document.documentElement.style.setProperty("--acc",p.accent||"");if(!p.accent)document.documentElement.style.removeProperty("--acc");document.body.classList.toggle("dense",!!p.dense)}
@@ -328,18 +328,7 @@ function finishedTasks(d){
 }
 function projectBody(d){
   if(tab==="pdash")return pdBody(d);
-  if(tab==="graph")return taskGraphBody(d);
-  if(tab==="overview"){
-    const P=pref();
-    const live=d.activity&&d.activity.now,liveId=live&&live.task?live.task.split(" ")[0]:null,livePct=live?live.pct:null;
-    const rows=d.backlog_items.filter(i=>!((P.hideDone||P.showFeatures)&&i.status==="done")).map(i=>{
-      const cur=i.id===liveId&&i.status!=="done"&&i.status!=="blocked";
-      const prog=cur&&livePct!=null?pctBar(livePct):i.status==="done"?`<span class="meta">100%</span>`:`<span class="meta">-</span>`;
-      return `<tr><td>${esc(i.id)}</td><td>${i.layer!=null?`<span class="pill info" title="Build layer: lower layers are built first">L${i.layer}</span> `:""}${esc(i.title)}${i.source==="ideas"?' <span class="pill ok">from you</span>':i.source==="user"?' <span class="pill info">your task</span>':""}</td><td>${esc(i.type)}</td><td>${Math.round(i.priority*10)/10}</td><td><span class="pill ${i.status==="done"?"ok":i.status==="blocked"?"bad":""}">${esc(i.status)}</span>${(i.status==="blocked"||i.status==="cancelled")&&i.reason?`<div class="meta reason" title="${esc(i.reason)}">Why: ${esc(i.reason)}</div>`:""}</td><td style="min-width:90px">${prog}</td><td style="white-space:nowrap">${taskBtns(i,d.running)}</td></tr>`}).join("");
-    const plan=(d.plan||[]).length?`<div class="panel" style="margin-bottom:16px"><h3>Build plan (core first)</h3>${d.plan.map(l=>`<div class="cap"><div><b>L${l.layer} ${esc(l.name)}</b> <span class="meta">${esc(l.goal)}</span></div><div style="min-width:140px">${pctBar(l.total?Math.round(100*l.done/l.total):0)} <span class="meta">${l.done}/${l.total}</span></div></div>`).join("")}</div>`:"";
-    return plan+`<div class="${P.showFeatures?"grid2":""}"><div class="panel"><h3>Backlog</h3><table><tr><th>ID</th><th>Task</th><th>Type</th><th>Prio</th><th>Status</th><th>Progress</th><th></th></tr>${rows||'<tr><td colspan=7 class="hint">empty</td></tr>'}</table></div>
-    ${P.showFeatures?finishedTasks(d):""}</div>`;
-  }
+  if(tab==="overview"||tab==="graph")return overviewBody(d);
   if(tab==="task"){
     const mine=d.backlog_items.filter(i=>i.source==="user");
     return `<div class="panel"><h3>Give the agent a concrete job</h3>
@@ -452,7 +441,7 @@ function customizeBody(d){
     <div class="cap"><div>Compact layout<small>Tighter spacing to see more at once</small></div>${chk(P.dense,"setPref('dense',this.checked)")}</div>
     <div class="cap"><div>Opens on<small>The page shown when you select this project</small></div><select style="width:auto" onchange="setPref('start',this.value)">${GROUPS.flatMap(g=>g[2]).filter(k=>k!=="customize"&&k!=="chat").map(k=>`<option value="${k}" ${P.start===k?"selected":""}>${esc(LEAF[k]||(k==="overview"?"Overview":"Do a task"))}</option>`).join("")}</select></div></div>
   <div class="panel" style="margin-top:16px"><h3>Header figures</h3>${STAT_KEYS.map(([k,l])=>`<div class="cap"><div>${l}</div>${chk(P.stats.includes(k),`togglePref('stats','${k}')`)}</div>`).join("")}</div>
-  <div class="panel" style="margin-top:16px"><h3>Overview</h3><div class="cap"><div>Finished features list</div>${chk(P.showFeatures,"setPref('showFeatures',this.checked)")}</div><div class="cap"><div>Hide done tasks in the backlog</div>${chk(P.hideDone,"setPref('hideDone',this.checked)")}</div></div>
+  <div class="panel" style="margin-top:16px"><h3>Overview</h3><div class="cap"><div>Show finished graphs and tasks<small>Off: only graphs with open work are shown (their finished tasks included). Also a button on the overview.</small></div>${chk(P.showDone,"setPref('showDone',this.checked)")}</div></div>
   <div class="panel" style="margin-top:16px"><h3>Pages</h3><p class="hint">Hide pages you do not need. They stay reachable while you are on them.</p>${GROUPS.filter(g=>g[0]!=="customize"&&g[0]!=="overview").map(g=>`<div class="cap"><div>${g[1]}</div>${chk(!P.hide.includes(g[0]),`togglePref('hide','${g[0]}')`)}</div>`).join("")}
     <div class="row" style="justify-content:flex-end;margin-top:10px"><button onclick="localStorage.removeItem('pref:'+sel);setPref('accent','')">Reset to defaults</button></div></div>`;
 }
@@ -766,7 +755,7 @@ setTimeout(()=>checkUpdate(false),1500);
 async function refresh(){
   try{
     list=await api("/api/projects");shownErr=false;applyChatToggle();
-    if(view==="dash"){await renderDash();return}
+    if(view==="dash"){renderList();await renderDash();return}
     if(view==="project"&&(!sel||!list.projects.some(p=>p.name===sel)))sel=list.projects[0]?.name||null;
     renderList();
     if(view==="project"&&sel)detail=await api("/api/project/"+encodeURIComponent(sel));

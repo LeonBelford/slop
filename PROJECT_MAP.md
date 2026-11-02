@@ -35,13 +35,15 @@ Code lives in five places: the entry points in the root (`codefactory.py`, `webu
 | `core/cfa_security.py` | `SecurityMixin`: security gate/probe/audit, e2e check |
 | `core/cfa_research.py` | `ResearchMixin`: ideation, product review, web research, sources/ideas sync, reflection |
 | `core/cfa_plan.py` | `PlanMixin`: strategic planning. `make_blueprint` (init) designs layers, core first, and seeds the backlog with `layer`/`depends_on`; `blueprint_ctx`, `top_layer`, `layer_done` (tags `layer-N`), `has_ui`, `ui_note` |
-| `core/cfa_split.py` | `SplitMixin`: a task that keeps failing is split into 2-4 smaller slices (`split_task`, strategist model, max depth 2); blocked tasks are revived after other merges (`revive_blocked`, max 2x); `block_task` |
+| `core/cfa_split.py` | `SplitMixin`: a task that keeps failing is split into 2-4 smaller slices (`split_into_steps`, strategist model, max depth 2); blocked tasks are revived after other merges (`revive_blocked`, max 2x); `block_task` |
 | `core/cfa_conductor.py` | `ConductorMixin`: per-task pipeline profile from recent outcomes (`conducting`: fast/flow/careful, never disables correctness gates), task journal (`note`, shown to every prompt of the task), `replan_if_stuck` |
 | `core/cfa_write.py` | Last-resort writer: files the coder only printed in the chat are taken from its answer and written to disk (only allowed files) |
 | `core/cfa_handoff.py` | `HandoffMixin`: every step passes the next one a pinned instruction block (goal, decisions with reasons, do, do not, done when, open); it leads every coder prompt and model call of the task |
 | `core/cfa_priority.py` | `PriorityMixin.light_check`: light strategist priority check after every merge, changes logged with reasons; feature `triage_light` |
 | `core/cfa_quality.py` | `QualityMixin`: size estimate before the start, spec before code (design + review, pinned), protected contract tests |
 | `core/cfa_gates.py` | `GateMixin`: layer gate (integration, smoke, strategist) and the deterministic drift check after merges |
+| `core/taskgraph.py` | Pure graph functions over backlog items: `components`, `visible_ids` (finished graphs hidden, finished tasks of active graphs kept), `trees`, `break_cycles`, `unlocks`, `levels`, `render` (prompt text), `raise_layers`, `signature` |
+| `core/cfa_graph.py` | `GraphMixin`: `merge_tasks`, `split_into_steps` (applied from the re-evaluation's `merge`/`split`), `graph_replan_start` (one re-plan at the start of a run if the backlog changed; feature `graph_replan`), `downstream_note` |
 | `core/cfa_triage.py` | `TriageMixin`: every iteration re-scores open tasks for the current project state (fan-out bonus, failure penalty, `dyn`) and lays the plan out again (strategist) when enough was merged or tasks lack a layer; feature `triage` |
 | `core/cfa_spike.py` | `SpikeMixin`: for uncertain tasks (revived, many risks or known consequences) a throwaway spike proves the approach before the real attempt; a failed spike triggers re-planning |
 | `core/cfa_milestone.py` | `MilestoneMixin`: after each finished layer the strategist checks the product against the vision, adds missing tasks, cancels obsolete ones and can schedule a re-plan |
@@ -214,4 +216,4 @@ selftest self-improve e2e-setup`.
 - Self-improve chat has its own Direct mode (SELF_TOOLS) editing CodeFactory itself.
 - `dash/checkpoints.py`: preview/show/undo of direct chat edits (each write is a commit); `/api/chat/<id>/checkpoint`.
 - `@file` / `@T0001` mentions in chat (`dash/chat.py` `mention_context`, autocomplete via `editor/mentions`); repo map (`codesearch.repo_map`) in chat context.
-- `web/taskgraph.js`: task dependency graph (Overview > Task graph). Editor Terminal panel: editor op `exec`.
+- `web/taskgraph.js` + `web/tasktree.js`: the Overview is the task graph (bands per graph, chain highlight, zoom) plus the tree list below; finished graphs only via "Show finished graphs" (pref `showDone`). Editor Terminal panel: editor op `exec`.

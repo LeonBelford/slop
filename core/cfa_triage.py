@@ -55,7 +55,7 @@ class TriageMixin(PriorityMixin):
             self.backlog.reload()
             changed = self.light_check()
             changed = self._rescore() or changed
-            relaid = self.replan_if_stuck() or self._relayout_if_stale()
+            relaid = self.graph_replan_start() or self.replan_if_stuck() or self._relayout_if_stale()
             if relaid:
                 self.backlog.reload()
                 changed = self._rescore() or changed
