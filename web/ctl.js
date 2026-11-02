@@ -9,7 +9,7 @@ const CTL = {}; // per-tab cache: {kind, ...payload}
 
 async function ctlFetch(tab) {
   const n = encodeURIComponent(sel);
-  if (tab === "control") CTL.control = await api(`/api/project/${n}/x/control`);
+  if (tab === "control") { CTL.control = await api(`/api/project/${n}/x/control`); CTL.queue = await api(`/api/project/${n}/x/queue`); }
   else if (tab === "roles") CTL.roles = await api(`/api/project/${n}/x/roles`);
   else if (tab === "search") {
     CTL.untested = await api(`/api/project/${n}/x/untested`);
@@ -44,7 +44,7 @@ function ctlControlBody(d) {
   const spec = c.spec ? `<div class="panel" style="margin-top:16px"><h3>Spec waiting for your OK: ${esc(c.spec.title || "")}</h3>
     <pre>${esc(JSON.stringify(c.spec.files || c.spec, null, 2))}</pre>
     <div class="row" style="justify-content:flex-end;gap:6px"><button class="danger" onclick="ctlAct('spec-decide',{approve:false})">Reject</button><button class="primary" onclick="ctlAct('spec-decide',{approve:true})">Approve</button></div></div>` : "";
-  return `<div class="panel"><h3>Live control ${c.running ? '<span class="pill ok">running</span>' : '<span class="pill">stopped</span>'}</h3>
+  return ctlQueueBody(c) + `<div class="panel" style="margin-top:16px"><h3>Live control ${c.running ? '<span class="pill ok">running</span>' : '<span class="pill">stopped</span>'}</h3>
   <p class="hint">Pause waits after the current task; step mode stops after every task until you resume. Changes apply on the agent's next check (within a few seconds).</p>
   <div class="row" style="gap:8px;flex-wrap:wrap">
     <button class="${c.paused ? "primary" : ""}" onclick="ctlAct('control',{paused:${!c.paused}})" ${c.running ? "" : "disabled"}>${c.paused ? "Resume" : "Pause"}</button>
@@ -145,3 +145,40 @@ function ctlTimelineBody(d) {
   return `<div class="panel"><h3>What happened</h3><p class="hint">Every agent step, control change and rollback in one timeline, newest first.</p>
   ${ev.length ? `<table><tr><th>Time</th><th>Kind</th><th>What</th></tr>${ev.slice().reverse().map(e => `<tr><td>${esc((e.time || "").slice(0, 16).replace("T", " "))}</td><td><span class="pill info">${esc(e.kind || "")}</span></td><td>${esc(e.text || e.detail || "")}</td></tr>`).join("")}</table>` : '<div class="hint">Nothing recorded yet.</div>'}</div>`;
 }
+
+/* task queue: every task with the actions that make sense for its status */
+const QSTAT = {pending: ["open", "info"], in_progress: ["doing", "ok"], blocked: ["blocked", "warn"], done: ["done", "ok"], cancelled: ["cancelled", ""]};
+function ctlQueueBody(c) {
+  const q = CTL.queue; if (!q) return "";
+  const f = CTL.qf || "active", tasks = q.tasks.filter(t => f === "all" || (f === "active" ? ["pending", "in_progress", "blocked"].includes(t.status) : t.status === f));
+  const cnt = k => q.tasks.filter(t => k === "all" || (k === "active" ? ["pending", "in_progress", "blocked"].includes(t.status) : t.status === k)).length;
+  const chips = [["active", "Active"], ["pending", "Open"], ["blocked", "Blocked"], ["done", "Done"], ["cancelled", "Cancelled"], ["all", "All"]].map(([k, l]) => `<span class="chip ${f === k ? "on" : ""}" onclick="CTL.qf='${k}';renderProject()">${l} ${cnt(k)}</span>`).join("");
+  const rows = tasks.slice().sort((a, b) => (a.status === "in_progress" ? -1 : 0) - (b.status === "in_progress" ? -1 : 0) || (b.priority || 0) - (a.priority || 0)).map(t => {
+    const st = QSTAT[t.status] || [t.status, ""], open = t.status === "pending", btn = (l, a, extra = "") => `<button class="small ${extra}" onclick="ctlTask('${a}','${esc(t.id)}')">${l}</button>`;
+    const acts = (open ? btn(q.next === t.id ? "★ next" : "Next", "next", q.next === t.id ? "primary" : "") + btn("Top", "top") + btn("Edit", "edit") + btn("Cancel", "cancel") : "")
+      + (t.status === "blocked" ? btn("Edit", "edit") + btn("Reopen", "reopen") + btn("Cancel", "cancel") + btn("Delete", "delete", "danger") : "")
+      + (t.status === "cancelled" ? btn("Reopen", "reopen") + btn("Delete", "delete", "danger") : "");
+    return `<tr><td class="mono">${esc(t.id)}</td><td><div>${esc(t.title)}</div>${t.reason && t.status !== "pending" ? `<div class="hint" style="margin:2px 0 0">${esc(String(t.reason).slice(0, 160))}</div>` : ""}</td><td><span class="pill ${st[1]}">${st[0]}</span></td>
+      <td>${open ? `<input class="qprio" type="number" step="0.5" value="${t.priority || 0}" onchange="ctlTask('prio','${esc(t.id)}',this.value)">` : t.layer != null ? "L" + t.layer : ""}</td><td class="qa">${acts}</td></tr>`;
+  }).join("");
+  return `<div class="panel"><h3>Task queue</h3><div class="chips" style="margin:6px 0 10px">${chips}</div>
+    <div class="row" style="gap:6px;margin-bottom:10px"><input id="ctl-newtask" placeholder="Queue a new task: what to build and how to check it" style="flex:1" onkeydown="if(event.key==='Enter')ctlAddTask()"><button class="primary" onclick="ctlAddTask()">Add task</button></div>
+    ${rows ? `<table class="qtable"><tr><th>ID</th><th>Task</th><th>Status</th><th>Prio / Layer</th><th></th></tr>${rows}</table>` : '<div class="hint">No tasks in this view.</div>'}</div>`;
+}
+async function ctlTask(a, id, v) {
+  const t = CTL.queue.tasks.find(x => x.id === id) || {};
+  try {
+    if (a === "next") await ctlAct("control", {next: CTL.queue.next === id ? "" : id});
+    else if (a === "top") await ctlAct("task-top", {id});
+    else if (a === "prio") await ctlAct("task-prio", {id, priority: v});
+    else if (a === "cancel") await ctlAct("task-cancel", {id});
+    else if (a === "reopen") await ctlAct("task-reopen", {id});
+    else if (a === "delete") { if (confirm(`Delete ${id} for good?`)) await ctlAct("task-delete", {id}); }
+    else if (a === "edit") {
+      const title = prompt("Title", t.title); if (title === null) return;
+      const description = prompt("Description (what to do, how to check it)", t.description || ""); if (description === null) return;
+      await ctlAct("task-edit", {id, title, description});
+    }
+  } catch (e) {}
+}
+async function ctlAddTask() { const i = $("#ctl-newtask"), v = i.value.trim(); if (!v) return; try { await ctlAct("do", {task: v}); toast("Task queued"); } catch (e) {} }

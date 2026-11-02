@@ -47,7 +47,14 @@ class ProjectChatTests(unittest.TestCase):
             chat = store.load(a1["id"])
             chat["messages"].append({"role": "user", "content": "hi"})
             msgs = chatlib.build_messages(chat, lambda n: None, web_ctx="WEBCTX")
-            self.assertIn("```task", msgs[0]["content"])
+            self.assertTrue(chat["agent"])  # a project chat acts by default: action blocks instead of task blocks
+            self.assertIn("```action", msgs[0]["content"])
+            self.assertNotIn("```task", msgs[0]["content"])
+            chat["agent"] = False
+            self.assertIn("```task", chatlib.build_messages(chat, lambda n: None)[0]["content"])
+            chat["messages"].append({"role": "assistant", "content": '```action\n{"tool": "status", "project": "a"}\n```', "acts": {"0": {"status": "done", "result": "running=True"}}})
+            chat["agent"] = True
+            self.assertIn("running=True", chatlib.build_messages(chat, lambda n: None)[-1]["content"])
             self.assertIn("WEBCTX", msgs[0]["content"])
             plain = store.create({}, "m")
             plain["messages"].append({"role": "user", "content": "hi"})

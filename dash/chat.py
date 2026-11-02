@@ -59,7 +59,9 @@ class ChatStore:
         p = self.path(cid)
         if not p.exists():
             raise ChatError("Chat not found", 404)
-        return json.loads(p.read_text("utf-8"))
+        chat = json.loads(p.read_text("utf-8"))
+        chat.setdefault("agent", bool(chat.get("project")) and not chat.get("tool"))  # a project chat acts by default
+        return chat
 
     def save(self, chat: dict) -> None:
         with FILE_LOCK:
@@ -108,7 +110,7 @@ class ChatStore:
             except ValueError:
                 continue
             if c.get("project") == name:
-                return c
+                return self.load(c["id"])
         return self.create({"title": f"{name} chat", "projects": [name], "project": name}, default_model)
 
     def tool_chat(self, default_model: str) -> dict:
@@ -134,6 +136,8 @@ class ChatStore:
             chat["web"] = bool(body["web"])
         if "agent" in body:
             chat["agent"] = bool(body["agent"])
+        if body.get("auto") in ("off", "safe", "all"):
+            chat["auto"] = body["auto"]
         self.save(chat)
         return chat
 
@@ -195,18 +199,20 @@ def build_messages(chat: dict, ws_of: Callable[[str], Path | None], api: str = "
         system = toolchat.SYSTEM + "\n\n" + tool_ctx(last)
     else:
         system = SYSTEM + ("\n\nLinked projects (current state):\n\n" + "\n\n".join(ctx) if ctx else "")
-    if chat.get("project"):
+    agent = chat.get("agent") and chat["projects"] and not chat.get("tool")
+    if chat.get("project") and not agent:
         system += "\n\n" + PROJECT_ADDON
-    if chat.get("agent") and chat["projects"]:
+    if agent:
         system += "\n\n" + chatagent.ADDON
     if web_ctx:
         system += "\n\n" + web_ctx
     kept, used = [], 0
     for m in reversed(chat["messages"]):
-        used += len(m["content"])
+        content = m["content"] + (chatagent.results_text(m) if agent and m["role"] == "assistant" else "")
+        used += len(content)
         if used > HISTORY_CHARS and kept:
             break
-        kept.append({"role": m["role"], "content": m["content"]})
+        kept.append({"role": m["role"], "content": content})
     return [{"role": "system", "content": system}] + kept[::-1]
 
 
