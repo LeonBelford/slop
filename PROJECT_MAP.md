@@ -74,6 +74,21 @@ Code lives in five places: the entry points in the root (`codefactory.py`, `webu
 | `infra/window.py` | GPU time windows (`22:00-07:00`) to choose heavy or light models |
 | `dash/siwatch.py` | Post-merge watchdog: `check` (compile, import web UI, selftest), `rollback` (revert the last self-improve merge), `install_hook` |
 | `dash/modcards.py` | Module cards (purpose, public signatures, users) for small models; `make cards` writes `docs/MODULES.md` |
+| `core/control.py` | `ControlMixin`: pause/resume/step/next-task/priority from the UI, pinned mid-task hints, spec-review gate (approve/edit/reject a design before code); `control_wait` also clears a stale pause and any leftover spec files on the first call of a fresh run |
+| `core/cfa_ext.py` | `ExtMixin`: wires the control-tools modules below into the agent loop (`control_wait`/`control_pick`/`control_after_task`, spec gate via `make_spec`, changelog layer heading via `docsync.mark_layer`) |
+| `dash/roles.py` | Per-project role overrides (temperature, reasoning on/off, extra prompt) in `agent/roles.json`; the model itself stays in the existing model settings |
+| `infra/ctxtune.py` | Context-window auto-tuner: reads installed Ollama models and the GPU's free VRAM, recommends `num_ctx` per model, writes a ready-made Modelfile |
+| `dash/codesearch.py` | Symbol search, "who uses this" and a Python call graph for the UI (ast for Python, regex for other languages) |
+| `dash/testgen.py` | Finds source files without tests and queues "write tests" tasks; mutation check reuses `core/cfa_verify.py`'s mutation operators to judge whether the tests would notice a change |
+| `dash/refactor.py` | Guarded refactor runs (tests green before and after, otherwise reset): symbol rename, dead-code candidates, oversized-module split task |
+| `dash/sandbox.py` | Terminal and playground: commands and a live-started app run in a throwaway copy of the repo (`agent/sandbox`), never in the real one |
+| `dash/events.py` | UI action log (`agent/events.jsonl`) merged with pipeline metrics and finished tasks into one "what happened" timeline |
+| `dash/adrs.py` | Decision log search (reuses `infra/knowledge.py`'s KB index) and a per-project health score (tests, module size, drift, blockers) |
+| `dash/docsync.py` | `mark_layer` adds a "Layer N done" heading to the existing CHANGELOG.md; `api_markdown` renders the code map as docs/API.md |
+| `dash/chatagent.py` | Chat-agent tool layer: a fenced \`\`\`action block from the model or the user is validated against a tool/arg schema and executed through the existing project actions (`add_task`, `set_priority`, ...), nothing new underneath |
+| `dash/review.py` | Diff review with inline comments; a comment on a line becomes a new fix task referencing that file/line |
+| `webapi/ext.py` | `ExtMixin` for `webui.py`: routes all of the above (control, roles, ctx tuner, code search, test gen, refactor, sandbox, events, ADRs, chat-agent actions) behind `/api/project/<name>/x/<what>` (GET) and the project action POST, plus background job polling (`JOBS`) for long-running mutation checks and sandbox runs |
+| `web/ctl.js` | Frontend for the Control / Code search / Insight project tabs and the chat "Agent mode" action blocks; patches `web/app.js`'s `GROUPS`/`LEAF`/`fetchExtra`/`projectBody` (plain scripts, no module system) |
 | `docs/RECIPES.md` | Step lists for the usual changes (flag, module, pipeline step, tile, route, bug fix) read by the coder |
 | `selfimprove.py` | Self-improvement of this repo on `self-improve/<ts>` branches (worktree, tests, security gate, review, docs) |
 | `webui.py` | HTTP server, router (`make_handler`), `Service` base class (combines the `webapi/` mixins below), process spawning, update/master-prompt endpoints |

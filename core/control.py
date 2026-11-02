@@ -64,6 +64,13 @@ class ControlMixin:
 
     def control_wait(self) -> None:
         """Blocks while the user has paused the agent; a STOP file always ends the wait."""
+        if not getattr(self, "_control_started", False):
+            self._control_started = True
+            pending, decision = spec_paths(self.dir)
+            pending.unlink(missing_ok=True)  # a design from a run that crashed or was killed can never be answered now
+            decision.unlink(missing_ok=True)
+            if load(self.dir)["paused"]:  # Start always means "go": a stale pause from a previous run must not block it
+                update(self.dir, paused=False)
         announced = False
         while self.control()["paused"] and not (self.dir / "STOP").exists():
             if not announced:
