@@ -74,3 +74,32 @@ class ProcessOutageTests(unittest.TestCase):
                 ag.process(item)
             self.assertEqual((item["status"], item["attempts"]), ("pending", 0))
             self.assertEqual(len(ag.backlog.items), 1)
+
+
+class CtxTests(unittest.TestCase):
+    MSG = 'request (5565 tokens) exceeds the available context size (4096 tokens), try increasing it'
+
+    def test_server_ctx_is_parsed_and_prompt_fits_it(self):
+        from core.cfllm import fit_to_ctx, server_ctx
+        self.assertEqual(server_ctx(self.MSG), 4096)
+        s, u = fit_to_ctx("s" * 4000, "u" * 21000, 4096)
+        self.assertLessEqual((len(s) + len(u)) / 3.0, 4096 * 0.6 + 200)
+
+    def test_learned_ctx_cuts_later_prompts_and_answer_budget(self):
+        import json
+        sent = []
+
+        def fake(req, timeout=0):
+            body = json.loads(req.data)
+            sent.append(body)
+            if len(sent) == 1:
+                raise http400(json.dumps({"error": {"message": self.MSG}}).encode())
+            return io.BytesIO(b"")
+        llm = LLM(cfg(), lambda m: None)
+        with mock.patch.object(cfllm.urllib.request, "urlopen", fake), mock.patch.object(LLM, "_read", lambda *a, **k: ("ok", "")):
+            llm.chat("impact", "planner", "sys", "u" * 21000)
+            llm.chat("again", "planner", "sys", "u" * 21000)
+        self.assertEqual(llm.server_ctx, 4096)
+        self.assertEqual(len(sent), 3)  # the second call fits at the first try
+        self.assertLessEqual(sum(len(m["content"]) for m in sent[2]["messages"]) / 3.0, 4096)
+        self.assertLessEqual(sent[2]["max_tokens"], 1700)
