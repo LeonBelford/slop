@@ -58,7 +58,7 @@ function colorLog(t){
 const REASON_TAGS={impact:["lg-step","Plan"],plan_critique:["lg-warn","Plan check"],security_review:["lg-sec","Security"],
   review:["lg-ok","Review"],reflect:["lg-step","Reflection"],decision:["lg-warn","Decision"],product_review:["lg-sec","Product audit"],
   ideate_critic:["lg-warn","Idea check"],replan:["lg-step","Replan"],tool_impact:["lg-step","Plan"],tool_plan_critique:["lg-warn","Plan check"],
-  tool_review:["lg-ok","Review"],tool_files:["lg-step","Pick files"],improve_plan:["lg-step","Plan"]};
+  tool_review:["lg-ok","Review"],tool_files:["lg-step","Pick files"],improve_plan:["lg-step","Plan"],reevaluate:["lg-step","Re-evaluation"],reevaluate_result:["lg-ok","Re-evaluation result"]};
 let bigPre=new Set(),liveHtml="";
 function rv(v){
   if(v===null||v===undefined||v==="")return `<span class="meta">-</span>`;
