@@ -58,7 +58,7 @@ function pgPlace(){
   svg.querySelectorAll(".pg-e,.pg-eh").forEach(e=>{
     const a=P[e.dataset.a],b=P[e.dataset.b];if(!a||!b)return;
     const ra=pgR(pg.m.by[e.dataset.a]),rb=pgR(pg.m.by[e.dataset.b])+3,dx=b.x-a.x,dy=b.y-a.y,d=Math.sqrt(dx*dx+dy*dy)||1;
-    e.setAttribute("d",`M${(a.x+dx/d*ra).toFixed(1)},${(a.y+dy/d*ra).toFixed(1)} L${(b.x-dx/d*rb).toFixed(1)},${(b.y-dy/d*rb).toFixed(1)}`);
+    e.setAttribute("d",`M${(a.x+dx/d*ra).toFixed(1)},${(a.y+dy/d*ra).toFixed(1)} Q${((a.x+b.x)/2-dy*.12).toFixed(1)},${((a.y+b.y)/2+dx*.12).toFixed(1)} ${(b.x-dx/d*rb).toFixed(1)},${(b.y-dy/d*rb).toFixed(1)}`);
   });
   pgApplyView(svg);
 }
@@ -159,7 +159,7 @@ function tgPanel(d){
   return `<div class="panel">${bar}${form}
   <div class="tg-bar"><button class="btn sm" onclick="pgZoomBy(1.25)">+</button><button class="btn sm" onclick="pgZoomBy(.8)">−</button><button class="btn sm" onclick="pgFit()">Fit</button><button class="btn sm" onclick="pgKick()" title="Shake the layout">Relax</button>
     <input id="pgFind" class="small" style="width:210px" placeholder="Search task, id or file…" value="${esc(pg.find)}" oninput="pgFind(this.value)"><span class="pg-stages">${pgStages(m)}</span></div>
-  <div class="pg-wrap"><svg id="pgSvg" class="z-mid"><defs><marker id="pgA" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto"><path d="M0,0 L10,5 L0,10 z" fill="#8a8a8a"/></marker></defs><g id="pgRoot">${lines}${edges}${nodes}</g></svg></div>
+  <div class="pg-wrap"><svg id="pgSvg" class="z-mid"><defs><marker id="pgA" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto"><path d="M0,0 L10,5 L0,10 z" fill="#ffffff50"/></marker></defs><g id="pgRoot">${lines}${edges}${nodes}</g></svg></div>
   <div id="tgInfo">${tgInfoText()}</div>
   <p class="hint" style="margin-top:6px">${m.edges.length} link(s) between ${m.nodes.length} task(s). The agent plans along this graph: a task is only started when what it builds on is done, and it gets the files of those tasks as its starting point.</p></div>`;
 }

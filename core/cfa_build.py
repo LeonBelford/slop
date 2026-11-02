@@ -472,9 +472,10 @@ class BuildMixin:
             return False, "Red after the acceptance fix round"
         self.git.commit_all(f"{item['id']}: {item['title']}")
         checkpoint = self.git.sha()
-        if self.cfg["features"]["cleanup_pass"] and item["type"] != "docs":
+        changed = [f for f in self.git.changed_files(base_sha) if (self.repo / f).exists() and f.endswith(tuple(self.cfg["source_exts"]))]
+        # small graph steps (few files) skip the cleanup pass: it costs a model call plus a verify run for little gain
+        if self.cfg["features"]["cleanup_pass"] and item["type"] != "docs" and len(changed) > 2:
             self.phase("Cleanup pass (no behavior change)", "cleanup")
-            changed = [f for f in self.git.changed_files(base_sha) if (self.repo / f).exists() and f.endswith(tuple(self.cfg["source_exts"]))]
             self.code("cleanup", changed[:self.lim["max_files_per_task"]], [str(self.run_dir / "context.md")],
                       "Cleanup without behavior change: remove dead code, clarify names, merge duplicates, "
                       "add docstrings, simplify functions. Leave public interfaces and tests unchanged.")

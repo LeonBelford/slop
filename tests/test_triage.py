@@ -71,6 +71,7 @@ class TriageTests(unittest.TestCase):
     def test_relayout_only_after_enough_merges_and_not_every_iteration(self):
         for n in range(3):
             self.ag.backlog.add(f"T{n}", "d", force=True, layer=0)
+        self.ag.state["graph_v"] = 99  # already rebuilt
         self.ag.state["merged"] = 1
         self.ag.triage()
         self.assertEqual(self.calls, [])
