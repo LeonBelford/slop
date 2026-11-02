@@ -423,3 +423,7 @@ body.dock-on main{flex:1 1 0;margin:0}
 .ed-term-in{display:flex;gap:8px;align-items:center;padding:6px 12px;border-top:1px solid var(--line);font-family:ui-monospace,monospace}
 .ed-term-in input{flex:1;background:transparent;border:0;outline:0;font-family:inherit;padding:2px}
 .tg-bar{display:flex;gap:6px;align-items:center;margin-bottom:6px}.tg-bar .hint{margin-left:8px}.tg-n{cursor:pointer;transition:opacity .15s}.tg-e{transition:opacity .15s}.tg-wrap{cursor:grab}
+.tg-top{display:flex;gap:10px;align-items:center;margin-bottom:8px}.tg-top h3{margin:0}.tg-top .sp{flex:1}
+.tg-live rect:first-of-type{animation:tgp 1.4s ease-in-out infinite}@keyframes tgp{50%{stroke-width:3.5}}
+table.tt .tt-g td{background:#ffffff08;padding:6px 8px;border-top:1px solid var(--line)}table.tt .tt-done td:nth-child(2){color:var(--mute)}
+.tt-c{display:inline-block;width:16px;color:var(--mute);cursor:pointer;user-select:none}.tt-dot{cursor:default;opacity:.5}

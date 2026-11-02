@@ -120,7 +120,7 @@ def normalize_reevaluation(data: dict, items: list[dict]) -> dict:
         {"name": ly.get("name"), "goal": ly.get("goal"), "tasks": [{"title": "-"}]} for ly in data.get("layers", []) if isinstance(ly, dict)]})
     layers = [{"name": ly["name"], "goal": ly["goal"]} for ly in base["layers"]]
     if not layers:
-        return {"architecture": base["architecture"], "layers": [], "assign": {}, "new": [], "cancel": []}
+        return {"architecture": base["architecture"], "layers": [], "assign": {}, "new": [], "cancel": [], "merge": [], "split": []}
     ids = {i["id"] for i in items}
     top = len(layers) - 1
 
@@ -150,8 +150,24 @@ def normalize_reevaluation(data: dict, items: list[dict]) -> dict:
         cid = c.get("id") if isinstance(c, dict) else c
         if cid in ids and cid not in protected and cid not in cancel:
             cancel.append(cid)
+    pending = {i["id"] for i in items if i.get("status") == "pending"} - protected
+    used: set[str] = set()
+    merge = []
+    for m in data.get("merge", []):
+        mids = [x for x in dict.fromkeys(m.get("ids") or []) if x in pending and x not in used and x not in cancel] if isinstance(m, dict) else []
+        if len(mids) >= 2 and m.get("title"):
+            used.update(mids)
+            merge.append({"ids": mids[:5], "title": _s(m["title"], 120), "description": _s(m.get("description"), 800),
+                          "acceptance": [_s(a) for a in (m.get("acceptance") or []) if a][:6], "why": _s(m.get("why"), 200)})
+    split = []
+    for sp in data.get("split", []):
+        steps = [st for st in (sp.get("steps") or []) if isinstance(st, dict) and st.get("title")] if isinstance(sp, dict) else []
+        if sp.get("id") in pending and sp["id"] not in used and sp["id"] not in cancel and len(steps) >= 2:
+            used.add(sp["id"])
+            split.append({"id": sp["id"], "steps": [{"title": _s(st["title"], 120), "description": _s(st.get("description"), 800),
+                                                     "acceptance": [_s(a) for a in (st.get("acceptance") or []) if a][:6]} for st in steps[:4]]})
     return {"architecture": base["architecture"], "layers": layers, "assign": assign, "new": new[:20], "cancel": cancel,
-            "assessment": _s(data.get("assessment"), 800)}
+            "merge": merge[:6], "split": split[:6], "assessment": _s(data.get("assessment"), 800)}
 
 
 def load(path: Path) -> dict | None:
