@@ -59,25 +59,36 @@ class ChatMixin:
     def tool_context(self, last_user: str) -> str:
         return toolchat.context(common.ROOT, common.ROOT / "self_improve", common.alive("tool"), last_user)
 
-    def chat_stream(self, cid: str, text: str, write) -> None:
-        """Appends the user message, streams the answer through write(dict) and stores it (also when cut off)."""
+    def chat_stream(self, cid: str, text: str, write, mode: str = "") -> None:
+        """Streams an answer through write(dict) and stores it (also when cut off).
+
+        mode "" appends the user message first; "regen" drops the last answer and asks again; "continue" answers after the results of
+        agent actions (nothing is appended to the visible conversation, the model is just told to go on)."""
         text = text.strip()
-        if not text:
-            raise UiError("Message is empty")
-        if len(text) > chatlib.MAX_USER_CHARS:
-            raise UiError("Message too long")
         chat = self.chats.load(cid)
-        chat["messages"].append({"role": "user", "content": text, "t": time.time()})
-        if chat["title"] == "New chat":
-            chat["title"] = text.replace("\n", " ")[:50]
+        if mode == "regen":
+            while chat["messages"] and chat["messages"][-1]["role"] == "assistant":
+                chat["messages"].pop()
+            if not chat["messages"]:
+                raise UiError("Nothing to regenerate")
+        elif mode != "continue":
+            if not text:
+                raise UiError("Message is empty")
+            if len(text) > chatlib.MAX_USER_CHARS:
+                raise UiError("Message too long")
+            chat["messages"].append({"role": "user", "content": text, "t": time.time()})
+            if chat["title"] == "New chat":
+                chat["title"] = text.replace("\n", " ")[:50]
         chat["messages"] = chat["messages"][-chatlib.MAX_MESSAGES:]
         chat["updated"] = time.time()
         self.chats.save(chat)
         cfg = sa.DEFAULT_CONFIG
-        web_ctx, sources = self.chat_web(chat, text)
+        web_ctx, sources = self.chat_web(chat, text or next((m["content"] for m in reversed(chat["messages"]) if m["role"] == "user"), ""))
         if sources:
             write({"sources": sources})
         msgs = chatlib.build_messages(chat, self.chat_ws, cfg["llm_api"], cfg["api_key"], self.tool_context, web_ctx)
+        if mode == "continue":
+            msgs.append({"role": "user", "content": "The results of your actions are above. Continue: answer the user, or take the next step."})
         answer, err = "", ""
         try:
             for d in chatlib.stream_completion(cfg["llm_api"], cfg["api_key"], chat["model"], msgs):
