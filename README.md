@@ -320,6 +320,15 @@ The project dashboard is a widget board (`web/widgets.js`): drag tiles to reorde
 
 Self-improve now reads measured evidence: a rule engine (`dash/sievidence.py`) turns diagnostics (reasoning share, first-try rate, failure rate, stalls, flaky tests, call time) into suggestions that name the metric and value; the journals of blocked tasks and the triage/layer-gate/drift history are added to the planner's evidence. A repair that fails the same way twice escalates to the heavy model and gets a stricter strategy hint. The global dashboard has a *Self-improve runs* section (runtime, kept steps, success per model). Note: `selfimprove.py` is protected, so these changes are merged by you, not by the self-run.
 
+## Self-improve quality, module cards and watchdog
+
+- **Benchmark gate**: `SI_BENCH_GATE=warn|block` runs `bench/run.py` on the changed code after a self-improve run and compares it with `bench/results/base.json` (`make bench LABEL=base` first). `block` drops a branch that lowers the benchmark; default is off because it takes hours.
+- **More evidence**: with no failing project the planner still gets the failing benchmark tasks (`bench`) and oversized or unmapped modules (`health`).
+- **Small-model friendly**: `docs/RECIPES.md` (step lists) and `docs/MODULES.md` (module cards: purpose, signatures, users; `make cards`) are read by the coder; the impact analysis gets live cards of the files it touches. File selection also matches function and class names.
+- **Prompt budgets**: `core.cfllm.scaled(llm, n)` shrinks prompt parts to the server's real context window (used by self-improve and the re-evaluation).
+- **Watchdog**: `python3 codefactory.py watchdog` (also `make watchdog`) checks compile, web UI import and selftest after a merge and shows the result in the dashboard; `--rollback` reverts the last self-improve merge, `--install-hook` runs the check after every git merge.
+- `selfimprove.py` is now under 700 lines; its helpers live in `dash/si*.py`.
+
 ## Benchmark, replay, regression tests, model advice
 
 - **Benchmark** (`make bench LABEL=base`, `python3 bench/run.py --compare base other`): six fixed mini tasks run through the real pipeline in fresh projects; each is checked by its own snippet. Use `--features size_gate=false` or `--model ...` to compare a pipeline or model change on the same tasks; the verdict (better/same/worse) is the evidence before merging a change. Results show in the *Self-improve runs* dashboard section.

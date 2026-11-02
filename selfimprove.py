@@ -19,7 +19,6 @@ Proposals are always written to self_improve/proposals-<ts>.md, even with --dry-
 from __future__ import annotations
 
 import json
-import re
 import shutil
 import threading
 import time
@@ -28,7 +27,13 @@ from pathlib import Path
 import codefactory as sa
 from core import cfa_handoff, cfa_write, failures, progress
 from core.cfa_flow import removed_test_names, removed_tests
-from dash import diagnostics, estimate, history, sievidence, toolmodels
+from core.cfllm import scaled
+from dash import estimate, modcards, sievidence, toolmodels, sigate
+from dash.sichecks import (_changes, _diagnose, _fast_tests, _git, _needs_tests, _new_tests_red, _requirements, _restore,
+                           _verify_requirements, gather_evidence, make_backup)
+from dash.sifiles import CONTEXT_TOKENS, MAP_FILE, _dependents, _fit, _keyword_files  # noqa: F401
+from dash import siroute
+from dash.siroute import _coder_for, _plain, _route  # noqa: F401
 from infra import models
 from infra import perf
 from dash import runledger
@@ -38,7 +43,6 @@ PROTECTED = ("infra/webaccess.py", "infra/security.py", "webui.py", "selfimprove
 # Directed tasks (user-written instruction) may also change the web UI server; the guards for fetching and this module stay locked.
 PROTECTED_DIRECTED = ("infra/webaccess.py", "infra/security.py", "selfimprove.py", ".github/", ".env", "scripts/quick-setup-popos.sh")
 MAX_PROPOSALS = 3
-MAP_FILE = "PROJECT_MAP.md"  # complete description of this repository; read before every plan and every change
 
 
 def _is_tool(repo: Path) -> bool:
@@ -70,35 +74,6 @@ def protected_violations(changes: list[str], protected: tuple = PROTECTED, edit_
     return bad
 
 
-def gather_evidence(projects: Path) -> dict:
-    evidence = {"projects": []}
-    for ws in sa.list_projects(projects):
-        a = ws / "agent"
-        ideas = []
-        p = a / "tool_ideas.jsonl"
-        if p.exists():
-            ideas = [json.loads(l)["idea"] for l in p.read_text("utf-8").splitlines()[-20:] if l.strip()]
-        rows = []
-        mp = a / "metrics.jsonl"
-        if mp.exists():
-            rows = [json.loads(l) for l in mp.read_text("utf-8").splitlines() if l.strip()]
-        merged = sum(1 for r in rows if r.get("review_score") is not None)
-        failed = sum(1 for r in rows if r.get("kind") == "attempt_failed")
-        pb = a / "playbook.md"
-        try:
-            diag = diagnostics.project(ws, False, 0.0, with_repo=False)
-            diag["quality"] = history.quality(a)
-            hints = sievidence.suggestions(diag)
-        except Exception:  # evidence is optional: a broken project must not stop the plan
-            hints = []
-        evidence["projects"].append({"suggestions": hints, "journals": sievidence.journal_evidence(a), "planning": sievidence.triage_evidence(a),
-
-            "project": ws.name, "merged": merged, "failed_attempts": failed, "tool_ideas": ideas,
-            "playbook": sa.clip(pb.read_text("utf-8"), 1500) if pb.exists() else "",
-            "recent_failures": [r.get("why", "") for r in rows if r.get("kind") == "attempt_failed"][-8:]})
-    return evidence
-
-
 STATE = Path(__file__).resolve().parent / "self_improve"  # live state shown in the UI ("Change the tool itself")
 
 
@@ -124,33 +99,21 @@ def _wire(llm, stamp: str) -> None:
         llm.ctx = lambda: stamp
 
 
-def _dependents(work: Path, files: list[str]) -> dict[str, list[str]]:
-    """Which other Python files import each file (the 'who breaks if I change this' map)."""
-    out: dict[str, list[str]] = {}
-    for f in files:
-        if not f.endswith(".py"):
-            continue
-        mod = re.escape(Path(f).stem)
-        pat = re.compile(rf"^\s*(?:import\s+(?:\w+\.)*{mod}\b|from\s+(?:\w+\.)*{mod}\b|from\s+[\w.]+\s+import\s+[^\n]*\b{mod}\b)", re.M)
-        out[f] = sorted(str(p.relative_to(work)) for p in work.rglob("*.py") if str(p.relative_to(work)) != f and ".venv" not in p.parts
-                        and pat.search(p.read_text("utf-8", "replace")))
-    return out
-
-
 def _impact(work: Path, p: dict, files: list[str], llm, log, protected: tuple) -> tuple[list[str], str]:
     """Think before changing: consequences, dependents and invariants (plan + critique), like the project agent does."""
     if llm is None:
         return files, ""
     _phase("impact", "Analysing what this change can break")
     deps = _dependents(work, files)
-    pmap = project_map(work, required=False, limit=5000)
-    src = "\n\n".join(f"### {f}\n{sa.clip((work / f).read_text('utf-8', 'replace'), 3500)}" for f in files[:4])
+    pmap = project_map(work, required=False, limit=scaled(llm, 5000))
+    cards = modcards.render(work, [f for f in [*files, *sum(deps.values(), [])] if f.endswith(".py")][:10], 12)
+    src = "\n\n".join(f"### {f}\n{sa.clip((work / f).read_text('utf-8', 'replace'), scaled(llm, 3500))}" for f in files[:4])
     try:
         plan = llm.json("tool_impact", "planner",
                         "You are a tech lead for an autonomous coding agent. Before every change you analyse relationships: who imports the files, "
                         "which invariants apply, what can break, and what the change exposes security-wise. Plan minimally. "
                         "Base your analysis on the project map.",
-                        f"Project map (whole repository):\n{pmap}\n\nChange: {p['title']}\n{p['change']}\nFiles: {files}\nImported by: {json.dumps(deps)}\nSource:\n{src}\nSchema: "
+                        f"Project map (whole repository):\n{pmap}\n\nModule cards (signatures and users of the files involved):\n{sa.clip(cards, scaled(llm, 4000))}\n\nChange: {p['title']}\n{p['change']}\nFiles: {files}\nImported by: {json.dumps(deps)}\nSource:\n{src}\nSchema: "
                         '{"risks": ["..."], "affected_dependents": ["paths"], "invariants": ["..."], "tests_to_add": ["..."], "security_impact": ""}')
         # the critique runs on the planner model (no model swap) and only for changes that touch several files or have dependents
         crit = (llm.json("tool_plan_critique", "planner", "You strictly critique plans for overlooked dependents and broken invariants.",
@@ -217,10 +180,6 @@ def _review(work: Path, p: dict, llm, log) -> tuple[bool, str]:
     return True, ""
 
 
-def _git(repo: Path, *args: str) -> tuple[int, str]:
-    return sa.sh(["git", *args], repo, 120)
-
-
 def _pin(p: dict, frm: str, to: str, do=(), do_not=(), done_when=(), decided=(), open_=()) -> str:
     """The same pinned instruction block the project pipeline puts in front of every coder prompt."""
     return cfa_handoff.render(to, frm, goal=p["title"], decided=decided, do=do, do_not=do_not, done_when=done_when, open_=open_) + "\n\n"
@@ -267,6 +226,8 @@ def _aider(model: str, timeout: int):
                "--model", model, "--message-file", str(pf)]
         if (work / MAP_FILE).is_file():
             cmd += ["--read", MAP_FILE]  # the coder sees the whole-project map for every edit
+        if (work / "docs" / "RECIPES.md").is_file():
+            cmd += ["--read", "docs/RECIPES.md"]  # step lists for the usual changes (new flag, new module, ...)
         cmd += perf.aider_args(model, STATE)
         cmd += ["--edit-format", sa.os.getenv("AIDER_EDIT_FORMAT", "diff"), "--map-tokens", "1024"]  # diff: the model writes only the changed parts
         edit = files if prompt.startswith("Documentation update") else _fit(work, files)
@@ -341,12 +302,12 @@ def main(projects: Path, dry_run: bool = False, repo: Path | None = None, llm=No
     _phase("plan", "Reading evidence from the projects and proposing improvements")
     ledger = runledger.Ledger(out_dir, stamp, "auto", "Autonomous improvement from the evidence of all projects")
 
-    evidence = gather_evidence(projects)
-    if not any(p["tool_ideas"] or p["failed_attempts"] for p in evidence["projects"]):
+    evidence = gather_evidence(projects, repo)
+    if not any(p["tool_ideas"] or p["failed_attempts"] for p in evidence["projects"]) and not (evidence.get("bench") or evidence.get("health")):
         log("No evidence yet: let at least one project run and reflect first (it records tool ideas every few merges).")
         ledger.status("failed", "No evidence yet")
         return {"branch": None, "proposals": []}
-    pmap = project_map(repo, required=_is_tool(repo))  # mandatory for the real tool: without the map there is no plan
+    pmap = project_map(repo, required=_is_tool(repo), limit=scaled(llm, 14000))  # mandatory for the real tool: without the map there is no plan
     code_files = sorted(str(p.relative_to(repo)) for p in [*repo.glob("*.py"), *repo.glob("core/*.py"), *repo.glob("infra/*.py"), *repo.glob("dash/*.py"), *repo.glob("webapi/*.py"), *repo.glob("bench/*.py")]
                         if not str(p.relative_to(repo)).startswith(PROTECTED)) + ["scripts/run.sh"]
     d = llm.json("improve_plan", "planner",
@@ -355,8 +316,10 @@ def main(projects: Path, dry_run: bool = False, repo: Path | None = None, llm=No
                  "Prefer fixing observed failures over adding features. Never propose changes to safety guards. "
                  "First study the project map: it describes the whole repository, its data flow and its invariants. "
                  "Evidence entries named `suggestions` carry a measured metric: prefer a proposal that fixes the metric and cite it in the rationale. "
-                 "`journals` and `planning` show how tasks failed and where planning had to be corrected.",
-                 f"Project map (whole repository):\n{pmap}\n\nEvidence from running projects:\n{sa.clip(json.dumps(evidence, ensure_ascii=False), 9000)}\n"
+                 "`journals` and `planning` show how tasks failed and where planning had to be corrected. "
+                 "`bench` lists benchmark tasks that fail or need retries and `health` lists oversized or unmapped modules: they are valid reasons "
+                 "for a proposal even when no project failed.",
+                 f"Project map (whole repository):\n{pmap}\n\nEvidence from running projects:\n{sa.clip(json.dumps(evidence, ensure_ascii=False), scaled(llm, 9000))}\n"
                  f"Editable files: {code_files}\nPropose at most {MAX_PROPOSALS}. Schema: "
                  '{"proposals": [{"title": "...", "rationale": "which evidence", "files": ["..."], "change": "precise instructions", '
                  '"risk": "low|medium|high"}]}')
@@ -377,199 +340,21 @@ def main(projects: Path, dry_run: bool = False, repo: Path | None = None, llm=No
         _phase("")
 
 
-def make_backup(repo: Path, stamp: str, out_dir: Path, log) -> str:
-    """Safety net before any self-change: a tag on the current code plus a self-contained git bundle outside the work tree."""
-    tag = f"backup/pre-self-improve-{stamp}"
-    rc, out = _git(repo, "tag", tag, "HEAD")
-    if rc != 0:
-        raise RuntimeError(f"Backup failed, nothing changed: {out}")
-    bdir = out_dir / "backups"
-    bdir.mkdir(parents=True, exist_ok=True)
-    bundle = bdir / f"codefactory-{stamp}.bundle"
-    rc, out = _git(repo, "bundle", "create", str(bundle), "HEAD")
-    if rc != 0:
-        _git(repo, "tag", "-d", tag)
-        raise RuntimeError(f"Backup failed, nothing changed: {out}")
-    log(f"Backup created: tag {tag} and {bundle}. Restore: git reset --hard {tag}")
-    return tag
+def _learned_cls(coder, cls: str, rnd: int) -> tuple[str, str]:
+    return siroute._learned_cls(coder, cls, rnd, STATE)
 
 
-def _changes(work: Path) -> list[str]:
-    _git(work, "add", "-A")
-    return [l for l in _git(work, "diff", "--cached", "--name-status")[1].splitlines() if l.strip()]
+def _lessons() -> str:
+    return siroute._lessons(STATE)
 
 
-def _needs_tests(changes: list[str]) -> tuple[bool, bool]:
-    """(code changed, a new test file is part of the change)."""
-    paths = [(l.split("\t")[0][:1], l.split("\t")[-1]) for l in changes]
-    code = any(not f.startswith(("tests/", "docs/")) and f.endswith((".py", ".html", ".sh")) for _, f in paths)
-    new = any(st == "A" and f.startswith("tests/") and f.endswith(".py") for st, f in paths)
-    return code, new
-
-
-def _verify_requirements(repo: Path, base: str, branch: str, ledger, llm, log) -> None:
-    """Marks every requirement done / partial / missing by comparing it with the finished diff."""
-    reqs = ledger.d["requirements"]
-    if ledger.d["kind"] == "auto":  # one requirement per proposal, in the same order
-        for r, pr in zip(reqs, ledger.d["proposals"], strict=False):
-            ledger.mark_requirement(r["id"], "done" if pr["status"] == "kept" else "failed", pr["note"] or "kept after green tests")
-        return
-    diff = _git(repo, "diff", f"{base}..{branch}")[1]
-    results = []
-    if llm is not None and reqs:
-        try:
-            d = llm.json("tool_verify", "reviewer",
-                         "You check whether each requirement of the user is implemented by the diff. Be strict: 'done' only if the diff clearly "
-                         "does it, 'partial' if something is missing, 'missing' if it is not there.",
-                         f"Requirements: {json.dumps([{'id': r['id'], 'text': r['text']} for r in reqs])}\nDiff:\n{sa.clip(diff, 14000)}\nSchema: "
-                         '{"results": [{"id": 1, "status": "done|partial|missing", "evidence": "file or reason"}]}')
-            results = d.get("results", []) if isinstance(d, dict) else []
-        except Exception as e:  # noqa: BLE001
-            log(f"  requirement check failed: {e}")
-    seen = set()
-    for r in results:
-        if isinstance(r, dict) and isinstance(r.get("id"), int) and r.get("status") in ("done", "partial", "missing"):
-            ledger.mark_requirement(r["id"], r["status"], r.get("evidence", ""))
-            seen.add(r["id"])
-    for r in reqs:
-        if r["id"] not in seen:
-            ledger.mark_requirement(r["id"], "unverified", "could not be checked automatically; review the diff")
-    log("  requirements: " + ", ".join(f"{r['id']}={r['status']}" for r in ledger.d["requirements"]))
+def _remember(title: str, stage: str, report: str, diag: str, fixed: bool) -> None:
+    siroute._remember(STATE, title, stage, report, diag, fixed)
 
 
 FIX_ROUNDS = 2  # repair rounds after the first attempt: the failure is diagnosed and handed back to the coder
 
 
-def _route(llm) -> dict:
-    """Which installed model does which job: light coder for docs, standard for normal steps, heavy for hard steps and the last
-    repair round, strongest reviewer for review/verification/diagnosis. Missing models fall back to the defaults, nothing is required."""
-    installed = getattr(llm, "installed", None) or set()
-    if isinstance(llm, sa.LLM) and not sa.LLM.mock and not installed:
-        installed = llm.installed = models.installed_from_ollama(sa.os.getenv("OLLAMA_HOST_URL", "http://localhost:11434")) or set()
-    cfg = getattr(llm, "cfg", None) or sa.DEFAULT_CONFIG  # the saved model choice (self_improve/models.json) lives in the LLM's config
-    r = models.resolve(installed, cfg["routing"], cfg["coder_model"])
-    big = sa.os.getenv("CODER_MODEL_BIG")
-    if big and not r["heavy"]:
-        r["heavy"] = big
-    if r["final_reviewer"] and isinstance(llm, sa.LLM):
-        llm.overrides["reviewer"] = r["final_reviewer"]  # review, plan critique and requirement checks use the strongest reviewer
-    return r
-
-
-CONTEXT_TOKENS = 7000  # budget for the files Aider may edit; the pinned model window (perf.NUM_CTX, 16k) also holds map, prompt and answer
-
-
-def _fit(work: Path, files: list[str], budget: int = CONTEXT_TOKENS) -> list[str]:
-    """Only files that need edits, as many as fit the context budget. Docs and the project map are read-only (and updated in the docs pass)."""
-    out, used = [], 0
-    for f in dict.fromkeys(files):
-        if f == MAP_FILE or f.startswith("docs/") or f.endswith(".md") and f != "README.md" or not (work / f).is_file():
-            continue
-        tokens = (work / f).stat().st_size // 3
-        if out and used + tokens > budget:
-            continue  # the first file is always kept (edited with the compact diff format), later big ones wait for their own step
-        out.append(f)
-        used += tokens
-    return out
-
-
-def _plain(name: str) -> str:
-    return str(name or "default").split("/", 1)[-1] if str(name or "").startswith("ollama") else str(name or "default")
-
-
-def _learned_cls(coder, cls: str, rnd: int) -> tuple[str, str]:
-    """Adjusts the job class by what the track record says (needs a few attempts per model before it speaks up):
-    a default coder that keeps failing gets replaced by the heavy one, a heavy model that is not better is not worth the model swap."""
-    routes = getattr(coder, "routes", None) or {}
-    heavy, default = routes.get("heavy"), _plain(getattr(coder, "model", ""))
-    if not heavy or rnd >= 2:
-        return cls, ""
-    s = runledger.model_stats(STATE)
-    d, h = s.get(default, {"tries": 0, "ok": 0}), s.get(_plain(heavy), {"tries": 0, "ok": 0})
-    rd, rh = d["ok"] / d["tries"] if d["tries"] else 1, h["ok"] / h["tries"] if h["tries"] else 0
-    if cls == "standard" and d["tries"] >= 3 and h["tries"] >= 2 and rd < 0.4 and rh - rd >= 0.25:
-        return "heavy", f"{default} succeeded {d['ok']}/{d['tries']}, {heavy} {h['ok']}/{h['tries']}"
-    if cls == "heavy" and h["tries"] >= 4 and rh <= rd and rh < 0.5:
-        return "standard", f"{heavy} is not better ({h['ok']}/{h['tries']} vs {d['ok']}/{d['tries']}), saving the model swap"
-    return cls, ""
-
-
-def _coder_for(coder, cls: str):
-    """The coder function for a job class (light | standard | heavy); the default coder when no better model is installed."""
-    routes, use = getattr(coder, "routes", None), getattr(coder, "use", None)
-    name = (routes or {}).get({"light": "light", "heavy": "heavy"}.get(cls, ""))
-    return use(name) if name and use else coder
-
-
-def _lessons() -> str:
-    f = STATE / "lessons.md"
-    return f.read_text("utf-8", "replace")[-1500:] if f.is_file() else ""
-
-
-def _remember(title: str, stage: str, report: str, diag: str, fixed: bool) -> None:
-    """Failure notebook that later prompts read: what went wrong, and what (if anything) fixed it."""
-    try:
-        STATE.mkdir(exist_ok=True)
-        with open(STATE / "lessons.md", "a", encoding="utf-8") as f:
-            f.write(f"- [{'fixed' if fixed else 'failed'}] {title}: stage {stage}: {sa.clip(report, 200)!r} {sa.clip(diag, 250)!r}\n")
-    except OSError:
-        pass
-
-
-def _keyword_files(repo: Path, text: str, tracked: list[str], have: list[str], limit: int = 3) -> list[str]:
-    """Content-based file candidates: files that mention the words of the request most often (cheap code search, no LLM)."""
-    words = {w for w in re.findall(r"[a-zA-Z_]{5,}", text.lower()) if w not in {"should", "would", "please", "which", "there", "their", "about"}}
-    score = {}
-    for f in tracked:
-        if f in have or not f.endswith((".py", ".html", ".md", ".sh")):
-            continue
-        try:
-            body = (repo / f).read_text("utf-8", "replace").lower()
-        except OSError:
-            continue
-        n = sum(min(body.count(w), 5) for w in words)
-        if n:
-            score[f] = n
-    return sorted(score, key=score.get, reverse=True)[:limit]
-
-
-def _new_tests_red(work: Path, changes: list[str]) -> str:
-    """Test-first check: new tests should FAIL on the code without the change. Returns a warning if they already pass there."""
-    new = [l.split("\t")[-1] for l in changes if l[:1] == "A" and l.split("\t")[-1].startswith("tests/test_")]
-    if not new:
-        return ""
-    base = work.parent / (work.name + "-base")
-    try:
-        if _git(work, "worktree", "add", "-q", "--detach", str(base), "HEAD")[0] != 0:
-            return ""
-        for t in new:
-            (base / t).write_text((work / t).read_text("utf-8"), "utf-8")
-        mods = [t[:-3].replace("/", ".") for t in new]
-        rc, _ = sa.sh(["python3", "-m", "unittest", *mods], base, 120)
-        return "" if rc != 0 else "the new tests already pass without the change (they may not test it)"
-    except Exception:  # noqa: BLE001
-        return ""
-    finally:
-        _git(work, "worktree", "remove", "--force", str(base))
-
-
-def _fast_tests(work: Path, changes: list[str]) -> tuple[bool, str]:
-    """Runs only the tests that belong to the change first: quick feedback before the full suite."""
-    mods = [l.split("\t")[-1][:-3].replace("/", ".") for l in changes if l.split("\t")[-1].startswith("tests/test_") and l[:1] in "AM"]
-    if not mods:
-        return True, "ok"
-    rc, out = sa.sh(["python3", "-m", "unittest", *mods], work, 300)
-    return rc == 0, sa.tail(out, 1500)
-
-
-def _restore(work: Path, paths: list[str]) -> None:
-    """Puts protected files back to the last commit (new ones are removed)."""
-    for path in paths:
-        if _git(work, "cat-file", "-e", f"HEAD:{path}")[0] == 0:
-            _git(work, "checkout", "HEAD", "--", path)
-        else:
-            (work / path).unlink(missing_ok=True)
-            _git(work, "rm", "-q", "--cached", "--ignore-unmatch", path)
 
 
 def _clean_changes(work: Path, protected: tuple, directed: bool, log, notes: list) -> tuple[list[str], list[str]]:
@@ -584,21 +369,6 @@ def _clean_changes(work: Path, protected: tuple, directed: bool, log, notes: lis
         changes = _changes(work)
         bad = protected_violations(changes, protected, edit_tests=directed)
     return changes, bad
-
-
-def _diagnose(llm, p: dict, stage: str, report: str, work: Path) -> str:
-    """Reasoning step between attempts: why did it fail and what exactly should change."""
-    if llm is None:
-        return ""
-    try:
-        d = llm.json("tool_diagnose", "planner",
-                     "A code change failed an automatic check. Find the root cause and say precisely what to change in the code. "
-                     "Do not suggest removing or editing safeguards or checks to make them pass.",
-                     f"Change: {p['title']}\n{p['change']}\nFailed stage: {stage}\nOutput:\n{sa.clip(report, 3000)}\n"
-                     f"Current diff:\n{sa.clip(_git(work, 'diff', '--cached', 'HEAD')[1], 6000)}\nSchema: " '{"cause": "...", "fix": "..."}')
-    except Exception:  # noqa: BLE001
-        return ""
-    return f"Cause: {d.get('cause', '')}\nFix: {d.get('fix', '')}" if isinstance(d, dict) and (d.get("cause") or d.get("fix")) else ""
 
 
 def _gates(work: Path, p: dict, files: list[str], llm, coder, log, ledger, pi: int, protected: tuple, directed: bool, state: dict) -> tuple[bool, str, str]:
@@ -759,7 +529,7 @@ def _implement_run(repo: Path, proposals: list[dict], coder, stamp: str, out_dir
     if rc != 0:
         raise RuntimeError(f"git worktree failed: {out}")
     base = _git(work, "rev-parse", "HEAD")[1].strip()
-    kept = []
+    kept, bench = [], {"block": False, "verdict": "skipped", "detail": ""}
     try:
         shared = None
         for p in proposals:
@@ -793,12 +563,20 @@ def _implement_run(repo: Path, proposals: list[dict], coder, stamp: str, out_dir
                 _phase("docs", "Updating README and docs")
                 ledger.stage(pi, "docs", "running")
                 _docs_pass(work, p, _coder_for(coder, "light"), log)
+                modcards.write(work)  # keep the module cards in step with the code
+                _git(work, "add", "-A")
+                _git(work, "-c", "user.name=codefactory", "-c", "user.email=agent@localhost", "commit", "-q", "-m", "docs: refresh module cards")
                 ledger.stage(pi, "docs", "ok")
             else:
                 _git(work, "reset", "-q", "--hard", "HEAD")
                 _git(work, "clean", "-qfd")
                 ledger.proposal(pi, "reverted", note=report[:500])
                 log(f"  reverted: {report}")
+        if kept:
+            _phase("bench", "Benchmark gate")
+            bench = sigate.evaluate(repo, work, stamp, log)
+            ledger.d["bench_gate"] = bench
+            ledger.save()
     finally:
         _git(repo, "worktree", "remove", "--force", str(work))
         shutil.rmtree(work, ignore_errors=True)
@@ -809,7 +587,13 @@ def _implement_run(repo: Path, proposals: list[dict], coder, stamp: str, out_dir
         log("No proposal survived the checks. Nothing to review.")
         return {"branch": None, "proposals": proposals}
     _verify_requirements(repo, base, branch, ledger, llm, log)
-    ledger.finish("done", branch=branch, base=base, summary=f"{len(kept)} of {len(proposals)} proposal(s) kept",
+    if bench["block"]:
+        _git(repo, "branch", "-D", branch)
+        ledger.finish("failed", summary=f"Benchmark got worse ({bench['detail']}): branch dropped (SI_BENCH_GATE=block).", base=base)
+        log("Benchmark gate: the change makes the benchmark worse, branch dropped.")
+        return {"branch": None, "proposals": proposals}
+    note = f" Benchmark: {bench['verdict']} ({bench['detail']})." if bench["verdict"] not in ("skipped",) else ""
+    ledger.finish("done", branch=branch, base=base, summary=f"{len(kept)} of {len(proposals)} proposal(s) kept.{note}",
                   **runledger.describe_branch(repo, base, branch))
     log(f"Branch {branch} has {len(kept)} commit(s). Review: git diff main...{branch}   Merge: git merge {branch}")
     return {"branch": branch, "proposals": proposals, "kept": kept, "base": base}
@@ -817,20 +601,6 @@ def _implement_run(repo: Path, proposals: list[dict], coder, stamp: str, out_dir
 
 if __name__ == "__main__":
     main(Path("projects"))
-
-
-def _requirements(llm, instruction: str, log) -> list[str]:
-    """The user's request as a checklist of separate, checkable requirements (falls back to the request itself)."""
-    try:
-        d = llm.json("tool_requirements", "planner",
-                     "Split the user's request for a code change into separate, checkable requirements. Keep the user's words, do not invent "
-                     "extra work. A short request is a single requirement.",
-                     f"Request:\n{instruction}\nSchema: " '{"requirements": ["..."]}')
-        reqs = [r.strip() for r in d.get("requirements", []) if isinstance(r, str) and r.strip()] if isinstance(d, dict) else []
-    except Exception as e:  # noqa: BLE001
-        log(f"Could not split the request: {e}")
-        reqs = []
-    return reqs[:10] or [instruction.strip()]
 
 
 def directed(instruction: str, repo: Path | None = None, llm=None, coder=None, log=print, model: str = "") -> dict:

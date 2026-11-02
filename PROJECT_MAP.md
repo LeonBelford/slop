@@ -63,6 +63,13 @@ Code lives in five places: the entry points in the root (`codefactory.py`, `webu
 | `dash/toolchat.py` | Assistant chat about CodeFactory itself: system prompt, context (PROJECT_MAP, self-improve state, runs, branches, files the user names) and `extract_tasks` for ```task blocks; the chat is stored as a `tool: true` chat in `dash/chat.py` (`ChatStore.tool_chat`) |
 | `infra/perf.py` | Ollama speed diagnostics, pinned context settings and context-budget trimming (`fit_context`) for Aider (`make doctor`) |
 | `infra/notify.py` | Optional webhook notifications (ntfy/Slack/Discord/...) on task done/blocked/stalled/run stopped |
+| `dash/sichecks.py` | Self-improve helpers split out of `selfimprove.py`: git wrapper, change lists, backup, requirement check, `gather_evidence` (projects plus benchmark and code health) |
+| `dash/sifiles.py` | Self-improve file selection: dependents, context budget (`_fit`), content and symbol-name candidates (`_keyword_files`) |
+| `dash/siroute.py` | Self-improve model routing, learned job class and the lessons notebook |
+| `dash/sigate.py` | Benchmark gate (`SI_BENCH_GATE=off|warn|block`): the changed code must not lower the benchmark success rate |
+| `dash/siwatch.py` | Post-merge watchdog: `check` (compile, import web UI, selftest), `rollback` (revert the last self-improve merge), `install_hook` |
+| `dash/modcards.py` | Module cards (purpose, public signatures, users) for small models; `make cards` writes `docs/MODULES.md` |
+| `docs/RECIPES.md` | Step lists for the usual changes (flag, module, pipeline step, tile, route, bug fix) read by the coder |
 | `selfimprove.py` | Self-improvement of this repo on `self-improve/<ts>` branches (worktree, tests, security gate, review, docs) |
 | `webui.py` | HTTP server, router (`make_handler`), `Service` base class (combines the `webapi/` mixins below), process spawning, update/master-prompt endpoints |
 | `webapi/common.py` | Shared constants and helpers for the `Service` mixins: `ROOT`, `PROCS`/`PULLS` (mutable, import the module and read `common.ROOT`/`common.PULLS` rather than binding the name, so monkeypatching in tests still works), `UiError`, `git`/`git_rc`, `spawn`, `tail`, `alive`, `read_live` |

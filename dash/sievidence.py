@@ -102,3 +102,33 @@ def run_times(runs: list[dict]) -> list[dict]:
         out.append({"id": d.get("id"), "kind": d.get("kind"), "status": d.get("status"),
                     "runtime_s": max(0, int((d.get("updated") or 0) - (d.get("created") or 0))), "kept": kept, "proposals": len(props)})
     return out
+
+
+def bench_weaknesses(reports: list[dict]) -> list[dict]:
+    """Benchmark tasks that failed in the newest report or were slow/retried, as evidence that needs no failing project."""
+    if not reports:
+        return []
+    rep = reports[0]
+    out = [{"metric": "bench_task_failed", "task": r["id"], "why": str(r.get("why", ""))[:200],
+            "text": f"Benchmark task {r['id']} fails ({rep.get('label', '?')}): improve the pipeline step that this task exercises."}
+           for r in rep.get("results", []) if not r.get("ok")]
+    out += [{"metric": "bench_task_retried", "task": r["id"], "text": f"Benchmark task {r['id']} needed {r['attempts']} attempts: strengthen planning or the first coder prompt."}
+            for r in rep.get("results", []) if r.get("ok") and (r.get("attempts") or 1) >= 3]
+    return out[:6]
+
+
+def health(repo: Path, limit: int = 650) -> list[dict]:
+    """Code-health findings that need no failing project: modules near the size cap (small models cannot edit what does not fit
+    their window) and modules without a PROJECT_MAP entry."""
+    repo = Path(repo)
+    out = []
+    pmap = (repo / "PROJECT_MAP.md").read_text("utf-8", "replace") if (repo / "PROJECT_MAP.md").is_file() else ""
+    for pat in ("core", "infra", "dash", "webapi"):
+        for p in sorted((repo / pat).glob("*.py")):
+            rel = str(p.relative_to(repo))
+            n = p.read_text("utf-8", "replace").count("\n") + 1
+            if n > limit:
+                out.append({"metric": "module_size", "file": rel, "text": f"{rel} has {n} lines (cap 700): split it so a small model can edit it whole."})
+            if pmap and rel not in pmap and p.name != "__init__.py":
+                out.append({"metric": "unmapped", "file": rel, "text": f"{rel} is missing in PROJECT_MAP.md."})
+    return out[:6]

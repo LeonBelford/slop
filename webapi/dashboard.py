@@ -9,7 +9,7 @@ import urllib.request
 
 import codefactory as sa
 from bench import harness
-from dash import diagnostics, history, pdextra, projectdash, replay, runledger, sievidence, throughput
+from dash import diagnostics, history, pdextra, projectdash, replay, runledger, sievidence, siwatch, throughput
 from infra import perf
 
 from webapi import common
@@ -125,7 +125,8 @@ class DashboardMixin:
         res = {"time": time.time(), "projects": projects, "system": sysinfo, "findings": diagnostics.findings(projects, sysinfo),
                "tool": {**runledger.stats(common.ROOT / "self_improve"), "durations": diagnostics.tool_durations(common.ROOT / "self_improve"),
                          "quality": history.quality(common.ROOT / "self_improve"),
-                         "runs": sievidence.run_times(runledger.all_runs(common.ROOT / "self_improve")), "bench": harness.load_results()}}
+                         "runs": sievidence.run_times(runledger.all_runs(common.ROOT / "self_improve")), "bench": harness.load_results(),
+                         "watchdog": siwatch.last_result(common.ROOT / "self_improve")}}
         self._diag = (time.time(), res)
         return res
 

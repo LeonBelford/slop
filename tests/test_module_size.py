@@ -2,7 +2,7 @@ import unittest
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
-LEGACY = {"webui.py", "selfimprove.py"}  # still to be split; every other module must stay under the limit
+LEGACY = {"webui.py"}  # still to be split; every other module must stay under the limit
 LIMIT = 700  # lines: a small local model has to fit a whole module into its context window next to the prompt
 
 

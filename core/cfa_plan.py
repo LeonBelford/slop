@@ -5,6 +5,7 @@ import json
 
 from core import blueprint, uidetect
 from core.cfgit import UNLAYERED
+from core.cfllm import scaled
 from core.cfutil import clip, write_text
 
 SYSTEM = ("You are a software architect planning a build strategy, not a feature list. Find the smallest kernel that makes every later "
@@ -137,7 +138,7 @@ class PlanMixin:
         arch = self.mem.dir / "ARCHITECTURE.md"
         sctx = getattr(self.llm, "server_ctx", 0)
         # a small server window: the task list and schema matter most, so notes and the code map shrink first
-        share = min(1.0, sctx * 1.8 / 25000) if sctx else 1.0
+        share = scaled(self.llm, 1000, 0.0) / 1000
         rows = [{k: v for k, v in {"id": i["id"], "title": clip(i["title"], 80 if sctx else 200), "type": i["type"], "status": i["status"],
                                    "layer": i.get("layer"), "source": i.get("source"), "depends_on": i.get("depends_on")}.items() if v not in (None, [], "")}
                 for i in items]

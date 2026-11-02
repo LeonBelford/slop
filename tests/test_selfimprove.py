@@ -62,7 +62,7 @@ class SelfImproveTest(unittest.TestCase):
                 sa.LLM.mock = None
             self.assertEqual(res["kept"], ["Good"])
             diff = subprocess.run(["git", "diff", "--name-only", f"HEAD...{res['branch']}"], cwd=repo, capture_output=True, text=True).stdout
-            self.assertEqual(sorted(diff.split()), ["README.md", "codefactory.py", "docs/SELF_IMPROVEMENTS.md"])
+            self.assertEqual(sorted(diff.split()), ["README.md", "codefactory.py", "docs/MODULES.md", "docs/SELF_IMPROVEMENTS.md"])
             self.assertTrue((repo / "self_improve").glob("proposals-*.md"))
             tags = subprocess.run(["git", "tag", "-l", "backup/pre-self-improve-*"], cwd=repo, capture_output=True, text=True).stdout
             self.assertTrue(tags.strip())
