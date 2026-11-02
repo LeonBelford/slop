@@ -4,11 +4,21 @@ let sel=localStorage.getItem("sel")||null, view="project", tab="overview", list=
 let taskModel="",toolMcfg=null,toolTab_="tool",toolBranch="",planId="",taskPrefill="",codeBase="head",codeOpen=new Set(),codeView=null,codeInit=false;
 let diffView=null, lastBody="", lastHead="", lastTabs="", openKeys=new Set();
 const EDITABLE=["speed","ideas","sources","task","tool","settings","goal","profile","knowledge"];
-const GROUPS=[["overview","Overview",["overview"]],["pdash","Dashboard",["pdash"]],["task","Do a task",["task"]],["agent","Agent",["profile","knowledge","goal","ideas","sources","settings"]],["speed","Speed",["speed"]],["activity","Activity",["log","reasoning","llm"]],["code","Code & test",["editor","changes","testing"]],["customize","Customize",["customize"]]];
-const LEAF={speed:"Speed: task tiers",overview:"Task graph",pdash:"Dashboard",profile:"Instructions & capabilities",knowledge:"Knowledge files",goal:"Goal",ideas:"Ideas",sources:"Web sources",settings:"Models & limits",log:"Live log",reasoning:"Reasoning",llm:"AI activity",editor:"Editor",changes:"Review changes",testing:"Test version"};
+const GROUPS=[["overview","Overview",["overview"]],["pdash","Dashboard",["pdash"]],["task","Do a task",["task"]],["agent","Agent",["profile","knowledge","goal","ideas","sources","settings"]],["speed","Speed",["speed"]],["files","Files",["files"]],["activity","Activity",["log","reasoning","llm"]],["code","Code & test",["editor","changes","testing"]],["customize","Customize",["customize"]]];
+const LEAF={files:"File graph",speed:"Speed: task tiers",overview:"Task graph",pdash:"Dashboard",profile:"Instructions & capabilities",knowledge:"Knowledge files",goal:"Goal",ideas:"Ideas",sources:"Web sources",settings:"Models & limits",log:"Live log",reasoning:"Reasoning",llm:"AI activity",editor:"Editor",changes:"Review changes",testing:"Test version"};
 const ACCENTS=["","#5fb36b","#6fa3d8","#d6a23c","#c678dd","#e06c75","#56b6c2"];
 const STAT_KEYS=[["merged","Features merged"],["open","Open tasks"],["done","Done"],["blocked","Blocked"],["iterations","Iterations"],["hours","Runtime"],["tokens","Tokens used"],["tps","Tokens / s"],["wps","Words / s"],["tpm","Tokens / min"],["gpu","GPU"],["avgcall","Avg. call time"]];
 let lastLeaf={};
+function tabOrder(){const o=pref().order||[],r=g=>{const i=o.indexOf(g[0]);return i<0?1000+GROUPS.indexOf(g):i};return GROUPS.slice().sort((a,b)=>r(a)-r(b))}
+let tabDrag=null;
+document.addEventListener("dragstart",e=>{const t=e.target.closest&&e.target.closest(".tabs .tab");if(t){tabDrag=t.dataset.g;e.dataTransfer.effectAllowed="move";e.dataTransfer.setData("text/plain",tabDrag)}});
+document.addEventListener("dragover",e=>{const t=tabDrag&&e.target.closest&&e.target.closest(".tabs .tab");if(t&&t.dataset.g!==tabDrag){e.preventDefault();document.querySelectorAll(".tabs .tab.over").forEach(x=>x.classList.remove("over"));t.classList.add("over")}});
+document.addEventListener("drop",e=>{
+  const t=tabDrag&&e.target.closest&&e.target.closest(".tabs .tab");if(!t)return;e.preventDefault();
+  const ids=tabOrder().map(g=>g[0]),from=ids.indexOf(tabDrag),to=ids.indexOf(t.dataset.g);
+  if(from>=0&&to>=0&&from!==to){ids.splice(from,1);ids.splice(to,0,tabDrag);setPref("order",ids)}tabDrag=null;
+});
+document.addEventListener("dragend",()=>{tabDrag=null;document.querySelectorAll(".tabs .tab.over").forEach(x=>x.classList.remove("over"))});
 function pref(){try{return {accent:"",dense:false,hide:[],stats:["merged","open","done","blocked","hours","tokens","tps","tpm","gpu"],start:"overview",hideDone:false,showFeatures:true,showDone:false,...JSON.parse(localStorage.getItem("pref:"+sel)||"{}")}}catch(e){return {accent:"",dense:false,hide:[],stats:["merged","open","done","blocked","hours","tokens","tps","tpm","gpu"],start:"overview",hideDone:false,showFeatures:true,showDone:false}}}
 function setPref(k,v){const p=pref();p[k]=v;localStorage.setItem("pref:"+sel,JSON.stringify(p));applyPref();lastHead=lastTabs=lastBody="";renderProject()}
 function togglePref(k,item){const a=pref()[k].slice(),i=a.indexOf(item);i<0?a.push(item):a.splice(i,1);setPref(k,a)}
@@ -310,7 +320,7 @@ function renderProject(){
   if(head!==lastHead){$("#head").innerHTML=head;lastHead=head}
   drawMini(d,c,t);
   const hide=pref().hide,cur=GROUPS.find(g=>g[2].includes(tab))||GROUPS[0];lastLeaf[cur[0]]=tab;
-  const tb=`<div class="tabs">${GROUPS.filter(g=>g===cur||!hide.includes(g[0])||g[0]==="customize").map(g=>`<div class="tab ${g===cur?"on":""}" onclick="setTab('${lastLeaf[g[0]]||g[2][0]}')">${g[1]}</div>`).join("")}</div>`+
+  const tb=`<div class="tabs">${tabOrder().filter(g=>g===cur||!hide.includes(g[0])||g[0]==="customize").map(g=>`<div class="tab ${g===cur?"on":""}" draggable="true" data-g="${g[0]}" title="Drag to move this tab" onclick="setTab('${lastLeaf[g[0]]||g[2][0]}')">${g[1]}</div>`).join("")}</div>`+
     (cur[2].length>1?`<div class="subtabs">${cur[2].map(k=>`<div class="subtab ${tab===k?"on":""}" onclick="setTab('${k}')">${LEAF[k]}</div>`).join("")}</div>`:"");
   if(tb!==lastTabs){$("#tabs").innerHTML=tb;lastTabs=tb}
   const body=projectBody(d);
@@ -386,6 +396,7 @@ function projectBody(d){
   if(tab==="settings")return settingsBody(d);
   if(tab==="profile")return profileBody(d);
   if(tab==="speed")return speedBody(d);
+  if(tab==="files")return fgBody(d);
   if(tab==="knowledge")return knowledgeBody(d);
   if(tab==="customize")return customizeBody(d);
   return `<div class="panel"><h3>GOAL.md: vision and quality bar</h3><p class="hint">The agent measures its work against this. Edit it to change direction; for single wishes use "Quick feedback" under "Do a task".</p>
@@ -549,6 +560,7 @@ async function fetchExtra(){
     else if(tab==="settings"){if(!extra||extra.kind!=="settings")extra={kind:"settings",...await api(`/api/project/${encodeURIComponent(sel)}/settings`)}}
     else if(tab==="changes"){const n=encodeURIComponent(sel);const [c,t]=await Promise.all([api(`/api/project/${n}/changes`),api(`/api/project/${n}/tree?base=${encodeURIComponent(codeBase)}`)]);extra={kind:"changes",...c,tree:t};
       if(!codeInit&&t.files.length){codeInit=true;t.files.filter(f=>f.status).forEach(f=>f.path.split("/").slice(0,-1).forEach((_,i,a)=>codeOpen.add(a.slice(0,i+1).join("/"))))}}
+    else if(tab==="files")extra={kind:"files",...await api(`/api/project/${encodeURIComponent(sel)}/editor/filegraph`)};
     else if(tab==="reasoning")extra={kind:"reasoning",...await api(`/api/project/${encodeURIComponent(sel)}/thoughts`)};
   }catch(e){}
 }
