@@ -36,7 +36,7 @@ class ProjectMixin:
                 "activity": self.activity(ws), "log": tail(a / "agent.log"), "run_out": tail(a / "run.out", 15), "do_out": tail(a / "do.out", 15), "try_out": tail(a / "try.out", 15),
                 "features": [{"id": k, "title": v.get("title", k)} if isinstance(v, dict) else {"id": k, "title": str(v)}
                              for k, v in feats.items()],
-                "backlog_items": [{k: i.get(k) for k in ("id", "title", "type", "priority", "status", "source", "attempts", "layer", "reason", "runtime_s", "estimate_s", "depends_on", "why", "scout", "bench", "merged_into", "split_into", "files", "result")}
+                "backlog_items": [{k: i.get(k) for k in ("id", "title", "type", "priority", "status", "source", "attempts", "layer", "reason", "runtime_s", "estimate_s", "depends_on", "why", "scout", "bench", "merged_into", "split_into", "files", "result", "process")}
                                   for i in backlog],
                 **self.graph_extras(a, backlog),
                 "has_ui": self.project_has_ui(ws),
@@ -270,6 +270,9 @@ class ProjectMixin:
                 raise UiError("Stop the agent first: this task is being worked on right now")
             bl.items = [i for i in bl.items if i is not item]
             for i in bl.items:
+                for k in ("merged_into", "split_into"):  # a cancelled task that handed over to the deleted one hands over to what it handed to
+                    if item["id"] == i.get(k) or (isinstance(i.get(k), list) and item["id"] in i[k]):
+                        i.pop(k, None)
                 if item["id"] in (i.get("depends_on") or []):
                     # the tasks that built on it now build on what it built on, so the chain stays connected
                     i["depends_on"] = list(dict.fromkeys(d for dep in i["depends_on"] for d in ((item.get("depends_on") or []) if dep == item["id"] else [dep])))

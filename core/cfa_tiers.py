@@ -124,7 +124,6 @@ class TierMixin:
     def light_plan(self, item: dict, previous: list[str]) -> dict | None:
         if not self.feat("light_plan") or previous or int(item.get("attempts", 0)) > 1 or item.get("risk") == "high" or item["type"] in ("docs",):
             return None
-        pack = graphctx.context_pack(self.backlog.items, item)
         if item.get("files_guess"):
             return None
         files = [f for f in dict.fromkeys(graphctx.files_of(item)) if (self.repo / f).exists() and not is_test_file(f)]
@@ -132,6 +131,7 @@ class TierMixin:
         if not files or len(files) > 2 or size > 2 or int(item.get("size_lines", 0) or 0) > 80:
             return None
         self.phase("Light plan: small task with known files, no planner call", "plan")
+        pack = graphctx.context_pack(self.backlog.items, item, codemap=self.mem.codemap)
         cands = graphctx.prefer_files(pack["files"], files, lambda f: (self.repo / f).exists())
         ctx = self.mem.context_pack(item, cands)
         codemap = self.mem.codemap

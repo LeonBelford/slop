@@ -29,7 +29,7 @@ def upstream(items: list[dict], task_id: str, depth: int = 2) -> list[tuple[dict
     return out
 
 
-def context_pack(items: list[dict], item: dict, budget: int = PACK_CHARS) -> dict:
+def context_pack(items: list[dict], item: dict, budget: int = PACK_CHARS, codemap: dict | None = None) -> dict:
     """Compact context for one task: what it builds on (with the files and the result of those tasks), who builds on it, and which other
     open tasks touch the same files. Returns {"text", "files"}; `files` are the paths worth opening first, nearest task first."""
     live = taskgraph.live(items)
@@ -43,14 +43,33 @@ def context_pack(items: list[dict], item: dict, budget: int = PACK_CHARS) -> dic
         state = "done" if up["status"] == "done" else up["status"]
         res = f" - {str(up['result'])[:110]}" if up.get("result") else ""
         lines.append(f"- {up['id']} {str(up['title'])[:70]} [{state}]" + (f" files: {', '.join(fs[:4])}" if fs else "") + res)
-    text = ("Builds on (extend it, do not redo it):\n" + "\n".join(lines)) if lines else ""
+    tail = []  # short sections that always survive the budget; only the "builds on" list is trimmed
     later = [i for i in live if item["id"] in deps.get(i["id"], []) and i["status"] in ("pending", "blocked")]
     if later:
-        text += "\nTasks that build on this one (keep what they need stable): " + "; ".join(f"{i['id']} {str(i['title'])[:50]}" for i in later[:5])
+        tail.append("Tasks that build on this one (keep what they need stable): " + "; ".join(f"{i['id']} {str(i['title'])[:50]}" for i in later[:5]))
     shared = [i for i in live if i["id"] != item["id"] and i["status"] in ("pending", "in_progress") and mine & set(files_of(i))]
     if shared:
-        text += "\nOther open tasks touching the same files: " + "; ".join(f"{i['id']} ({', '.join(sorted(mine & set(files_of(i)))[:2])})" for i in shared[:4])
-    return {"text": text[:budget], "files": files}
+        tail.append("Other open tasks touching the same files: " + "; ".join(f"{i['id']} ({', '.join(sorted(mine & set(files_of(i)))[:2])})" for i in shared[:4]))
+    seen = {u["id"] for u, _ in upstream(items, item["id"])}
+    past = sorted((i for i in live if i["id"] != item["id"] and i["status"] == "done" and i["id"] not in seen and mine & set(files_of(i))), key=lambda x: x["id"])
+    if past:
+        tail.append("Earlier tasks that touched the same files (keep their behaviour): " + "; ".join(f"{i['id']} {str(i['title'])[:50]}" for i in past[-3:]))
+    if codemap and mine:
+        out = sorted({d for f in mine for d in codemap.get(f, {}).get("imports", [])} - mine)[:4]
+        inn = sorted({d for f in mine for d in codemap.get(f, {}).get("imported_by", [])} - mine)[:4]
+        hood = ([f"your files use {', '.join(out)}"] if out else []) + ([f"used by {', '.join(inn)}"] if inn else [])
+        if hood:
+            tail.append("File neighbourhood (static imports): " + "; ".join(hood))
+    rest = "\n".join(tail)
+    head = ("Builds on (extend it, do not redo it):\n" + "\n".join(lines)) if lines else ""
+    head = head[:max(300, budget - len(rest) - 1)]
+    return {"text": "\n".join(x for x in (head, rest) if x)[:budget], "files": files}
+
+
+def hotspot_score(path: str, loc: int, churn: int, items: list[dict], codemap: dict) -> float:
+    """How urgently a file needs a refactor: big, often changed, touched by many tasks and imported by many files."""
+    touched = sum(1 for i in items if path in files_of(i))
+    return loc * max(1, churn) * (1 + touched) * (1 + len(codemap.get(path, {}).get("imported_by", [])))
 
 
 def prefer_files(upstream_files: list[str], candidates: list[str], exists, limit: int = 4) -> list[str]:

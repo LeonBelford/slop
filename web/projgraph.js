@@ -229,6 +229,6 @@ document.addEventListener("wheel",e=>{
   pg.view={k,x:mx-(mx-v.x)/v.k*k,y:my-(my-v.y)/v.k*k};pgApplyView(svg);
 },{passive:false});
 document.addEventListener("keydown",e=>{
-  if(e.key!=="Delete"||!tgState.sel||/INPUT|TEXTAREA|SELECT/.test((document.activeElement||{}).tagName||""))return;
+  if(e.key!=="Delete"||e.ctrlKey||e.metaKey||e.altKey||!tgState.sel||!document.getElementById("pgSvg")||e.target.isContentEditable||/INPUT|TEXTAREA|SELECT/.test((document.activeElement||{}).tagName||""))return;
   if(typeof taskAct==="function")taskAct("task-delete",tgState.sel);
 });
