@@ -15,7 +15,8 @@ GO_IMP = re.compile(r'^\s*import\s*(?:\(([^)]*)\)|(?:[\w.]+\s+)?("[^"]+"))', re.
 GO_STD = set("archive bufio bytes compress container context crypto database debug embed encoding errors expvar flag fmt go hash html image index io log math mime net os path plugin reflect regexp runtime sort strconv strings sync syscall testing text time unicode unsafe".split())
 GO_STR = re.compile(r'"([^"]+)"')
 RS_MOD = re.compile(r"^\s*(?:pub(?:\([^)]*\))?\s+)?mod\s+(\w+)\s*;", re.M)
-RS_USE = re.compile(r"^\s*(?:pub(?:\([^)]*\))?\s+)?use\s+(?:crate|super|self)::([\w:]+)", re.M)
+RS_USE = re.compile(r"^\s*(?:pub(?:\([^)]*\))?\s+)?use\s+([\w:]+?)(?:::)?\s*(?:\{([^}]*)\})?\s*(?:;|as\b|$)", re.M)
+RS_SKIP = {"std", "alloc", "crate", "self", "super"}
 JVM = re.compile(r"^\s*import\s+(?:static\s+)?([\w.]+?)(?:\.\*)?\s*;?\s*$", re.M)
 CS = re.compile(r"^\s*(?:global\s+)?using\s+(?:static\s+)?([\w.]+)\s*;", re.M)
 PHP_USE = re.compile(r"^\s*use\s+(?:function\s+|const\s+)?([\w\\]+)", re.M)
@@ -80,7 +81,15 @@ def imports_of(path: str, text: str, files: set[str]) -> set[str]:
         own = posixpath.basename(path)[:-3]
         sub = here if own in ("mod", "lib", "main") else posixpath.join(here, own)
         hits = [_first(posixpath.join(sub, m), EXTS["rs"], files, extra=("/mod.rs",)) for m in RS_MOD.findall(text)]
-        hits += [_walk(u.split("::"), EXTS["rs"], files, ("/mod.rs",)) for u in RS_USE.findall(text)]
+        for u, group in RS_USE.findall(text):
+            segs = u.split("::")
+            if segs[0] in ("std", "alloc"):
+                continue
+            segs = [x for x in segs if x not in ("crate", "self", "super")]
+            for tail in [""] + [n.strip().split("::")[0] for n in group.split(",") if n.strip()]:
+                path_ = segs + ([tail] if tail and tail.isidentifier() else [])
+                # `use mycrate::a::b` from tests or main: the leading crate name is not a folder, so retry without it
+                hits.append(_walk(path_, EXTS["rs"], files, ("/mod.rs",)) or (_walk(path_[1:], EXTS["rs"], files, ("/mod.rs",)) if len(path_) > 1 else None))
     elif ext in EXTS["jvm"]:
         hits = [_walk(m.split("."), EXTS["jvm"], files) for m in JVM.findall(text)]
     elif ext == ".cs":

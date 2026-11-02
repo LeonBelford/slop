@@ -92,3 +92,12 @@ class PackHistoryTest(unittest.TestCase):
         go = {"main.go", "log/log.go", "cmd/x.go"}
         self.assertEqual(g("main.go", 'import "log"\nvar names = []string{\n\t"cmd"\n}\n', go), set())
         self.assertEqual(g("main.go", 'import "me/app/cmd"', go), {"cmd/x.go"})
+
+    def test_rust_crate_paths(self):
+        f = {"src/lib.rs", "src/core/mod.rs", "src/core/file_system/mod.rs", "src/core/file_system/observer.rs", "tests/observer_test.rs", "src/main.rs"}
+        g = filegraph.imports_of
+        self.assertEqual(g("src/lib.rs", "pub mod core;", f), {"src/core/mod.rs"})
+        self.assertEqual(g("src/core/mod.rs", "pub mod file_system;", f), {"src/core/file_system/mod.rs"})
+        self.assertEqual(g("src/core/file_system/mod.rs", "pub mod observer;\nuse std::fs;", f), {"src/core/file_system/observer.rs"})
+        self.assertEqual(g("tests/observer_test.rs", "use rustexplorer::core::file_system::observer::Watch;", f), {"src/core/file_system/observer.rs"})
+        self.assertEqual(g("src/main.rs", "use rustexplorer::core::{file_system, other};", f), {"src/core/mod.rs", "src/core/file_system/mod.rs"})
