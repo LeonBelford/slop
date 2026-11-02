@@ -106,6 +106,7 @@ class TierTests(unittest.TestCase):
         self.assertIsNone(ag.light_plan(item, ["failed"]))
         self.assertIsNone(ag.light_plan(dict(item, files=["a.py", "b.py", "c.py"]), []))
         self.assertIsNone(ag.light_plan(dict(item, risk="high"), []))
+        self.assertIsNone(ag.light_plan(dict(item, files_guess=True), []))
 
     def test_graph_split_cuts_along_file_groups_and_continues_with_slice_one(self):
         ag = self.ag
@@ -127,7 +128,9 @@ class TierTests(unittest.TestCase):
         names = ["README.md"]
         ag.git.out = lambda *a, **k: "\n".join(names)
         self.assertTrue(ag.unchanged_since_green("other"))
-        names.append("app.py")
+        names[:] = ["requirements.txt"]
+        self.assertFalse(ag.unchanged_since_green("other"))
+        names[:] = ["README.md", "app.py"]
         self.assertFalse(ag.unchanged_since_green("other"))
         self.assertTrue(ag.unchanged_since_green("green"))
 

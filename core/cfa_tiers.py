@@ -24,7 +24,7 @@ FULL_LINES = 150  # this many added lines (or 3+ source files, or a risky task) 
 FULL_FILES = 3  # on a 12 GB GPU every extra gate is a model swap of a minute or more: below three source files the gates cost more than they find
 DOC_EXT = (".md", ".rst", ".txt")
 REPLAN_SCHEMA = '{"still_needed": true, "description": "adjusted task description", "acceptance": ["adjusted criteria"], "why": "one sentence"}'
-NO_REVIEW = {"score": 8, "verdict": "approve", "issues": []}
+NO_REVIEW = {"score": None, "verdict": "approve", "issues": []}
 
 
 class TierMixin:
@@ -109,7 +109,7 @@ class TierMixin:
         if tree == self.ok_tree:
             return True
         names = self.git.out("diff", "--name-only", self.ok_tree, tree).split()
-        return bool(names) and all(n.endswith(DOC_EXT) for n in names)
+        return bool(names) and all(n.endswith(DOC_EXT) and "requirements" not in n.lower() for n in names)
 
     # ---- verification: targeted tests while working, one full run before the commit
     def full_gate(self, item: dict) -> tuple[bool, str]:
@@ -125,6 +125,8 @@ class TierMixin:
         if not self.feat("light_plan") or previous or int(item.get("attempts", 0)) > 1 or item.get("risk") == "high" or item["type"] in ("docs",):
             return None
         pack = graphctx.context_pack(self.backlog.items, item)
+        if item.get("files_guess"):
+            return None
         files = [f for f in dict.fromkeys(graphctx.files_of(item)) if (self.repo / f).exists() and not is_test_file(f)]
         size = int(item.get("size_files", 0) or 0)
         if not files or len(files) > 2 or size > 2 or int(item.get("size_lines", 0) or 0) > 80:
@@ -185,7 +187,7 @@ class TierMixin:
         """2-3 slices from the node's own files, grouped by module. False = not applicable (few files, one block), the caller splits with the model."""
         if not self.feat("graph_split") or int(item.get("split_depth", 0)) >= 2:
             return False
-        files = graphctx.files_of(item)
+        files = [] if item.get("files_guess") else graphctx.files_of(item)
         groups = graphctx.group_files(files, 3, int(self.cfg["features"].get("graph_split_files", 4)))
         if not groups:
             return False

@@ -514,7 +514,7 @@ class BuildMixin:
         shutil.rmtree(snap, ignore_errors=True)
         self.git.run("branch", "-D", branch)
         self.drop_wip(item)
-        self.backlog.set(item, files=sorted(changed_all)[:30], result=clip(str(review.get("summary") or ""), 200))
+        self.backlog.set(item, files_guess=False, files=sorted(changed_all)[:30], result=clip(str(review.get("summary") or ""), 200))
         self.state["merged"] += 1
         self.metric(item=item["id"], title=item["title"], type=item["type"], attempts=item["attempts"],
                     review_score=review.get("score"), files=len(changed_all), loc=sum(e.get("loc", 0) for e in self.mem.codemap.values()))

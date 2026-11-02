@@ -28,8 +28,8 @@ class QualityMixin:
         if not self.feat("size_gate") or item.get("size_checked") or int(item.get("attempts", 0)) > 0 or item["type"] in ("docs", "test"):
             return False
         self.backlog.set(item, size_checked=True)
-        known = [f for f in (item.get("files") or []) if isinstance(f, str)]
-        if known and len(known) <= 2 and not item.get("why", "").startswith("Slice"):
+        known = [] if item.get("files_guess") else [f for f in (item.get("files") or []) if isinstance(f, str)]
+        if known and len(known) <= 2:
             self.backlog.set(item, size_files=len(known))  # the graph already knows the files: no model call to count them
             return False
         try:
