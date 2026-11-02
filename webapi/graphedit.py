@@ -33,6 +33,14 @@ class GraphEditMixin:
         if action == "plan-reject":
             (a / "plan_proposal.json").unlink(missing_ok=True)
             return {"ok": True}
+        if action == "graph-rebuild":
+            ag = sa.Agent(ws)
+            ag.backlog.reload()
+            made = ag.link_foundation()
+            ag.rebuild_flag.write_text("1", encoding="utf-8")
+            if not self.summary(ws)["running"] and not alive(f"replan:{name}"):
+                self.start_replan(ws, name, [])
+            return {"ok": True, "linked": made}
         ag = sa.Agent(ws)
         bl = ag.backlog
         bl.reload()

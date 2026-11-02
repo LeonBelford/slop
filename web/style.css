@@ -432,3 +432,11 @@ body.dock-on main{flex:1 1 0;margin:0}
 table.tt .tt-g td{background:#ffffff08;padding:6px 8px;border-top:1px solid var(--line)}table.tt .tt-done td:nth-child(2){color:var(--mute)}
 .tt-c{display:inline-block;width:16px;color:var(--mute);cursor:pointer;user-select:none}.tt-dot{cursor:default;opacity:.5}
 .tg-grp button,.tg-grp select{white-space:nowrap}.tg-grp select{max-width:190px}
+
+.pg-wrap{border:1px solid var(--line);border-radius:var(--r);background:radial-gradient(circle at 50% 30%,#1a1a1a,#101010);overflow:hidden}#pgSvg{display:block;width:100%;height:560px;cursor:grab;user-select:none}
+.pg-n{cursor:pointer;transition:opacity .15s}.pg-n.dim,.pg-e.dim{opacity:.12}.pg-n.sel circle{stroke-width:4;filter:brightness(1.4)}.pg-n.hot circle{stroke:#fff}.pg-n.st-done{opacity:.8}.pg-n.st-blocked circle{stroke-dasharray:4 2}
+.pg-l{font-size:11px;fill:#ddd;opacity:0;pointer-events:none;paint-order:stroke;stroke:#101010;stroke-width:3px}.z-mid .pg-n:not(.st-done) .pg-l,.z-hi .pg-n:not(.st-done) .pg-l,.z-hi .pg-l,.pg-n.sel .pg-l,.pg-n:hover .pg-l,.pg-n.hot .pg-l{opacity:1}
+.pg-e{fill:none;stroke:#666;stroke-width:1.4;transition:opacity .15s}.pg-e.old{stroke:#444;stroke-dasharray:3 3}.pg-e.crit{stroke:#e5a14a;stroke-width:2.4}.pg-e.lit{stroke:#6fa3d8;stroke-width:2.2}.pg-eh{fill:none;stroke:transparent;stroke-width:10;cursor:pointer}
+.pg-lay line{stroke:#ffffff0d}.pg-lt{font-size:12px;opacity:.7;pointer-events:none}.pg-live circle{animation:pgp 1.4s ease-in-out infinite}@keyframes pgp{50%{stroke-width:5}}
+.pg-stages{display:flex;gap:6px;flex-wrap:wrap}.pg-chip{display:inline-flex;gap:5px;align-items:center;font-size:12px;padding:2px 9px;border:1px solid var(--c);border-radius:999px;cursor:pointer;color:var(--mute)}.pg-chip i{width:8px;height:8px;border-radius:50%;background:var(--c)}.pg-chip.on{background:#ffffff14;color:#eee}
+#tgInfo{margin-top:8px}.pg-info{padding:10px 12px;border:1px solid var(--line);border-radius:10px;background:#ffffff06}.pg-rows>div{margin-top:4px}.pg-ch{display:inline-block;margin:2px 4px 2px 0;padding:1px 8px;border:1px solid var(--line);border-radius:999px;font-size:12px;cursor:pointer}.pg-ch:hover{border-color:#6fa3d8}.pg-ch.file{font-family:ui-monospace,monospace;font-size:11px;color:#9bd7a4}

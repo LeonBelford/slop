@@ -3,11 +3,12 @@ from __future__ import annotations
 
 import hashlib
 
-from core import taskgraph
+from core import graphctx, taskgraph
 from core.cfa_conductor import REPLAN_EVERY_MERGES
 from core.cfa_triage import MIN_OPEN, RELAYOUT_EVERY_MERGES
 from core.cfutil import clip, now, read_json, write_json
 
+GRAPH_V = 3  # projects planned with an older graph get one full rebuild of their links
 HISTORY_MAX = 12  # snapshots kept for the replay timeline
 BLOCK_IMPACT = 2  # a blocked task that holds back this many tasks gets its own mini re-plan
 
@@ -50,6 +51,81 @@ class GraphMixin:
                          notes=item.get("notes", []) + [f"split into {', '.join(ids)} by the re-evaluation"])
         return ids
 
+    # ---- one interlinked graph for the whole project
+    @property
+    def rebuild_flag(self):
+        return self.dir / "graph_rebuild.flag"
+
+    def backfill_files(self) -> int:
+        """Old projects: finished tasks learn which files they touched from the commit history (subjects start with the task id). Runs once."""
+        if self.state.get("files_backfilled"):
+            return 0
+        self.state["files_backfilled"] = True
+        todo = {i["id"]: i for i in self.backlog.items if i["status"] == "done" and not i.get("files")}
+        if not todo:
+            return 0
+        out = self.git.out("log", "main", "--name-only", "--pretty=format:@@%s")
+        found: dict[str, list[str]] = {}
+        cur = None
+        for line in out.splitlines():
+            if line.startswith("@@"):
+                head = line[2:].split(":")[0]
+                cur = head if head in todo and "update docs and memory" not in line else None
+            elif cur and line.strip() and (self.repo / line.strip()).exists() and not line.startswith("docs/"):
+                found.setdefault(cur, [])
+                if line.strip() not in found[cur]:
+                    found[cur].append(line.strip())
+        for k, fs in found.items():
+            todo[k]["files"] = fs[:30]
+        if found:
+            self.backlog.save()
+            self.log(f"Graph: files of {len(found)} finished task(s) read from the history")
+        return len(found)
+
+    def link_foundation(self) -> int:
+        """Ties tasks without a dependency to the layer below them, so every stage of the project is linked to the one before. Returns the number of links added."""
+        self.backfill_files()
+        placed = graphctx.place(self.backlog.items)
+        for i in self.backlog.items:
+            if i["id"] in placed:
+                i["layer"] = placed[i["id"]]
+        added = taskgraph.foundation_links(self.backlog.items)
+        for i in self.backlog.items:
+            if i["id"] in added:
+                i["depends_on"] = [added[i["id"]]]
+        shared = graphctx.file_links(self.backlog.items)
+        for i in self.backlog.items:
+            if i["id"] in shared:
+                i["depends_on"] = list(dict.fromkeys((i.get("depends_on") or []) + shared[i["id"]]))
+        n = len(added) + sum(len(v) for v in shared.values()) + len(placed)
+        if n:
+            self.backlog.save()
+            self.log(f"Graph: {len(added)} task(s) tied to the layer below, {sum(len(v) for v in shared.values())} file link(s), {len(placed)} new task(s) placed")
+        return n
+
+    def rebuild_pending(self) -> bool:
+        if getattr(self, "_rebuild_tried", False):
+            return False  # one attempt per run, a failing model must not be asked on every iteration
+        if self.rebuild_flag.exists():
+            return True
+        if self.state.get("graph_v", 0) >= GRAPH_V:
+            return False
+        if not self.state.get("merged") and not any(i["status"] == "done" for i in self.backlog.items):
+            self.state["graph_v"] = GRAPH_V  # a new project is planned as one graph from the start
+            return False
+        return True
+
+    def rebuild_note(self) -> str:
+        if not self.rebuild_pending():
+            return ""
+        return ("\nREBUILD THE GRAPH OF THE WHOLE PROJECT FROM SCRATCH: this project is one interlinked graph from the foundation up. Give every task in assign its depends_on = exactly the tasks "
+                "(finished ones too) whose result it builds on, so that a reader sees how the app was planned layer by layer; a task of layer N builds on concrete tasks of layer N-1; "
+                "only the first foundation tasks have no dependency. Do not cancel working tasks for this: re-link, and add a task only where the foundation has a real gap.")
+
+    def rebuilt(self) -> None:
+        self.state["graph_v"] = GRAPH_V
+        self.rebuild_flag.unlink(missing_ok=True)
+
     # ---- the one graph review: every trigger is collected, the model is asked once
     def directives_hash(self) -> str:
         """Fingerprint of what you wrote (goal and ideas), so a change always triggers a review."""
@@ -64,6 +140,8 @@ class GraphMixin:
             return [], []
         reasons, focus = [], []
         merged = self.state.get("merged", 0)
+        if self.rebuild_pending():
+            reasons.append("build the whole project graph from scratch (every task linked to what it builds on)")
         flaws = taskgraph.problems(items)
         if self.feat("graph_replan") and not getattr(self, "_graph_started", False):
             changed = taskgraph.signature(items) != self.state.get("graph_sig")
@@ -121,6 +199,8 @@ class GraphMixin:
         except Exception as e:  # noqa: BLE001
             self.log(f"Graph review failed ({clip(str(e), 200)}), keeping the current graph")
             return False
+        finally:
+            self._rebuild_tried = True
         return True
 
     # ---- history (replay) and the confirm-before-apply proposal
@@ -180,12 +260,3 @@ class GraphMixin:
         res = self.apply_reevaluation(prop["data"], items, bool(prop.get("requeue")), prop.get("focus") or None, "confirmed")
         self.proposal_path.unlink(missing_ok=True)
         return res
-
-    def downstream_note(self, item: dict) -> str:
-        """For the planning prompt of a task: which open tasks build on it, so it keeps its interfaces usable for them."""
-        deps = taskgraph.deps_of(self.backlog.items)
-        by = {i["id"]: i for i in self.backlog.items}
-        later = [k for k, ds in deps.items() if item["id"] in ds and by[k]["status"] in ("pending", "blocked")]
-        if not later:
-            return ""
-        return "Tasks that build directly on this one (keep what they need stable): " + "; ".join(f"{k} {clip(str(by[k]['title']), 60)}" for k in later[:6])

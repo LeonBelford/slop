@@ -254,6 +254,49 @@ def blocked_impact(items: list[dict]) -> dict[str, list[str]]:
     return out
 
 
+def _words(i: dict) -> set[str]:
+    text = f"{i.get('title', '')} {i.get('description', '')}".lower()
+    return {w for w in "".join(c if c.isalnum() else " " for c in text).split() if len(w) >= 4}
+
+
+def foundation_links(items: list[dict]) -> dict[str, str]:
+    """Links that tie the whole project together, without a model: a task of a higher layer that waits for nothing gets the task of the
+    layer below it that it shares most words with (spread over the candidates, never a cycle). Only the first layer is a root.
+    Returns {task id: the id it should wait for}."""
+    lv = live(items)
+    layers = sorted({i["layer"] for i in lv if i.get("layer") is not None})
+    if len(layers) < 2:
+        return {}
+    deps = {k: set(v) for k, v in deps_of(items).items()}
+    users: dict[str, int] = {}
+    for ds in deps.values():
+        for d in ds:
+            users[d] = users.get(d, 0) + 1
+
+    def reaches(a: str, b: str, seen: set[str] | None = None) -> bool:
+        seen = seen if seen is not None else set()
+        if a == b:
+            return True
+        seen.add(a)
+        return any(reaches(d, b, seen) for d in deps.get(a, ()) if d not in seen)
+
+    out: dict[str, str] = {}
+    for i in sorted(lv, key=lambda x: x["id"]):
+        lay = i.get("layer")
+        if lay is None or lay == layers[0] or deps[i["id"]]:
+            continue
+        below = max((x for x in layers if x < lay), default=None)
+        pool = [c for c in lv if c.get("layer") == below and c["id"] != i["id"] and not reaches(c["id"], i["id"])]
+        if not pool:
+            continue
+        mine = _words(i)
+        best = max(pool, key=lambda c: (len(mine & _words(c)) * 3 - users.get(c["id"], 0), c["id"]))
+        out[i["id"]] = best["id"]
+        deps[i["id"]].add(best["id"])
+        users[best["id"]] = users.get(best["id"], 0) + 1
+    return out
+
+
 def problems(items: list[dict]) -> list[str]:
     """Cheap structural findings (no model call): a review is only needed when something is off."""
     found = []

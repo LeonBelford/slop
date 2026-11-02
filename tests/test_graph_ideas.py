@@ -91,6 +91,46 @@ class AgentTests(unittest.TestCase):
         with self.assertRaises(ValueError):
             ag.add_custom_graph("", "", "")
 
+    def test_whole_project_is_linked_layer_by_layer_and_rebuilt_once(self):
+        ag = self.ag
+        base = ag.backlog.add("Database schema", "tables for notes", "feature", 5, ["x"], "w", "blueprint", force=True, layer=0)
+        other = ag.backlog.add("Logging setup", "logging", "feature", 5, ["x"], "w", "blueprint", force=True, layer=0)
+        api = ag.backlog.add("Notes API", "api on the database schema", "feature", 5, ["x"], "w", "blueprint", force=True, layer=1)
+        ui = ag.backlog.add("Notes page", "ui", "feature", 5, ["x"], "w", "blueprint", force=True, layer=2)
+        base["status"] = "done"
+        self.assertEqual(ag.link_foundation(), 2)
+        by = {i["id"]: i for i in ag.backlog.items}
+        self.assertEqual(by[api["id"]]["depends_on"], [base["id"]])  # shares words with the schema task
+        self.assertEqual(by[ui["id"]]["depends_on"], [api["id"]])
+        self.assertNotIn("depends_on", by[other["id"]])  # the first layer is the root
+        self.assertEqual(ag.link_foundation(), 0)
+        ag.state["merged"] = 1
+        self.assertTrue(ag.rebuild_pending())
+        self.assertIn("REBUILD THE GRAPH", ag.rebuild_note())
+        ag.rebuilt()
+        self.assertFalse(ag.rebuild_pending())
+        ag.rebuild_flag.write_text("1")
+        self.assertTrue(ag.rebuild_pending())
+
+    def test_files_on_nodes_give_small_context_and_file_links(self):
+        from core import graphctx
+        ag = self.ag
+        add = lambda t, lay, **k: ag.backlog.add(t, t, "feature", 5, ["x"], "w", "blueprint", force=True, layer=lay, **k)  # noqa: E731
+        a, b = add("Notes store", 0), add("Notes API", 1)
+        a.update(status="done", files=["core/store.py", "core/db.py"], result="SQLite store")
+        c = add("Export notes", 1)
+        c["files"] = ["core/store.py"]
+        b["depends_on"] = [a["id"]]
+        pack = graphctx.context_pack(ag.backlog.items, b)
+        self.assertIn("core/store.py", pack["text"])
+        self.assertEqual(pack["files"][:2], ["core/store.py", "core/db.py"])
+        self.assertLess(len(graphctx.context_pack(ag.backlog.items, c)["text"]), graphctx.PACK_CHARS + 1)
+        self.assertEqual(graphctx.file_links(ag.backlog.items), {c["id"]: [a["id"]]})  # the same file as a finished task
+        unplaced = add("Search", None)
+        unplaced["files"] = ["core/store.py"]
+        self.assertEqual(graphctx.place(ag.backlog.items), {unplaced["id"]: 1})
+        self.assertEqual(graphctx.prefer_files(["x.py", "gone.py"], ["y.py", "x.py"], lambda f: f != "gone.py"), ["x.py", "y.py"])
+
 
 if __name__ == "__main__":
     unittest.main()

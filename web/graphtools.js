@@ -1,23 +1,13 @@
 /* Graph tools: edit mode (link, merge, split), plan proposal, custom graphs, replay timeline, time formatting. */
 const gtEta=s=>!s?"-":s<90?Math.round(s)+" s":s<5400?Math.round(s/60)+" min":(s/3600).toFixed(1)+" h";
-function gtSummary(d,comp){return(d.graphs||[]).find(g=>g.ids[0]===comp[0])}
 function gtCritical(d){const s=new Set(),e=new Set();(d.graphs||[]).forEach(g=>{g.critical.forEach((id,k)=>{s.add(id);if(k)e.add(g.critical[k-1]+">"+id)})});return{nodes:s,edges:e}}
-function gtBandLabel(b,g){
-  if(!g)return `Graph ${b.n} · ${b.done}/${b.total} done`;
-  const pct=g.total?Math.round(100*g.done/g.total):0;
-  return `Graph ${b.n} · ${esc(g.goal.length>38?g.goal.slice(0,37)+"…":g.goal)} · ${g.done}/${g.total} (${pct}%)${g.open?` · ~${gtEta(g.remaining_s)} left`:" · finished"}${g.blocked?` · ${g.blocked} blocked`:""}`;
-}
-function gtBar(b,g){
-  if(!g||!g.total)return "";
-  return `<rect x="14" y="${b.y+20}" width="160" height="3" rx="1.5" fill="#ffffff14"/><rect x="14" y="${b.y+20}" width="${Math.round(160*g.done/g.total)}" height="3" rx="1.5" fill="#5fb36b"/>`;
-}
 function gtTools(i){
   const m=tgState.mode,open=i&&["pending","blocked"].includes(i.status);
   if(m)return `<span class="pill info">${m==="link"?`Click the task ${esc(i.id)} has to wait for`:`Click the open task to merge ${esc(i.id)} with`}</span> <button class="small" onclick="gtMode(null)">Cancel</button>`;
   if(!open)return "";
   return `<button class="small" onclick="gtMode('link')" title="Make this task wait for another one">Needs…</button> <button class="small" onclick="gtMode('merge')" title="Merge two open tasks into one">Merge with…</button> <button class="small" onclick="gtSplit('${esc(i.id)}')" title="Split into 2-4 steps">Split…</button> `;
 }
-function gtMode(m){tgState.mode=m;tgInfo()}
+function gtMode(m){tgState.mode=m;pgInfo()}
 async function gtAct(action,body,msg){const r=await act(action,body,msg);lastBody="";return r}
 async function gtSplit(id){
   const v=prompt("Step titles, separated by ';' (2 to 4 steps):");if(!v)return;
@@ -56,10 +46,11 @@ function customForm(){
     <textarea rows="4" placeholder="Your own steps, one per line (optional, they follow each other; the AI adds what is missing)" oninput="cgSet('steps',this.value)">${esc(c.steps)}</textarea>
     <div class="tg-row"><button class="small primary" onclick="cgSave()">Add graph</button><button class="small" onclick="cgDraft=null;lastBody='';renderProject()">Cancel</button></div></div>`;
 }
-function gtStats(d,items){
-  const g=d.graphs||[],open=items.filter(i=>i.status!=="done").length,blocked=items.filter(i=>i.status==="blocked").length,eta=g.reduce((a,x)=>Math.max(a,x.critical_s||0),0);
+function gtStats(d,m){
+  const all=m.all,done=all.filter(i=>i.status==="done").length,open=all.length-done,blocked=all.filter(i=>i.status==="blocked").length,g=d.graphs||[];
+  const left=g.reduce((a,x)=>a+(x.remaining_s||0),0),crit=g.reduce((a,x)=>Math.max(a,x.critical_s||0),0),pct=all.length?Math.round(100*done/all.length):0;
   const pill=(n,l,c)=>`<span class="tg-pill${c?" "+c:""}"><b>${n}</b> ${l}</span>`;
-  return `<div class="tg-stats">${pill(tgComps(items).length,"graphs")}${pill(open,"open")}${blocked?pill(blocked,"blocked","bad"):""}${eta?pill("~"+gtEta(eta),"critical path","warn"):""}</div>`;
+  return `<div class="tg-stats">${pill(pct+"%","done")}${pill(open,"open")}${blocked?pill(blocked,"blocked","bad"):""}${pill(m.edges.length,"links")}${left?pill("~"+gtEta(left),"left","warn"):""}${crit?pill("~"+gtEta(crit),"critical path"):""}</div>`;
 }
 function proposalCard(d){
   const p=d.proposal;if(!p)return "";

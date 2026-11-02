@@ -4,7 +4,7 @@ from __future__ import annotations
 import copy
 import json
 
-from core import blueprint, taskgraph, uidetect
+from core import blueprint, graphctx, taskgraph, uidetect
 from core.cfllm import scaled
 from core.cfutil import clip, write_text
 
@@ -25,11 +25,11 @@ REEVAL_SCHEMA = ('{"keep_plan": true if the graphs are sound and nothing needs t
                  '"modules": [{"name": "", "responsibility": ""}], "contracts": ["..."], "decisions": ["..."]}, '
                  '"layers": [{"name": "", "goal": ""}], "assign": [{"id": "T0001", "layer": 0, "depends_on": ["T0000"], "priority": 1-10, "why": "only if the reason changed"}], '
                  '"new_tasks": [{"key": "short-id", "title": "", "description": "", "acceptance": ["testable"], "type": "feature|refactor|test", '
-                 '"layer": 0, "depends_on": ["task ids or keys of earlier tasks"], "why": "short reason this task is needed", "value": 1-10, "effort": 1-10}], '
+                 '"layer": 0, "depends_on": ["task ids or keys of earlier tasks"], "files": ["paths it will touch"], "why": "short reason this task is needed", "value": 1-10, "effort": 1-10}], '
                  '"cancel": [{"id": "T0002", "why": ""}], "merge": [{"ids": ["T0004", "T0005"], "title": "", "description": "", "acceptance": ["testable"], "why": ""}], '
                  '"split": [{"id": "T0009", "steps": [{"title": "", "description": "", "acceptance": ["testable"], "why": ""}]}], '
                  '"graph_ideas": [{"title": "new feature or improvement", "why": "why it fits this project", "steps": [{"title": "", "description": "", "type": "feature|refactor|test", "acceptance": ["testable"], "needs": [0], "why": ""}]}]}. Every open and finished task should appear in assign.')
-GRAPH_RULES = (" Think in a graph: every task lists in depends_on exactly the tasks whose result it needs (never a cycle); independent work stays in separate branches, "
+GRAPH_RULES = (" The whole project is ONE interlinked graph from the foundation up: a task of a higher layer lists the concrete tasks of the layer below it that it builds on (finished ones too), so the app grows on a stable base. Every task node carries the files it touched (or will touch): link a new task to the finished tasks that worked on the same files and name its files (new_tasks.files), so each step is planned against what exists before it enters the graph. Think in a graph: every task lists in depends_on exactly the tasks whose result it needs (never a cycle); independent work stays in separate branches, "
                "a task needing several branches joins them. Merge pending tasks that touch the same code or would be one change anyway (merge, at most 5 ids each, never in_progress "
                "or user tasks). Split a pending task that is too big for one iteration into 2 to 4 small steps (split). Use new_tasks for missing steps. "
                "Review every graph: do the steps make sense, are they in the right order and size, is a step missing for the vision, is a step still needed? "
@@ -68,17 +68,15 @@ class PlanMixin:
 
     def blueprint_ctx(self, item: dict) -> str:
         """Where a task sits in the architecture, for the planning prompt."""
-        base = [self.backlog.by_id(d) for d in item.get("depends_on", [])]
-        built = [f"{b['id']} {b['title']}" for b in base if b and b["status"] == "done"]
         text = blueprint.context_for(self.blueprint(), item)
-        if built:
-            text += "\nBuilds on (already merged, extend it, do not redo it): " + "; ".join(built)
-        down = self.downstream_note(item)
+        pack = graphctx.context_pack(self.backlog.items, item)
+        if pack["text"]:
+            text += "\n" + pack["text"]
         if item.get("scout"):
             text += f"\nLikely relevant files (scouted, check before relying on it): {item['scout']}"
         if item.get("why"):
             text += f"\nWhy this task exists (the purpose to serve): {item['why']}"
-        return text + ("\n" + down if down else "")
+        return text
 
     def make_blueprint(self, idea: str, brief: dict) -> bool:
         """Plans the layers and seeds the backlog from them. False (nothing changed) if the model gave no usable plan."""
@@ -162,7 +160,7 @@ class PlanMixin:
         share = scaled(self.llm, 1000, 0.0) / 1000
         visible = taskgraph.visible_ids(items)  # finished graphs are only history: they stay out of the prompt
         rows = [{k: v for k, v in {"id": i["id"], "title": clip(i["title"], 80 if sctx else 200), "type": i["type"], "status": i["status"],
-                                   "layer": i.get("layer"), "source": i.get("source"), "why": clip(i.get("why", ""), 100)}.items() if v not in (None, [], "")}
+                                   "layer": i.get("layer"), "source": i.get("source"), "why": clip(i.get("why", ""), 100), "files": graphctx.files_of(i)[:3]}.items() if v not in (None, [], "")}
                 for i in items if i["id"] in visible]
         ideas = self.ideas_path.read_text("utf-8") if self.ideas_path.exists() else ""
         self.state["directives_hash"] = self.directives_hash()
@@ -175,7 +173,7 @@ class PlanMixin:
             f"Previous layers: {[ly['name'] for ly in old['layers']] if old else 'none (the project was planned feature by feature)'}\n"
             f"Features built: {[f['title'] for f in self.mem.features.values()]}\nArchitecture notes:\n"
             f"{clip(arch.read_text('utf-8') if arch.exists() else '', int(2500 * share))}\nCode map:\n{clip(self.mem.render_codemap(), int(5000 * share))}\n"
-            f"Current state of the project:\n{state_note or '-'}\n{self.custom_note()}\nDependency graphs now:\n{graph}\nTasks: {json.dumps(rows)}\n3 to 5 layers. Schema: " + REEVAL_SCHEMA)
+            f"Current state of the project:\n{state_note or '-'}\n{self.custom_note()}{self.rebuild_note()}\nDependency graphs now:\n{graph}\nTasks: {json.dumps(rows)}\n3 to 5 layers. Schema: " + REEVAL_SCHEMA)
         self._review_reason = reason
         if isinstance(data, dict) and not data.get("layers") and old:  # a cut-off answer: keep the layers we have
             data["layers"] = [{"name": ly["name"], "goal": ly.get("goal", "")} for ly in old["layers"]]
@@ -192,6 +190,10 @@ class PlanMixin:
         zero = {"assigned": 0, "new": 0, "cancelled": 0, "requeued": 0, "merged": 0, "split": 0}
         if res["keep"] and not (res["new"] or res["cancel"] or res["merge"] or res["split"]):
             self.state["graph_sig"] = taskgraph.signature(self.backlog.items)
+            if not focus:
+                self.rebuilt()
+            if self.link_foundation():
+                self.backlog.save()
             self.metric(kind="reevaluate", kept=True)
             self.log(f"Plan reviewed, the graphs are sound: nothing changed. {res.get('assessment', '')}")
             self.phase("Idle (plan reviewed, no change needed)", None)
@@ -213,6 +215,8 @@ class PlanMixin:
             item = self.backlog.add(t["title"], t["description"], t["type"], t["priority"], t["acceptance"], "Re-evaluation", "blueprint",
                                     layer=t["layer"], why=t.get("why"))
             if item:
+                if t.get("files"):
+                    item["files"] = t["files"]
                 key_to_id[t["key"]] = item["id"]
                 by_id[item["id"]] = item
                 stats["new"] += 1
@@ -271,8 +275,10 @@ class PlanMixin:
             self.phase("Idle (re-evaluation rolled back)", None)
             return {**zero, "rolled_back": bad}
         self.state["graph_sig"] = taskgraph.signature(self.backlog.items)
+        self.link_foundation()
         self.backlog.save()
         if not focus:
+            self.rebuilt()
             bp = {"architecture": res["architecture"], "assessment": res.get("assessment", ""), "layers": [
                 {**ly, "tasks": [{"title": i["title"], "id": i["id"]} for i in by_id.values() if i.get("layer") == n and i["status"] != "cancelled"]}
                 for n, ly in enumerate(res["layers"])]}
