@@ -48,6 +48,27 @@ def symbols(repo: Path) -> list[dict]:
     return [d for f in files(repo) for d in definitions(repo, f)]
 
 
+def repo_map(repo: Path, budget: int = 3500, focus: str = "") -> str:
+    """Compact map (file: symbols) that costs a fraction of the file contents. Files whose path or symbols match words of
+    `focus` (the user's question) come first; the rest is cut at the character budget."""
+    words = {w for w in re.findall(r"[a-z_]{3,}", focus.lower())}
+    rows = []
+    for f in files(repo):
+        defs = definitions(repo, f)
+        if not defs:
+            continue
+        top = [d for d in defs if d["kind"] in ("class", "function", "def", "fn", "func", "struct", "interface", "enum", "type")]
+        hit = sum(1 for w in words if w in f.lower() or any(w in d["name"].lower() for d in top))
+        rows.append((-hit, f, f"{f}: " + ", ".join(d["name"] for d in top[:12]) + (" …" if len(top) > 12 else "")))
+    out, used = [], 0
+    for _, _, line in sorted(rows):
+        if used + len(line) > budget:
+            break
+        out.append(line)
+        used += len(line) + 1
+    return "\n".join(out)
+
+
 def search(repo: Path, query: str, limit: int = 40) -> list[dict]:
     """Symbols whose name matches the query: exact first, then prefix, then contains."""
     q = query.strip().lower()

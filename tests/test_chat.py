@@ -173,6 +173,18 @@ class ChatTests(unittest.TestCase):
         self.assertIn("Fix login", out)
         self.assertIn("cannot log in", out)
 
+    def test_repo_map_ranks_files_matching_the_question(self):
+        import subprocess
+        ws = Path(tempfile.mkdtemp())
+        (ws / "repo").mkdir()
+        (ws / "repo" / "auth.py").write_text("def login():\n    pass\n\nclass Session:\n    pass\n")
+        (ws / "repo" / "util.py").write_text("def helper():\n    pass\n")
+        subprocess.run(["git", "init", "-q"], cwd=ws / "repo", check=True)
+        subprocess.run(["git", "add", "-A"], cwd=ws / "repo", check=True)
+        m = chat.repo_map_context(ws, "fix the login flow")
+        self.assertTrue(m.splitlines()[1].startswith("auth.py: login, Session"))
+        self.assertIn("util.py: helper", m)
+
     def test_models_status(self):
         st = self.svc.models_status()
         self.assertIn("up", st)

@@ -8,13 +8,14 @@ from __future__ import annotations
 import json
 import re
 import secrets
+import subprocess
 import threading
 import time
 import urllib.error
 import urllib.request
 
 from core.cfutil import _open_think, _strip_think
-from dash import chatagent, directedit, directtools, toolchat
+from dash import chatagent, codesearch, directedit, directtools, toolchat
 from infra import knowledge
 from pathlib import Path
 from collections.abc import Callable, Iterator
@@ -192,6 +193,15 @@ def knowledge_context(ws: Path, query: str, api: str, key: str, embed_model: str
     return ("Knowledge base hits for the latest question:\n" + "\n".join(lines)) if lines else ""
 
 
+def repo_map_context(ws: Path, question: str) -> str:
+    """Symbol map of the project's repo (names only), so the model knows where things live without whole files in the prompt."""
+    try:
+        m = codesearch.repo_map(ws / "repo", 3000, question)
+    except (OSError, subprocess.SubprocessError):
+        return ""
+    return "Repo map (file: symbols; read_file for details):\n" + m if m else ""
+
+
 def route_of(chat: dict) -> str:
     """Direct is the default for project chats; the self-improve chat stays on the reviewed pipeline unless switched."""
     return chat.get("route") or ("pipeline" if chat.get("tool") else "direct")
@@ -229,7 +239,8 @@ def build_messages(chat: dict, ws_of: Callable[[str], Path | None], api: str = "
     for w in (ws_of(n) for n in chat["projects"]):
         if w:
             k = knowledge_context(w, last, api, key) if last else ""
-            ctx.append(project_context(w) + ("\n\n" + k if k else ""))
+            rm = repo_map_context(w, last)
+            ctx.append(project_context(w) + ("\n\n" + rm if rm else "") + ("\n\n" + k if k else ""))
     is_tool = bool(chat.get("tool"))
     if is_tool and tool_ctx:
         system = toolchat.SYSTEM + "\n\n" + tool_ctx(last)
