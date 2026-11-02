@@ -3,7 +3,7 @@ from __future__ import annotations
 
 from pathlib import Path
 from infra.webaccess import WebError
-from core import blueprint
+from core import graphctx, blueprint
 from core.cfa_rules import fail_rate
 from dash import estimate, testgen
 import json
@@ -85,7 +85,7 @@ class ResearchMixin:
             self.state["last_security_at"] = merged
         if merged - self.state["last_refactor_at"] >= self.lim["refactor_every"]:
             churn = self.git.churn()
-            ranked = sorted(self.mem.codemap, key=lambda r: -(self.mem.codemap[r].get("loc", 0) * churn.get(r, 1)))[:3]
+            ranked = sorted(self.mem.codemap, key=lambda r: -graphctx.hotspot_score(r, self.mem.codemap[r].get("loc", 0), churn.get(r, 1), self.backlog.items, self.mem.codemap))[:3]
             self.schedule_quality(ranked, merged)
             self.state["last_refactor_at"] = merged
         if merged - self.state["last_coverage_at"] >= self.lim["coverage_every"]:

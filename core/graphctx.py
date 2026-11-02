@@ -29,7 +29,7 @@ def upstream(items: list[dict], task_id: str, depth: int = 2) -> list[tuple[dict
     return out
 
 
-def context_pack(items: list[dict], item: dict, budget: int = PACK_CHARS) -> dict:
+def context_pack(items: list[dict], item: dict, budget: int = PACK_CHARS, codemap: dict | None = None) -> dict:
     """Compact context for one task: what it builds on (with the files and the result of those tasks), who builds on it, and which other
     open tasks touch the same files. Returns {"text", "files"}; `files` are the paths worth opening first, nearest task first."""
     live = taskgraph.live(items)
@@ -53,7 +53,18 @@ def context_pack(items: list[dict], item: dict, budget: int = PACK_CHARS) -> dic
     past = [i for i in live if i["id"] != item["id"] and i["status"] == "done" and mine & set(files_of(i)) and i["id"] not in {u["id"] for u, _ in upstream(items, item["id"])}]
     if past:
         text += "\nEarlier tasks that touched the same files (keep their behaviour): " + "; ".join(f"{i['id']} {str(i['title'])[:50]}" for i in sorted(past, key=lambda x: x["id"])[-3:])
+    if codemap and mine:
+        out = sorted({d for f in mine for d in codemap.get(f, {}).get("imports", [])} - mine)[:4]
+        inn = sorted({d for f in mine for d in codemap.get(f, {}).get("imported_by", [])} - mine)[:4]
+        if out or inn:
+            text += "\nFile neighbourhood (static imports): " + (f"your files use {', '.join(out)}" if out else "") + ("; " if out and inn else "") + (f"used by {', '.join(inn)}" if inn else "")
     return {"text": text[:budget], "files": files}
+
+
+def hotspot_score(path: str, loc: int, churn: int, items: list[dict], codemap: dict) -> float:
+    """How urgently a file needs a refactor: big, often changed, touched by many tasks and imported by many files."""
+    touched = sum(1 for i in items if path in files_of(i))
+    return loc * max(1, churn) * (1 + touched) * (1 + len(codemap.get(path, {}).get("imported_by", [])))
 
 
 def prefer_files(upstream_files: list[str], candidates: list[str], exists, limit: int = 4) -> list[str]:

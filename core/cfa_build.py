@@ -142,7 +142,7 @@ class BuildMixin:
         if light:
             return light
         self.phase("Planning: analysing the codebase and the impact of the change", "plan")
-        cands = graphctx.prefer_files(graphctx.context_pack(self.backlog.items, item)["files"], self.mem.select_candidates(item), lambda f: (self.repo / f).exists())
+        cands = graphctx.prefer_files(graphctx.context_pack(self.backlog.items, item, codemap=self.mem.codemap)["files"], self.mem.select_candidates(item), lambda f: (self.repo / f).exists())
         ctx = self.mem.context_pack(item, cands)
         src = "\n\n".join(f"### {f}\n```\n{clip((self.repo / f).read_text('utf-8', 'replace'), self.cfg['context']['file_clip'])}\n```"
                           for f in (cands + self.mem.neighbors(cands))[:10] if (self.repo / f).exists())

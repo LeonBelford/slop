@@ -29,3 +29,13 @@ class PackHistoryTest(unittest.TestCase):
         self.assertIn("Earlier tasks that touched the same files", text)
         self.assertIn("T1", text)
         self.assertIn("T2", text)
+
+    def test_pack_neighbourhood_and_hotspot(self):
+        from core import graphctx
+        cm = {"a.py": {"imports": ["b.py"], "imported_by": ["c.py", "d.py"]}, "b.py": {}}
+        it = {"id": "T1", "title": "t", "status": "pending", "files": ["a.py"], "depends_on": [], "type": "feature"}
+        text = graphctx.context_pack([it], it, codemap=cm)["text"]
+        self.assertIn("your files use b.py", text)
+        self.assertIn("used by c.py, d.py", text)
+        busy = graphctx.hotspot_score("a.py", 100, 2, [it], cm)
+        self.assertGreater(busy, graphctx.hotspot_score("b.py", 100, 2, [it], cm))

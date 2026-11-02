@@ -124,7 +124,7 @@ class TierMixin:
     def light_plan(self, item: dict, previous: list[str]) -> dict | None:
         if not self.feat("light_plan") or previous or int(item.get("attempts", 0)) > 1 or item.get("risk") == "high" or item["type"] in ("docs",):
             return None
-        pack = graphctx.context_pack(self.backlog.items, item)
+        pack = graphctx.context_pack(self.backlog.items, item, codemap=self.mem.codemap)
         if item.get("files_guess"):
             return None
         files = [f for f in dict.fromkeys(graphctx.files_of(item)) if (self.repo / f).exists() and not is_test_file(f)]

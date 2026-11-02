@@ -69,7 +69,7 @@ class PlanMixin:
     def blueprint_ctx(self, item: dict) -> str:
         """Where a task sits in the architecture, for the planning prompt."""
         text = blueprint.context_for(self.blueprint(), item)
-        pack = graphctx.context_pack(self.backlog.items, item)
+        pack = graphctx.context_pack(self.backlog.items, item, codemap=self.mem.codemap)
         if pack["text"]:
             text += "\n" + pack["text"]
         if item.get("scout"):
