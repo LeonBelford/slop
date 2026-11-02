@@ -35,7 +35,7 @@ function fgInfoText(){
   const n=fg.m&&fg.sel&&fg.m.by[fg.sel];
   if(!n)return `<span class="hint">Click a bubble for its imports and tasks.</span>`;
   const nb=fg.m.nb[n.path]||{out:[],in:[]},chip=p=>`<span class="pg-ch file" onclick="fgSelect('${esc(p)}')">${esc(p)}</span>`;
-  return `<div class="pg-info"><div><b>${esc(n.path)}</b> <span class="pill info">${n.total} task(s)</span> <span class="pill info">used by ${n.used_by}</span></div>
+  return `<div class="pg-info"><div><b>${esc(n.path)}</b> <span class="pill info">${n.total} task(s)</span> <span class="pill info">used by ${n.used_by}</span> <span class="pill info">${n.lines==null?"?":n.lines} lines</span></div>
   <div class="pg-rows"><div><span class="meta">Tasks</span> ${fgTaskLine(n)}</div><div><span class="meta">Imports</span> ${nb.out.length?nb.out.map(chip).join(""):'<span class="meta">nothing from the project</span>'}</div>
   <div><span class="meta">Used by</span> ${nb.in.length?nb.in.map(chip).join(""):'<span class="meta">nobody</span>'}</div></div>
   <div class="tg-row" style="margin-top:6px"><button class="small" onclick="fgOpen('${esc(n.path)}')">Open in editor</button></div></div>`;
@@ -93,7 +93,7 @@ function fgMark(){
 function fgCard(id,e){
   const n=fg.m&&fg.m.by[id],wrap=document.querySelector("#fgSvg")&&document.querySelector("#fgSvg").parentNode;if(!n||!wrap)return;
   let c=document.getElementById("fgCard");if(!c){c=document.createElement("div");c.id="fgCard";c.className="pgcard";wrap.appendChild(c)}
-  if(c.dataset.id!==id){c.dataset.id=id;c.innerHTML=`<div class="pc-h"><i style="background:${fgCol(id)}"></i><b>${esc(id)}</b></div><div class="meta">Used by ${n.used_by} file(s) · ${n.total} task(s)</div><div style="margin-top:4px">${fgTaskLine(n)}</div>`}
+  if(c.dataset.id!==id){c.dataset.id=id;c.innerHTML=`<div class="pc-h"><i style="background:${fgCol(id)}"></i><b>${esc(id)}</b></div><div class="meta">${n.lines==null?"":n.lines+" lines · "}Used by ${n.used_by} file(s) · ${n.total} task(s)</div><div style="margin-top:4px">${fgTaskLine(n)}</div>`}
   const r=wrap.getBoundingClientRect(),x=e.clientX-r.left+16,y=e.clientY-r.top+16;
   c.style.display="block";c.style.left=Math.max(4,Math.min(x,r.width-c.offsetWidth-4))+"px";c.style.top=Math.max(4,Math.min(y,r.height-c.offsetHeight-4))+"px";
 }

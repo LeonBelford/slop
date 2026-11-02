@@ -35,6 +35,18 @@ class EditorMixin:
             raise UiError("This project has no repo yet")
         return repo
 
+    @staticmethod
+    def _line_counts(repo, files: list[str]) -> dict[str, int]:
+        out = {}
+        for f in files:
+            try:
+                data = (repo / f).read_bytes()
+            except OSError:
+                continue
+            if b"\0" not in data[:2048]:
+                out[f] = data.count(b"\n") + (1 if data and not data.endswith(b"\n") else 0)
+        return out
+
     def _rel(self, repo: Path, path: str) -> tuple[Path, str]:
         try:
             p = _safe(repo, path)
@@ -59,7 +71,7 @@ class EditorMixin:
                      for t in sa.read_json(repo.parent / "agent" / "backlog.json", [])][:300]
             return {"files": files, "tasks": tasks}
         if what == "filegraph":
-            files = [f for f in git(repo, "ls-files").splitlines() if f and not f.startswith(("node_modules/", ".venv"))][:600]
+            files = filegraph.keep([f for f in git(repo, "ls-files").splitlines() if f])
 
             def read(f: str) -> str:
                 try:
@@ -76,8 +88,8 @@ class EditorMixin:
             cache = self.__dict__.setdefault("_fg_cache", {})
             hit = cache.get(name)
             if not hit or hit[0] != sig:
-                hit = cache[name] = (sig, filegraph.edges_of(files, read))
-            return filegraph.build(files, read, sa.read_json(repo.parent / "agent" / "backlog.json", []), hit[1])
+                hit = cache[name] = (sig, filegraph.edges_of(files, read), self._line_counts(repo, files))
+            return filegraph.build(files, read, sa.read_json(repo.parent / "agent" / "backlog.json", []), hit[1], hit[2])
         if what == "head":
             _, rel = self._rel(repo, q.get("path", ""))
             rc, out = _git_rc(repo, "show", f"HEAD:{rel}")
