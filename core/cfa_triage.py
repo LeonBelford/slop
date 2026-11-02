@@ -63,6 +63,8 @@ class TriageMixin(PriorityMixin):
                 self.backlog.save()
         except Exception as e:  # noqa: BLE001
             self.log(f"Triage skipped: {clip(str(e), 200)}")
+        if hasattr(self, "scout_ahead"):
+            self.scout_ahead()
 
     def _rescore(self) -> bool:
         scores = score(self.backlog.items)

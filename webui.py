@@ -175,7 +175,7 @@ class Service(ProjectMixin, GraphEditMixin, DashboardMixin, ToolMixin, ModelsMix
             sa.Agent(ws).add_feedback(msg)
         elif action in ("task-cancel", "task-reopen", "task-top", "task-delete"):
             self.backlog_edit(ws, action, body)
-        elif action in ("graph-link", "graph-unlink", "graph-merge", "graph-split", "graph-template", "idea-add", "idea-dismiss", "process-save", "process-delete", "process-run", "replan-preview", "plan-apply", "plan-reject"):
+        elif action in ("graph-link", "graph-unlink", "graph-merge", "graph-split", "graph-custom", "idea-add", "idea-dismiss", "process-save", "process-delete", "process-run", "replan-preview", "plan-apply", "plan-reject"):
             return self.graph_edit(ws, name, action, body)
         elif action == "replay":
             try:

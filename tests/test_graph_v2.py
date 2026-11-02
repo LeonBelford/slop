@@ -3,7 +3,7 @@ import unittest
 from pathlib import Path
 
 import codefactory as cf
-from core import graph_templates, taskgraph
+from core import taskgraph
 from core.cfa_scout import scout_task
 from core.cfgit import Backlog
 
@@ -42,7 +42,7 @@ class GraphMathTests(unittest.TestCase):
         self.assertEqual(taskgraph.snapshot(before, "r", {"new": 1}, "t")["nodes"][1]["d"], ["0"])
 
 
-class ChainAndTemplateTests(unittest.TestCase):
+class ChainTests(unittest.TestCase):
     def test_next_prefers_the_chain_of_the_last_finished_task(self):
         with tempfile.TemporaryDirectory() as d:
             b = Backlog(Path(d) / "b.json")
@@ -52,17 +52,6 @@ class ChainAndTemplateTests(unittest.TestCase):
             b.set(done, status="done")
             self.assertEqual(b.next()["id"], other["id"])
             self.assertEqual(b.next(chain_from=done["id"])["id"], follow["id"])
-
-    def test_template_makes_a_connected_graph_with_reasons(self):
-        with tempfile.TemporaryDirectory() as d:
-            b = Backlog(Path(d) / "b.json")
-            made = graph_templates.instantiate(b, "api-endpoint", "Orders")
-            self.assertEqual(len(made), 4)
-            self.assertEqual(made[2]["depends_on"], [made[1]["id"]])
-            self.assertTrue(all(i["why"] for i in made))
-            self.assertEqual(len(taskgraph.components(b.items)), 1)
-            with self.assertRaises(ValueError):
-                graph_templates.instantiate(b, "nope", "x")
 
     def test_scout_finds_files_and_symbols(self):
         with tempfile.TemporaryDirectory() as d:

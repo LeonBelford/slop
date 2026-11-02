@@ -66,6 +66,21 @@ class AgentTests(unittest.TestCase):
         ag.run_due_processes(6)
         self.assertEqual(len(ag.backlog.items), 4)
 
+    def test_custom_graph_is_built_out_by_the_next_review(self):
+        ag = self.ag
+        made = ag.add_custom_graph("Search", "Full text search over all notes", "Index notes\nSearch endpoint")
+        self.assertEqual((len(made), made[0]["source"], made[1]["depends_on"]), (2, "user", [made[0]["id"]]))
+        single = ag.add_custom_graph("Export", "Export as CSV", "")
+        self.assertEqual((len(single), single[0]["source"]), (1, "custom"))
+        ag._graph_started = True
+        self.assertIn("custom graph(s) to build out: Search, Export", ag.review_reasons()[0][0])
+        note = ag.custom_note()
+        self.assertIn("Full text search", note)
+        self.assertEqual(ag.custom_pending(), [])
+        self.assertEqual(ag.custom_note(), "")
+        with self.assertRaises(ValueError):
+            ag.add_custom_graph("", "", "")
+
 
 if __name__ == "__main__":
     unittest.main()

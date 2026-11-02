@@ -164,11 +164,7 @@ class Agent(BuildMixin, FlowMixin, VerifyMixin, SecurityMixin, ResearchMixin, Op
             f.write(line + "\n")
 
     def phase(self, name: str, step: str | None = None, detail: str = "") -> None:
-        """Publishes what the agent is doing right now (activity.json) and appends it to the event timeline (events.jsonl).
-
-        Also tracks an estimated completion percentage and a short per-task sub-step log so the UI can
-        show not just the current stage but how far the overall task is, and which micro-steps led there.
-        """
+        """Publishes what the agent does right now (activity.json), the event timeline (events.jsonl), a completion estimate and the per-task sub-steps."""
         if not hasattr(self, "_progress"):
             self._progress = progress.Tracker()
         done = step is None and "finished and merged" in name
@@ -362,7 +358,6 @@ class Agent(BuildMixin, FlowMixin, VerifyMixin, SecurityMixin, ResearchMixin, Op
         self.health_check()
         reason = None
         while True:
-            self.state["elapsed"] += 0  # placeholder, the real sum is added when saving
             reason = self.should_stop(started)
             if reason:
                 break
@@ -378,7 +373,6 @@ class Agent(BuildMixin, FlowMixin, VerifyMixin, SecurityMixin, ResearchMixin, Op
                 self.reflect()
             self.schedule_hygiene()
             self.triage()
-            self.scout_ahead()
             item = self.control_pick(self.backlog.next(getattr(self, "last_light", None), self.state.get("last_done")))
             if item and self.backlog.deadlock:
                 waiting = [d for d in item.get("depends_on", []) if d not in {i["id"] for i in self.backlog.items if i["status"] in ("done", "cancelled")}]

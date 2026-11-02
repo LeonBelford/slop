@@ -86,3 +86,40 @@ class HygieneGraphMixin:
                 continue
             self.log(f"Standard process due: {p['name']}")
             self.run_process(p)
+
+    @property
+    def custom_file(self):
+        return self.dir / "custom_graphs.json"
+
+    def add_custom_graph(self, name: str, goal: str, steps_text: str) -> list[dict]:
+        """A graph you describe: your own steps (one per line) become tasks; the next re-evaluation builds the graph out from the goal.
+        Without steps it starts as one open task that the re-evaluation may split."""
+        name, goal = " ".join(name.split())[:80], goal.strip()[:1500]
+        if not (name or goal):
+            raise ValueError("Give the graph a name or describe what it should do")
+        name = name or goal.split("\n")[0][:60]
+        steps = graph_ideas.steps_from_text(steps_text, True, "feature")
+        mine = bool(steps)
+        steps = steps or [{"title": name, "description": goal or name, "type": "feature", "acceptance": [], "needs": [], "why": "Your own graph"}]
+        made = graph_ideas.add_graph(self.backlog, steps, f"Custom graph: {name}", "user" if mine else "custom", f"Part of your graph '{name}'")
+        graphs = read_json(self.custom_file, [])
+        graphs.append({"title": name, "goal": goal, "ids": [m["id"] for m in made], "expanded": False})
+        write_json(self.custom_file, graphs[-30:])
+        self.backlog.save()
+        return made
+
+    def custom_pending(self) -> list[dict]:
+        return [g for g in read_json(self.custom_file, []) if not g.get("expanded")]
+
+    def custom_note(self, mark: bool = True) -> str:
+        """For the re-evaluation prompt: your custom graphs that still need to be built out (then they count as handled)."""
+        graphs = read_json(self.custom_file, [])
+        todo = [g for g in graphs if not g.get("expanded")]
+        if not todo:
+            return ""
+        by = {i["id"]: i for i in self.backlog.items}
+        rows = [f"- {g['title']}: {g['goal'] or '(no description)'} | existing tasks: " + ", ".join(f"{k} {by[k]['title'][:60]}" for k in g["ids"] if k in by) for g in todo]
+        if mark:
+            write_json(self.custom_file, [{**g, "expanded": True} if g in todo else g for g in graphs])
+        return ("\nCustom graphs the user wants built out. For each, add the missing steps as new_tasks (depends_on the existing tasks of that graph or earlier steps, each with a why); "
+                "a single open task of such a graph may be split into 2 to 4 steps; keep the user's own steps as they are:\n" + "\n".join(rows))

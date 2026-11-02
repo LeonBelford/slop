@@ -67,9 +67,10 @@ function tgPanel(d){
   const live=d.activity&&d.activity.now&&d.activity.now.task?d.activity.now.task.split(" ")[0]:null;
   const bar=`<div class="tg-top"><div class="tg-head"><h3>Task graph</h3>${typeof gtStats==="function"?gtStats(d,items):""}</div>
     <div class="tg-tools"><div class="tg-grp"><button class="small" onclick="setPref('showDone',${!P.showDone})" title="Finished graphs are hidden; a finished task is always shown while its graph still has open work">${P.showDone?"Hide":"Show"} finished${finished?` (${finished})`:""}</button><button class="small" onclick="gtOpenHistory()" title="See the graphs as they were after each review">History</button></div>
-    ${typeof templateBar==="function"?templateBar(d):""}
+    ${typeof templateBar==="function"?templateBar():""}
     ${d.running?"":`<div class="tg-grp"><button class="small" onclick="doPreview()" title="Let the agent propose changes; nothing is applied until you confirm">Preview re-plan</button><button class="small primary" onclick="doReplan()" title="Think the plan through again as a graph: re-link, merge, split, and suggest new graphs">Re-plan</button></div>`}</div></div>`;
-  if(!items.length)return `<div class="panel">${bar}<div class="hint">${all.length?"Everything is finished. Use “Show finished graphs” to see it.":"No tasks yet."}</div></div>`;
+  const form=typeof customForm==="function"?customForm():"";
+  if(!items.length)return `<div class="panel">${bar}${form}<div class="hint">${all.length?"Everything is finished. Use “Show finished graphs” to see it.":"No tasks yet."}</div></div>`;
   const L=tgLayout(items),ids=new Set(items.map(i=>i.id)),on=tgState.sel?tgChain(items,tgState.sel):null,crit=gtCritical(d),blocks=d.blocks||{};
   const bands=L.bands.map(b=>`<g><rect x="2" y="${b.y}" width="${Math.max(b.w,260)}" height="${b.h}" rx="10" fill="#ffffff05" stroke="#ffffff10"/><text x="14" y="${b.y+16}" fill="#8a8a8a" font-size="11">${gtBandLabel(b,gtSummary(d,b.ids))}</text>${gtBar(b,gtSummary(d,b.ids))}</g>`).join("");
   const edges=items.flatMap(i=>(i.depends_on||[]).filter(x=>ids.has(x)&&x!==i.id).map(x=>{
@@ -82,7 +83,7 @@ function tgPanel(d){
     return `<g class="tg-n${i.id===live&&i.status==="in_progress"?" tg-live":""}" data-id="${esc(i.id)}" transform="translate(${p.x},${p.y})" style="opacity:${dim?.25:1}${i.id===tgState.sel?";filter:brightness(1.4)":""}"><title>${esc(i.id+" · "+i.status+" · "+i.title+(i.why?"\nWhy: "+i.why:""))}</title><rect width="${L.W}" height="${L.H}" rx="8" fill="#1c1c1c" stroke="${c}" stroke-width="1.5"/><rect width="5" height="${L.H}" rx="2" fill="${c}"/><text x="14" y="19" fill="#aaa" font-size="11">${esc(i.id)} · ${esc(i.status.replace("_"," "))}${i.layer!=null?" · L"+i.layer:""}${blocks[i.id]?` · blocks ${blocks[i.id]}`:""}${crit.nodes.has(i.id)?" · ★":""}</text><text x="14" y="36" fill="#eee" font-size="12.5">${esc(t)}</text></g>`;
   }).join("");
   const n=edges?edges.split('class="tg-e"').length-1:0,z=tgState.z;
-  return `<div class="panel">${bar}
+  return `<div class="panel">${bar}${form}
   <div class="tg-bar"><button class="btn sm" data-tg="in">+</button><button class="btn sm" data-tg="out">−</button><button class="btn sm" data-tg="fit">Fit</button><button class="btn sm" data-tg="reset">100%</button><span class="hint" id="tgInfo">${tgInfoText()}</span></div>
   <div class="tg-wrap"><svg width="${L.width*z}" height="${L.height*z}" viewBox="0 0 ${L.width} ${L.height}" data-w="${L.width}" data-h="${L.height}"><defs><marker id="tgA" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto"><path d="M0,0 L10,5 L0,10 z" fill="#777"/></marker></defs>${bands}${edges}${nodes}</svg></div>
   <p class="hint" style="margin-top:6px">Arrows point from a task to the tasks that build on it · ${n} link(s). The agent plans, orders and merges its work along this graph.</p></div>`;
