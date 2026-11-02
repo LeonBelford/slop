@@ -193,7 +193,7 @@ class ChatTests(unittest.TestCase):
 
     def test_fit_messages_drops_docs_first_and_keeps_the_newest_message(self):
         system = "RULES " * 200 + "\n\n" + chat.DOCS_MARK + "\n\n" + "doc " * 5000
-        msgs = [{"role": "system", "content": system}] + [{"role": "user" if i % 2 == 0 else "assistant", "content": "m%d " % i * 300} for i in range(8)]
+        msgs = [{"role": "system", "content": system}] + [{"role": "user" if i % 2 == 0 else "assistant", "content": f"m{i} " * 300} for i in range(8)]
         out = chat.fit_messages(msgs, 4096)
         total = sum(len(m["content"]) for m in out)
         self.assertLessEqual(total, int(4096 * 0.6 * 3) + 50)
