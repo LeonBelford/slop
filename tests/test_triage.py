@@ -41,6 +41,7 @@ class TriageTests(unittest.TestCase):
         self.calls = []
         self.ag.reevaluate = lambda **kw: self.calls.append(kw) or {}
         self.ag.replan_if_stuck = lambda: False
+        self.ag.light_check = lambda: False
 
     def tearDown(self):
         self.tmp.cleanup()
