@@ -106,7 +106,7 @@ class PlanMixin:
             self.log(f"Layer bookkeeping skipped: {clip(str(e), 200)}")
         self.milestone_review(layer, name)
 
-    def reevaluate(self) -> dict:
+    def reevaluate(self, requeue: bool = True, state_note: str = "") -> dict:
         """Thinks the plan through again for an existing project: new layers, every open task re-ordered into them, gaps in the
         foundation added as tasks, redundant tasks cancelled. Needs the agent to be stopped (it rewrites the backlog)."""
         self.phase("Re-evaluating the plan: what does the core need?", "plan")
@@ -125,7 +125,7 @@ class PlanMixin:
             f"Previous layers: {[ly['name'] for ly in old['layers']] if old else 'none (the project was planned feature by feature)'}\n"
             f"Features built: {[f['title'] for f in self.mem.features.values()]}\nArchitecture notes:\n"
             f"{clip(arch.read_text('utf-8') if arch.exists() else '', 2500)}\nCode map:\n{clip(self.mem.render_codemap(), 5000)}\n"
-            f"Tasks: {json.dumps(rows)}\n3 to 5 layers. Schema: " + REEVAL_SCHEMA)
+            f"Current state of the project:\n{state_note or '-'}\nTasks: {json.dumps(rows)}\n3 to 5 layers. Schema: " + REEVAL_SCHEMA)
         res = blueprint.normalize_reevaluation(data, items)
         if not res["layers"]:
             raise RuntimeError("The model returned no usable layers; nothing was changed.")
@@ -154,7 +154,7 @@ class PlanMixin:
                 i["layer"] = top + 1 if i["status"] != "done" else None
                 if i["layer"] is None:
                     i.pop("layer")
-            if i["status"] == "blocked":
+            if requeue and i["status"] == "blocked":
                 i.update(status="pending", attempts=0)
                 stats["requeued"] += 1
         order = {i["id"]: n for n, i in enumerate(sorted(by_id.values(), key=lambda i: (i.get("layer") if i.get("layer") is not None else UNLAYERED, i["id"])))}
