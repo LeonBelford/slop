@@ -132,6 +132,14 @@ class ChatTests(unittest.TestCase):
         self.assertEqual(seen[0][0], "/api/generate")
         self.assertEqual((seen[0][1]["prompt"], seen[0][1]["keep_alive"]), ("", "10m"))
 
+    def test_at_mentions_inline_repo_files_and_block_traversal(self):
+        ws = Path(tempfile.mkdtemp())
+        (ws / "repo").mkdir()
+        (ws / "repo" / "a.py").write_text("x=1")
+        out = chat.mention_context("see @a.py and @../../etc/passwd.x", [ws])
+        self.assertIn("x=1", out)
+        self.assertNotIn("root:", out)
+
     def test_models_status(self):
         st = self.svc.models_status()
         self.assertIn("up", st)

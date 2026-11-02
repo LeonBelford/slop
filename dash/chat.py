@@ -13,7 +13,7 @@ import time
 import urllib.request
 
 from core.cfutil import _open_think, _strip_think
-from dash import chatagent, directtools, toolchat
+from dash import chatagent, directedit, directtools, toolchat
 from infra import knowledge
 from pathlib import Path
 from collections.abc import Callable, Iterator
@@ -191,6 +191,22 @@ def knowledge_context(ws: Path, query: str, api: str, key: str, embed_model: str
     return ("Knowledge base hits for the latest question:\n" + "\n".join(lines)) if lines else ""
 
 
+def mention_context(text: str, workspaces: list[Path], limit: int = 4000) -> str:
+    """Inlines files the user referenced as @path/to/file (relative to a linked project's repo)."""
+    out, seen = [], set()
+    for rel in re.findall(r"(?<![\w@])@([\w./-]+\.\w+)", text or ""):
+        for w in workspaces:
+            try:
+                f = directedit._safe(w / "repo", rel)
+                if f.is_file() and (w.name, rel) not in seen:
+                    seen.add((w.name, rel))
+                    out.append(f"### @{rel} ({w.name})\n```\n{clip(f.read_text('utf-8', 'replace'), limit)}\n```")
+                    break
+            except Exception:  # noqa: BLE001
+                continue
+    return "Files the user mentioned:\n\n" + "\n\n".join(out[:5]) if out else ""
+
+
 def build_messages(chat: dict, ws_of: Callable[[str], Path | None], api: str = "", key: str = "", tool_ctx: Callable[[str], str] | None = None,
                    web_ctx: str = "", root: Path | None = None) -> list[dict]:
     last = next((m["content"] for m in reversed(chat["messages"]) if m["role"] == "user"), "")
@@ -220,6 +236,9 @@ def build_messages(chat: dict, ws_of: Callable[[str], Path | None], api: str = "
         doc_text = directtools.read_docs(root, 8000, 3000)[0]
         if doc_text:
             system += "\n\nCodeFactory's own docs (already read for you):\n\n" + doc_text
+    mentions = mention_context(last, [w for w in (ws_of(n) for n in chat["projects"]) if w])
+    if mentions:
+        system += "\n\n" + mentions
     if web_ctx:
         system += "\n\n" + web_ctx
     kept, used = [], 0

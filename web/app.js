@@ -4,7 +4,7 @@ let sel=localStorage.getItem("sel")||null, view="project", tab="overview", list=
 let taskModel="",toolMcfg=null,toolTab_="tool",toolBranch="",planId="",taskPrefill="",codeBase="head",codeOpen=new Set(),codeView=null,codeInit=false;
 let diffView=null, lastBody="", lastHead="", lastTabs="", openKeys=new Set();
 const EDITABLE=["ideas","sources","task","tool","settings","goal","profile","knowledge"];
-const GROUPS=[["overview","Overview",["overview"]],["pdash","Dashboard",["pdash"]],["chat","Chat",["chat"]],["task","Do a task",["task"]],["agent","Agent",["profile","knowledge","goal","ideas","sources","settings"]],["activity","Activity",["log","reasoning","llm"]],["code","Code & test",["editor","changes","testing"]],["customize","Customize",["customize"]]];
+const GROUPS=[["overview","Overview",["overview"]],["pdash","Dashboard",["pdash"]],["task","Do a task",["task"]],["agent","Agent",["profile","knowledge","goal","ideas","sources","settings"]],["activity","Activity",["log","reasoning","llm"]],["code","Code & test",["editor","changes","testing"]],["customize","Customize",["customize"]]];
 const LEAF={pdash:"Dashboard",profile:"Instructions & capabilities",knowledge:"Knowledge files",goal:"Goal",ideas:"Ideas",sources:"Web sources",settings:"Models & limits",log:"Live log",reasoning:"Reasoning",llm:"AI activity",editor:"Editor",changes:"Review changes",testing:"Test version"};
 const ACCENTS=["","#5fb36b","#6fa3d8","#d6a23c","#c678dd","#e06c75","#56b6c2"];
 const STAT_KEYS=[["merged","Features merged"],["open","Open tasks"],["done","Done"],["blocked","Blocked"],["iterations","Iterations"],["hours","Runtime"],["tokens","Tokens used"],["tps","Tokens / s"],["wps","Words / s"],["tpm","Tokens / min"],["gpu","GPU"],["avgcall","Avg. call time"]];
@@ -297,7 +297,7 @@ function renderProject(){
   const head=`<div class="top"><div><h1>${esc(d.name)} <span class="pill ${c==="run"?"ok":c==="stop"?"warn":""}">${t}</span> ${pillF}</h1><div class="idea">${esc(d.idea)}</div></div>
   <div class="btns">
     ${d.running?`<button class="danger" onclick="act('stop',{},'Will stop after the current task')" ${d.stopping?"disabled":""}>Stop</button><button class="danger" title="Kill switch: ends the agent and all its processes immediately; unfinished work is discarded" onclick="forceStop()">Force stop</button>`:`<button class="primary" onclick="act('start',{},'Agent started')">Start</button>`}
-    ${list&&list.chat_enabled===false?"":`<button onclick="showChat(null,['${esc(d.name)}'])" title="Open a chat that knows this project">Chat about this</button>`}
+    ${list&&list.chat_enabled===false?"":`<button onclick="sideOpen()" title="Open the side chat for this project">Chat about this</button>`}
     ${d.running?"":`<button onclick="doReplan()" title="The agent thinks the plan through again: new architecture layers, re-ordered and cleaned-up tasks">Re-evaluate tasks</button>`}
     <button onclick="doTry()" ${d.try_running?"disabled":""}>${d.try_running?"Building test version…":"Test now"}</button>
   </div></div>
@@ -516,7 +516,7 @@ async function runTestsTab(){
   const o=$("#tests-out");o.textContent="Running…";
   try{const r=await api(`/api/project/${encodeURIComponent(sel)}/editor`,{op:"run-tests"});o.className="";testsRes=`<div class="row"><code>${esc(r.cmd)}</code> <b class="${r.rc===0?"lg-ok":"lg-err"}">${r.rc===0?"passed":"failed (exit "+r.rc+")"}</b></div><pre>${colorLog(r.out||"(no output)")}</pre>`;o.innerHTML=testsRes}catch(e){o.textContent=e.message}
 }
-function setTab(k){if(k==="chat")return openProjectChat(sel);$("#main").scrollTop=0;LS=null;liveHtml="";tab=k;dirty=false;extra=null;lastBody="";$("#body").dataset.tab="";lastTabs="";renderProject();fetchExtra().then(renderProject)}
+function setTab(k){if(k==="chat")return sideOpen();$("#main").scrollTop=0;LS=null;liveHtml="";tab=k;dirty=false;extra=null;lastBody="";$("#body").dataset.tab="";lastTabs="";renderProject();fetchExtra().then(renderProject)}
 async function fetchExtra(){
   try{
     if(view==="chat"||view==="dash")return;
