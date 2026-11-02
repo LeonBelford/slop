@@ -344,3 +344,25 @@ Self-improve now reads measured evidence: a rule engine (`dash/sievidence.py`) t
 - **Export**: "Export as repo" writes tracked files plus README, CI and LICENSE to `<projects>/.exports/<name>` as a fresh git repo.
 - **GPU windows**: `infra/window.py` (`open_now`, `pick`) decides whether a heavy model may run now (e.g. `22:00-07:00`); not wired into the scheduler yet.
 - **Spike and split on small windows**: below 8192 tokens a spike is skipped (it would be blind); a spike that fails really splits the task at once (flag `spike_split`).
+
+## Control tools: steer the agent instead of only watching it
+
+A project's "Control" tab gives you a live cockpit instead of just a log:
+
+- **Context auto-tuner** (`infra/ctxtune.py`): reads the Ollama models installed and the GPU's free VRAM and recommends the largest safe `num_ctx` per model, with one click to write a ready-made Modelfile (`ollama create <model>-ctx<N>`). A too small window (Ollama's 4096 default) is the most common cause of bad plans and reviews.
+- **Live control panel**: pause/resume, step mode (wait after every step), pick the next task, change priority — all from the UI, no restart needed.
+- **Pinned mid-task hint**: a note you add becomes pinned context for the current task's next attempt.
+- **Spec preview and gate**: before code is written you see the planned files/signatures and can approve, edit or reject the design.
+- **Role editor** (`dash/roles.py`): per-role temperature, reasoning on/off and an extra prompt line, stored in `agent/roles.json`; model choice stays in the existing model settings.
+- **Chat-agent "Agent mode"**: say "add a task for X" in the project chat and a fenced action block is executed through the existing task/priority actions — no new backend path, just a tool layer on top of what was already there.
+- **Diff review with inline comments** (`dash/review.py`): a comment on a changed line becomes a new fix task that references that file and line.
+- **Code search and map** (`dash/codesearch.py`): symbol search, "who uses this", a small Python call graph.
+- **Test generator and mutation check** (`dash/testgen.py`): lists source files no test mentions, queues "write tests" tasks, and can mutate a line to check the tests actually fail (reuses the build-time mutation operators from `core/cfa_verify.py`).
+- **Terminal and playground** (`dash/sandbox.py`): run commands or start the app live in a throwaway copy of the repo (`agent/sandbox`), with a log stream; the real repo is never touched.
+- **Refactor runs** (`dash/refactor.py`): guarded rename, dead-code candidates and an oversized-module split task; tests must stay green or everything is reset.
+- **Doc sync** (`dash/docsync.py`): a "Layer N done" heading is added to the existing CHANGELOG.md after each layer (no separate changelog).
+- **Decision log / ADRs and health score** (`dash/adrs.py`): searches the same knowledge-base index the chat uses; health score from test coverage, module size, drift and blocker rate.
+- **Timeline** (`dash/events.py`): every UI action, pipeline event and finished task in one feed (reuses `dash/history.py`).
+
+All of this sits behind `webapi/ext.py` and is additive: none of it duplicates an existing action, it either calls the same backend path the rest of the UI already uses or adds a genuinely new capability (sandbox, code search, mutation check, context tuner).
+

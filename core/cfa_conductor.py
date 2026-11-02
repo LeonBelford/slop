@@ -27,7 +27,7 @@ class ConductorMixin:
         self.journal.append(f"- [{kind}] {' '.join(str(text).split())[:400]}")
         body = "\n".join(self.journal)
         body = body[:300] + "\n...\n" + body[-(JOURNAL_CHARS - 300):] if len(body) > JOURNAL_CHARS else body
-        pinned = getattr(self, "pinned", "")
+        pinned = (getattr(self, "hints_text", lambda: "")() + getattr(self, "pinned", "")).strip()
         self.llm.session_note = (pinned + "\n\nJournal:\n" if pinned else "") + body
         rd = getattr(self, "run_dir", None)
         if rd:

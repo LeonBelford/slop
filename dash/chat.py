@@ -12,7 +12,7 @@ import threading
 import time
 import urllib.request
 
-from dash import toolchat
+from dash import chatagent, toolchat
 from infra import knowledge
 from pathlib import Path
 from collections.abc import Callable, Iterator
@@ -132,6 +132,8 @@ class ChatStore:
             chat["title"] = str(body["title"])[:80]
         if "web" in body:
             chat["web"] = bool(body["web"])
+        if "agent" in body:
+            chat["agent"] = bool(body["agent"])
         self.save(chat)
         return chat
 
@@ -195,6 +197,8 @@ def build_messages(chat: dict, ws_of: Callable[[str], Path | None], api: str = "
         system = SYSTEM + ("\n\nLinked projects (current state):\n\n" + "\n\n".join(ctx) if ctx else "")
     if chat.get("project"):
         system += "\n\n" + PROJECT_ADDON
+    if chat.get("agent") and chat["projects"]:
+        system += "\n\n" + chatagent.ADDON
     if web_ctx:
         system += "\n\n" + web_ctx
     kept, used = [], 0

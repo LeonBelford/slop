@@ -30,4 +30,4 @@ class HandoffMixin:
 
     def handoff_text(self) -> str:
         p = getattr(self, "pinned", "")
-        return p + "\n\n" if p else ""
+        return getattr(self, "hints_text", lambda: "")() + (p + "\n\n" if p else "")

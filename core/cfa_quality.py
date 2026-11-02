@@ -68,6 +68,8 @@ class QualityMixin:
         problems = [str(p) for p in (review.get("problems") or [])][:4] if review.get("ok") is False else []
         sigs = [str(s) for s in spec.get("signatures", [])][:10]
         edge = [str(s) for s in spec.get("edge_cases", [])][:8]
+        files, sigs, edge = self.spec_gate(item, list(spec.get("files", [])), sigs, edge)
+        spec["files"] = files
         plan["spec"] = {"files": spec.get("files", []), "signatures": sigs, "edge_cases": edge, "problems": problems}
         self.handoff("implementation", "design", goal=f"{item['id']} {item['title']}",
                      decided=[f"files: {plan['spec']['files']}"] + [f"signature: {s}" for s in sigs],

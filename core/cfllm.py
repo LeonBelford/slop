@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 from pathlib import Path
+from dash import roles
 from infra import gpusched
 import json
 import re
@@ -63,6 +64,7 @@ class LLM:
         self.think_cap = int(cfg.get("limits", {}).get("think_chars", 6000))
         self.cut_thinking = False
         self.overrides: dict[str, str] = {}  # role -> model chosen by routing
+        self.roles: Path | None = None  # agent/roles.json: per-role model, temperature, reasoning and prompt overrides from the UI
         self.live: Path | None = None  # file describing the model call in progress (for the UI)
         self.trace: Path | None = None  # set by Agent: every model call is appended here so you can watch the "thinking"
         self.thoughts: Path | None = None  # full, untruncated record of every call incl. the model's reasoning (thoughts.jsonl)
@@ -231,6 +233,8 @@ class LLM:
             return self._traced(tag, role, user, mocked)
         fallback = self.cfg["models"].get("planner") if role == "strategist" else self.cfg["models"]["reviewer"]
         model = self.overrides.get(role) or self.cfg["models"].get(role) or fallback
+        if self.roles:
+            system, user, temperature = roles.apply(roles.load(self.roles).get(role) or {}, system, user, temperature)
         if self.server_ctx:
             system, user = fit_to_ctx(system, user, self.server_ctx)
         body = json.dumps({

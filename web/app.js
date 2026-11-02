@@ -204,9 +204,12 @@ function microSteps(steps){
   return `<details class="microsteps" open><summary>Sub-steps so far</summary>${rows}</details>`;
 }
 function stepTimes(list,idx,durations,liveStep,liveSince,t){
-  return `<div class="steps">${list.map(([k,l],i)=>{
+  const sum=durations?Object.values(durations).reduce((a,b)=>a+b,0)+(liveSince?Math.max(0,t-liveSince):0):0;
+  return `${sum>0.5?`<div class="sub">Whole task so far: ${fmtDur(sum)}</div>`:""}<div class="steps">${list.map(([k,l],i)=>{
     const closed=(durations&&durations[k])||0,live=k===liveStep&&liveSince?Math.max(0,t-liveSince):0,total=closed+live;
-    const time=(i<=idx&&total>0.5)?`<span class="stime">${fmtDur(total)}</span>`:"";
+    const isLive=k===liveStep&&liveSince&&i===idx;
+    const time=isLive?`<span class="stime" title="Now in this step / total in this step over the whole task">now ${fmtDur(live)} · Σ ${fmtDur(total)}</span>`
+      :(i<=idx&&total>0.5)?`<span class="stime" title="Total time in this step over the whole task">Σ ${fmtDur(total)}</span>`:"";
     return `<div class="step ${i<idx?"done":i===idx?"cur":""}">${l}${time}</div>`}).join("")}</div>`;
 }
 function renderNow(){
@@ -434,11 +437,11 @@ function customizeBody(d){
 function taskBtns(i){
   const b=(a,l,c)=>`<button class="small ${c||""}" onclick="taskAct('${a}','${esc(i.id)}')">${l}</button> `;
   if(i.status==="pending")return b("task-top","Top")+b("task-cancel","Cancel");
-  if(i.status==="blocked")return b("task-reopen","Reopen")+b("task-cancel","Cancel");
-  if(i.status==="cancelled")return b("task-reopen","Reopen");
+  if(i.status==="blocked")return b("task-reopen","Reopen")+b("task-cancel","Cancel")+b("task-delete","Delete");
+  if(i.status==="cancelled")return b("task-reopen","Reopen")+b("task-delete","Delete");
   return "";
 }
-async function taskAct(a,id){await act(a,{id})}
+async function taskAct(a,id){if(a==="task-delete"&&!confirm("Delete this task for good?"))return;await act(a,{id})}
 function settingsBody(d){
   const x=extra&&extra.kind==="settings"?extra:null;
   if(!x)return `<div class="hint">Loading…</div>`;
@@ -731,7 +734,8 @@ function drawChat(){
     <button onclick="newChat()">+ New chat</button>${c?`<button class="ghost danger" onclick="delChat()">Delete</button>`:""}</div>
   ${c?`<div class="chat-meta">
     ${c.tool?`<div class="hint" style="margin:0">Talks about CodeFactory itself. Proposed changes are built and tested on a separate branch; you try them in a preview and merge. <a href="#" onclick="showTool();return false">Open branches / preview / merge</a></div>`:c.project?`<div class="hint" style="margin:0">Talks about <b>${esc(c.project)}</b> (goal, backlog, code knowledge, recent activity). When you want a change the model proposes a task; <b>Do this in ${esc(c.project)}</b> sends it to the project's agent.</div>`:`<div class="chips-wrap"><span class="lbl">Projects</span><div class="chips">${names.map(n=>`<span class="chip ${c.projects.includes(n)?"on":""}" onclick="toggleLink('${esc(n)}')">${esc(n)}</span>`).join("")||'<span class="hint" style="margin:0">no projects yet</span>'}</div></div>
-    <label>Answer buttons use<select id="chTarget">${c.projects.map(n=>`<option>${esc(n)}</option>`).join("")||"<option value=''>(link a project)</option>"}</select></label>`}</div>
+    <label>Answer buttons use<select id="chTarget">${c.projects.map(n=>`<option>${esc(n)}</option>`).join("")||"<option value=''>(link a project)</option>"}</select></label>`}
+  ${!c.tool&&c.projects.length?`<label class="hint" style="margin-top:4px;display:block"><input type="checkbox" ${c.agent?"checked":""} onchange="chatUpdate({agent:this.checked})"> Agent mode: let it act (pause/resume, queue tasks, priorities, hints, tests, status) on the linked project(s) with your confirmation</label>`:""}</div>
   <div class="msgs" id="msgs">${c.messages.map(msgHtml).join("")||`<div class="chat-empty"><div class="big">What are we working on?</div><div class="hint">Ask anything. Link a project above and the model knows its goal, backlog and recent work.</div><div class="suggs">${sug}</div></div>`}</div>
   <div class="composer"><textarea id="chIn" rows="1" placeholder="Message CodeFactory…  (Enter sends, Shift+Enter for a new line)" oninput="grow(this)" onkeydown="chatKey(event)"></textarea>
     <button class="primary send" id="chSend" onclick="chatSend()" title="Send (Enter)">↑</button><button class="send" id="chStop" onclick="chat.ctrl&&chat.ctrl.abort()" title="Stop answering" style="display:none">■</button></div>
@@ -745,11 +749,19 @@ function grow(t){t.style.height="auto";t.style.height=Math.min(t.scrollHeight,20
 function chatKey(e){if(e.key==="Enter"&&!e.shiftKey&&!e.isComposing){e.preventDefault();chatSend()}}
 function chatAsk(t){$("#chIn").value=t;chatSend()}
 function taskBlocks(t){return[...t.matchAll(/```task[ \t]*\n([\s\S]*?)```/g)].map(m=>m[1].trim()).filter(x=>x.length>=10)}
+function actionBlocks(t){return[...t.matchAll(/```action[ \t]*\n([\s\S]*?)```/g)].map(m=>{try{return JSON.parse(m[1].trim())}catch(e){return null}}).filter(Boolean)}
 function msgHtml(m,i){
   if(m.role==="user")return `<div class="msg user">${esc(m.content)}</div>`;
   const tool=chat.cur&&chat.cur.tool,pj=chat.cur&&chat.cur.project,tasks=tool||pj?taskBlocks(m.content):[];
+  const actions=!tool&&chat.cur&&chat.cur.agent?actionBlocks(m.content):[];
   const acts=tool||pj?tasks.map((_,k)=>`<button class="small primary" onclick="${tool?"buildFromChat":"doFromChat"}(${i},${k})">${tool?"Build on test branch":"Do this in "+esc(pj)}${tasks.length>1?" #"+(k+1):""}</button>`).join(""):`<button class="small ghost" onclick="fromChat(${i},'say')">Add to ideas</button><button class="small ghost" onclick="fromChat(${i},'do')">Run as task</button>`;
-  return `<div class="msg assistant" data-i="${i}">${mdLite(m.content.replace(/```task/g,"```"))}${m.sources&&m.sources.length?`<div class="meta" style="margin-top:6px">Sources: ${m.sources.map(x=>`<a href="${esc(x.url)}" target="_blank" rel="noopener noreferrer">${esc(x.title.slice(0,40))}</a>`).join(" · ")}</div>`:""}<div class="acts"><button class="small ghost" onclick="copyMsg(${i})">Copy</button>${acts}</div></div>`;
+  const actBtns=actions.map((c,k)=>`<button class="small primary" onclick="runAction(${i},${k})">▶ ${esc(c.tool)}${c.project?" on "+esc(c.project):""}</button>`).join("");
+  return `<div class="msg assistant" data-i="${i}">${mdLite(m.content.replace(/```task/g,"```").replace(/```action/g,"```"))}${m.sources&&m.sources.length?`<div class="meta" style="margin-top:6px">Sources: ${m.sources.map(x=>`<a href="${esc(x.url)}" target="_blank" rel="noopener noreferrer">${esc(x.title.slice(0,40))}</a>`).join(" · ")}</div>`:""}<div class="acts"><button class="small ghost" onclick="copyMsg(${i})">Copy</button>${acts}${actBtns}</div></div>`;
+}
+async function runAction(i,k){
+  const c=actionBlocks(chat.cur.messages[i].content)[k];
+  if(!c||!confirm(`Run this action?\n\n${JSON.stringify(c,null,2)}`))return;
+  try{const r=await api(`/api/chat/${chat.cur.id}/action`,c);chat.cur=r.chat;drawChat();toast("Done")}catch(e){toast(e.message,true)}
 }
 async function openProjectChat(name){try{const c=await api("/api/project/"+encodeURIComponent(name)+"/chat");chat.cur=null;await showChat(c.id)}catch(e){toast(e.message,true)}}
 async function doFromChat(i,k){

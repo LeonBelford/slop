@@ -100,7 +100,7 @@ class Backlog:
         """Appends a new backlog item and saves, or returns `None` if it looks like a duplicate (unless `force`)."""
         if not force and self.is_dup(title, extra_titles):
             return None
-        item = {"id": f"T{len(self.items) + 1:04d}", "title": title, "description": description,
+        item = {"id": f"T{max([int(i["id"][1:]) for i in self.items if str(i.get("id", ""))[1:].isdigit()] + [0]) + 1:04d}", "title": title, "description": description,
                 "type": type_, "priority": float(priority), "status": "pending", "attempts": 0,
                 "acceptance": acceptance or [], "rationale": rationale, "source": source,
                 "created": now(), "notes": []}
