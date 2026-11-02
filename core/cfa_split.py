@@ -46,7 +46,7 @@ class SplitMixin:
         for other in self.backlog.items:  # whoever waited for the task now waits for its last slice
             if item["id"] in other.get("depends_on", []) and other["id"] not in ids:
                 other["depends_on"] = [ids[-1] if x == item["id"] else x for x in other["depends_on"]]
-        self.backlog.set(item, status="cancelled", split_into=ids,
+        self.backlog.set(item, status="cancelled", split_into=ids, reason=f"split into {len(ids)} smaller slices ({', '.join(ids)}): {str(d.get('cause', ''))[:200]}",
                          notes=item.get("notes", []) + [f"split into {', '.join(ids)} after repeated failures"])
         self.metric(kind="split", item=item["id"], into=ids)
         self.log(f"Split {item['id']} into {len(ids)} slices: {', '.join(ids)}")
@@ -64,5 +64,5 @@ class SplitMixin:
                 n += 1
         return n
 
-    def block_task(self, item: dict) -> None:
-        self.backlog.set(item, status="blocked", blocked_at_merge=self.state["merged"])
+    def block_task(self, item: dict, reason: str = "") -> None:
+        self.backlog.set(item, status="blocked", blocked_at_merge=self.state["merged"], reason=(reason or "repeated failures")[:400])

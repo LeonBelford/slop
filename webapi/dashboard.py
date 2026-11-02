@@ -96,7 +96,7 @@ class DashboardMixin:
         c = getattr(self, "_pdash", {}).get(name)
         if c and time.time() - c[0] < 2:
             return c[1]
-        res = projectdash.build(ws, self.summary(ws)["running"])
+        res = projectdash.build(ws, self.summary(ws)["running"], has_ui=self.project_has_ui(ws))
         res["perf"] = throughput.perf(sa.read_json(ws / "agent" / "metrics.json", {}))
         res["gpu"] = self.gpu_stats()
         if not hasattr(self, "_pdash"):

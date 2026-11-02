@@ -222,6 +222,9 @@ tasks that keep failing sink (`dyn` correction, free, no model call). After 3 me
 lays the plan out again with a note on what was merged, what fails and what is blocked; failures only log and are not retried
 every iteration. User tasks are never touched. Switch off with `features.triage: false`.
 
+## Visibility in the overview
+Every blocked or cancelled task shows **why** (`reason`, set centrally in `Backlog.set`, e.g. last failure or split slices). "Finished features" is now **Finished tasks** with the total runtime per task (summed over all attempts, `runtime_s`). The "UI test" step is hidden when the project has no UI (`has_ui`).
+
 ## Self-Improve uses the same quality standard
 
 The self-improve pipeline shares the helpers of the project pipeline: pinned instruction blocks (`core/cfa_handoff.py`) in front of

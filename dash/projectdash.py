@@ -93,7 +93,7 @@ def findings(snap: dict) -> list[dict]:
     return out
 
 
-def build(ws: Path, running: bool, now: float | None = None) -> dict:
+def build(ws: Path, running: bool, now: float | None = None, has_ui: bool = True) -> dict:
     now = now or time.time()
     a = ws / "agent"
     state, backlog = _json(a / "state.json", {}), _json(a / "backlog.json", [])
@@ -117,9 +117,9 @@ def build(ws: Path, running: bool, now: float | None = None) -> dict:
         "current": {"task": task, "title": cur["title"] if cur else "", "phase": act.get("phase", "") if act else "", "step": act.get("step") if act else None,
                     "attempt": act.get("attempt", 0) if act else 0, "pct": act.get("pct") if act else None,
                     "since_s": round(now - act["since"]) if act and act.get("since") else None},
-        "steps": STEPS, "events": events,
+        "steps": [s for s in STEPS if has_ui or s != "e2e"], "events": events,
         "backlog": counts, "queue": queue(backlog), "layers": layers(backlog, _json(a / "blueprint.json", None)),
-        "blocked": [{"id": i["id"], "title": i["title"], "attempts": i.get("attempts", 0), "note": (i.get("notes") or [""])[-1][:200]}
+        "blocked": [{"id": i["id"], "title": i["title"], "attempts": i.get("attempts", 0), "note": (i.get("reason") or (i.get("notes") or [""])[-1])[:200]}
                     for i in backlog if i.get("status") == "blocked"][:8],
         "triage": {"adjusted": [{"id": i["id"], "title": i["title"], "dyn": i["dyn"]} for i in backlog if i.get("status") == "pending" and i.get("dyn")][:6],
                    "last_layout_at_merge": state.get("triage_at"), "merges_since_layout": merged - state.get("triage_at", 0),

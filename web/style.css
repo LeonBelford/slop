@@ -265,3 +265,4 @@ th.sortable{cursor:pointer;user-select:none;white-space:nowrap}th.sortable:hover
 .chat-foot select{width:auto;max-width:260px;color:var(--text)}
 .chat-foot input[type=checkbox]{width:auto}
 .pd-steps{display:flex;flex-wrap:wrap;gap:4px;margin:8px 0}.pd-j{white-space:pre-wrap;font-size:12px;max-height:260px;overflow:auto;margin:0}
+.reason{max-width:260px;white-space:normal;margin-top:3px}

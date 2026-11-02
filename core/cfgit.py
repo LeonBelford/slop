@@ -158,4 +158,8 @@ class Backlog:
     def set(self, item: dict, **kw) -> None:
         """Updates `item`'s fields in place and persists the backlog."""
         item.update(kw)
+        if kw.get("status") in ("blocked", "cancelled") and not item.get("reason"):
+            item["reason"] = (item.get("notes") or ["no reason recorded"])[-1]  # every block/cancel says why
+        elif kw.get("status") in ("pending", "in_progress", "done"):
+            item.pop("reason", None)
         self.save()
