@@ -18,6 +18,7 @@
     <button onclick="openMaster()" title="Global instructions for all projects">Master prompt</button>
   </div>
   <div id="ms" class="hint" style="padding:8px 16px"></div>
+  <div style="padding:0 12px 8px"><input id="projFilter" placeholder="Filter projects…" oninput="renderList()" style="padding:6px 10px;font-size:13px"></div>
   <div id="plist"></div>
   <div class="side-foot"><button id="qrBtn" class="qr-btn" style="display:none" onclick="openQr()" title="Open this UI on your phone (QR code)">📱 Phone link</button>
   <button id="updBtn" onclick="openUpdate()" title="Check for a new version on GitHub and install it">Update</button>
@@ -51,6 +52,11 @@
   <p class="hint">Applies to <b>all</b> projects and is picked up at the start of every session. Stored as <code>MASTER.md</code> in the repository root.</p>
   <textarea id="mText" rows="14"></textarea>
   <div class="row" style="justify-content:flex-end;margin-top:12px"><button onclick="dMaster.close()">Close</button><button class="primary" onclick="saveMaster()">Save</button></div>
+</dialog>
+
+<dialog id="dPal" onclose="palReset()">
+  <input id="palInput" placeholder="Jump to a project, tab or action…" oninput="palFilter()" onkeydown="palKey(event)" autocomplete="off">
+  <div id="palList" style="margin-top:8px;max-height:55vh;overflow:auto"></div>
 </dialog>
 
 <div class="toast" id="toast"></div>

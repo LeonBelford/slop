@@ -11,7 +11,7 @@ from pathlib import Path
 
 import codefactory as sa
 from core import control
-from dash import adrs, chatagent, codesearch, events, refactor, review, roles, sandbox, testgen
+from dash import adrs, chatagent, codesearch, directedit, events, refactor, review, roles, sandbox, testgen
 from infra import ctxtune
 from webapi import common
 from webapi.common import UiError
@@ -301,4 +301,13 @@ class ExtMixin:
             return "priority changed"
         if tool == "generate_tests":
             return f"task {self.ext_act(ws, name, 'testgen', {'file': args['file']})['task']} queued"
+        if tool == "write_note":
+            return directedit.write_note(ws, str(args.get("file") or "notes.md"), str(args["text"]))
+        if tool == "make_folder":
+            return directedit.make_folder(ws / "repo", str(args["path"]))
+        if tool == "write_file":
+            cfg = sa.Agent(ws).cfg
+            if not cfg.get("chat", {}).get("direct_edit"):
+                raise UiError('Direct file writes are off for this project. Turn on "Let chat write files directly" in Settings first.', 403)
+            return directedit.write_file(ws / "repo", str(args["path"]), str(args["content"]), cfg.get("commands", {}).get("test") or "")
         raise UiError("Unknown tool", 404)

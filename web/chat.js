@@ -1,7 +1,7 @@
 /* ---- chat: conversations, agent mode with action cards, slash commands (own DOM, never re-rendered by the poll so streaming is not interrupted) ---- */
 let chat={list:[],models:[],def:"",cur:null,ctrl:null,q:"",brief:{},loop:0,listOpen:false,poll:null};
 const RO=["status","search_code","list_tasks","show_task","read_file","health","timeline"];
-const ICON={status:"📊",search_code:"🔎",list_tasks:"📋",read_file:"📄",show_task:"🔍",reopen_task:"↩",delete_task:"🗑",edit_task:"✏",feedback:"💬",design:"📐",run_command:"💻",health:"❤️",timeline:"🕒",add_task:"➕",start:"▶",stop:"⏹",pause:"⏸",resume:"⏯",step_mode:"👣",run_next:"⏭",set_priority:"⬆",cancel_task:"✖",hint:"📌",generate_tests:"🧪",create_project:"🆕"};
+const ICON={status:"📊",search_code:"🔎",list_tasks:"📋",read_file:"📄",show_task:"🔍",reopen_task:"↩",delete_task:"🗑",edit_task:"✏",feedback:"💬",design:"📐",run_command:"💻",health:"❤️",timeline:"🕒",add_task:"➕",start:"▶",stop:"⏹",pause:"⏸",resume:"⏯",step_mode:"👣",run_next:"⏭",set_priority:"⬆",cancel_task:"✖",hint:"📌",generate_tests:"🧪",create_project:"🆕",write_note:"📝",make_folder:"📁",write_file:"💾"};
 const CMDS=[
   ["status","","Agent state and task counts",a=>({tool:"status"})],
   ["tasks","[open|doing|done|blocked]","List tasks with their ids",a=>({tool:"list_tasks",filter:a})],
@@ -21,6 +21,8 @@ const CMDS=[
   ["note","<text>","Add a remark to the feedback list",a=>({tool:"feedback",text:a})],
   ["hint","<text>","Pin a hint into the current task",a=>({tool:"hint",text:a})],
   ["tests","<file>","Queue a task that writes tests for a file",a=>({tool:"generate_tests",file:a})],
+  ["mkdir","<path>","Create an (empty) folder in the repo",a=>({tool:"make_folder",path:a})],
+  ["jot","<text>","Append a note to notes.md, kept outside the pipeline",a=>({tool:"write_note",text:a})],
   ["search","<symbol>","Search symbols in the code",a=>({tool:"search_code",query:a})],
   ["file","<path>","Show a file of the repo",a=>({tool:"read_file",path:a})],
   ["health","","Health score",a=>({tool:"health"})],
@@ -253,6 +255,7 @@ async function chatUpdate(b){
     chat.cur=await api(`/api/chat/${chat.cur.id}/update`,b);
     const x=chat.list.find(v=>v.id===chat.cur.id);if(x){x.title=chat.cur.title;x.projects=chat.cur.projects}
     drawBar();drawList();drawStatus();drawMsgs();chatPoll();
+    const ci=$("#chIn");if(ci)ci.placeholder=(isAgent(chat.cur)?"Tell the agent what to do, or type / for commands":"Message CodeFactory…")+"  (Enter sends, Shift+Enter: new line)";
   }catch(e){toast(e.message,true)}
 }
 function renameChat(){const t=prompt("Chat name",chat.cur.title);if(t&&t.trim())chatUpdate({title:t.trim()})}

@@ -66,6 +66,9 @@ DEFAULT_CONFIG = {
     # GPU scheduling between agents: "main" keeps priority, "side" only uses the model while main is idle for min_idle seconds
     "scheduler": {"priority": "main", "min_idle": 20, "slots": 2},
     "notify": {"webhook": "", "events": ["done", "blocked", "stalled", "stopped"]},
+    # Off by default: the chat agent can only queue tasks for the full plan/build/test pipeline. Turning this on lets
+    # it also write files straight into the repo (write_file tool), skipping review and tests.
+    "chat": {"direct_edit": False},
     "web": {"mode": "sources", "refresh_hours": 24, "max_chars": 20000, "timeout": 20, "research_every": 4,
             "queries_per_research": 3, "results_per_query": 2, "max_new_pages_per_session": 40,
             "search_url": "https://html.duckduckgo.com/html/?q={q}", "blocked_domains": []},
