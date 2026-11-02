@@ -16,7 +16,7 @@ from core.cfutil import clip, write_json, write_text
 
 TIER_GATES = {
     "tiny": ("e2e", "security"),
-    "small": ("e2e", "security"),
+    "small": ("e2e", "security", "review"),
     "full": ("coverage", "mutation", "e2e", "security", "review", "acceptance"),
 }
 TINY_LINES = 40  # at most one source file and this many added lines = tiny

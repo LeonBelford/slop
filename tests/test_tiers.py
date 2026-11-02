@@ -83,6 +83,10 @@ class TierTests(unittest.TestCase):
         self.assertEqual(ran, ["e2e", "security"])
         self.assertEqual(review["verdict"], "approve")
         ran.clear()
+        self.files = ["a.py", "b.py"]
+        ag.run_gates(item, {}, "x")
+        self.assertEqual(ran, ["e2e", "security", "review"])
+        ran.clear()
         self.files = ["a.py", "b.py", "c.py"]
         ag.run_gates(item, {}, "x")
         self.assertEqual(ran, ["coverage", "mutation", "e2e", "security", "review", "acceptance"])
