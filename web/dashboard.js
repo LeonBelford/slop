@@ -1,4 +1,4 @@
-const DKEY="dashpref",DSEC={live:"Live figures",attention:"Needs attention",projects:"Per project (live)",history:"History (30 days)",estimates:"Time estimates",diag:"Project diagnostics",compare:"Project comparison",report:"Daily report"},
+const DKEY="dashpref",DSEC={live:"Live figures",attention:"Needs attention",projects:"Per project (live)",history:"History (30 days)",estimates:"Time estimates",diag:"Project diagnostics",compare:"Project comparison",report:"Daily report",selfimp:"Self-improve runs"},
   DCARDS={agents:"Agents running",tps:"Tokens / s",tpm:"Tokens / min (avg)",alerts:"Alerts",chars:"Characters now",gpu:"GPU",vram:"VRAM",models:"Loaded models",today:"Today",all:"All time"},
   DFILTERS=[["all","All"],["running","Running"],["idle","Idle"],["attention","Needs attention"]];
 const DDEF=()=>({collapsed:{},hide:{},cards:{},order:Object.keys(DSEC),sort:{},q:"",f:"all",paused:false,notify:false,hmetric:"tokens",hscope:"total",cmp:"tasks"});
@@ -150,6 +150,13 @@ function sectionReport(){
     sec("Blocked",blocked.map(p=>`<div class="cap"><div>${esc(p.name)}</div><div class="meta">${p.flow.blocked} blocked task(s)</div></div>`).join(""))+
     sec("Needs you",need.map(f=>`<div class="row" style="margin:4px 0"><span class="pill ${f.level==="bad"?"bad":"warn"}">${esc(f.level)}</span> ${esc(f.text)}</div>`).join("")),`${built.reduce((a,p)=>a+today(p.name).done,0)} done today`];
 }
+function sectionSelfImp(){
+  const T=DIAG.tool||{},runs=(T.runs||[]).slice().reverse(),ms=Object.entries(T.models||{}).sort((a,b)=>b[1].tries-a[1].tries);
+  const mod=ms.map(([m,v])=>`<div class="cap"><div>${esc(m)}</div><div class="meta">${v.ok}/${v.tries} ok (${pct(v.tries?v.ok/v.tries:null)})</div></div><div class="bar"><i style="width:${v.tries?Math.round(100*v.ok/v.tries):0}%"></i></div>`).join("")||`<div class="hint">No coder attempts recorded yet.</div>`;
+  const cols=[{k:"id",l:"Run",v:r=>r.id,h:r=>esc(r.id)},{k:"kind",l:"Kind",v:r=>r.kind,h:r=>esc(r.kind||"")},{k:"st",l:"Status",v:r=>r.status,h:r=>`<span class="pill ${r.status==="done"?"ok":r.status==="failed"?"bad":"info"}">${esc(r.status||"")}</span>`},
+    {k:"rt",l:"Runtime",v:r=>r.runtime_s,h:r=>dur(r.runtime_s)},{k:"kept",l:"Kept",v:r=>r.kept,h:r=>`${r.kept}/${r.proposals}`}];
+  return [`<b>Success per model</b>${mod}<b>Runs</b>${dtable("selfimp",cols,runs,"No runs yet.")}`,`${T.kept||0}/${T.proposals||0} steps kept`];
+}
 const dq=n=>{if(!DIAG)return null;const p=n==="Self-improve"?{quality:(DIAG.tool||{}).quality}:DIAG.projects.find(x=>x.name===n);return p&&p.quality};
 function sectionProjects(d){
   const cols=[
@@ -207,7 +214,7 @@ function paintDash(){
   const d=DLAST,sel_=window.getSelection&&String(window.getSelection());
   if(sel_&&$("#body").contains(window.getSelection().anchorNode))return;  // do not destroy a text selection
   const parts={live:[sectionLive(d),""],attention:DIAG?sectionAttention(d):[`<div class="hint">Loading diagnostics…</div>`,""],projects:sectionProjects(d),
-    history:sectionHistory(),compare:DIAG?sectionCompare():[`<div class="hint">Loading…</div>`,""],report:DIAG?sectionReport():[`<div class="hint">Loading…</div>`,""],estimates:DIAG?sectionEstimates():[`<div class="hint">Loading…</div>`,""],diag:DIAG?sectionDiag():[`<div class="hint">Loading…</div>`,""]};
+    history:sectionHistory(),compare:DIAG?sectionCompare():[`<div class="hint">Loading…</div>`,""],selfimp:DIAG?sectionSelfImp():[`<div class="hint">Loading…</div>`,""],report:DIAG?sectionReport():[`<div class="hint">Loading…</div>`,""],estimates:DIAG?sectionEstimates():[`<div class="hint">Loading…</div>`,""],diag:DIAG?sectionDiag():[`<div class="hint">Loading…</div>`,""]};
   const tid={projects:"projects",diag:"diag"};
   const keepTop=$("#main").scrollTop;
   $("#body").innerHTML=DP.order.filter(k=>!DP.hide[k]).map(k=>dsec(k,parts[k][0],parts[k][1],tid[k])).join("")||`<div class="hint">All sections are hidden. Use View ▾ to show them.</div>`;

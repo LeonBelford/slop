@@ -8,7 +8,7 @@ import urllib.parse
 import urllib.request
 
 import codefactory as sa
-from dash import diagnostics, history, pdextra, projectdash, runledger, throughput
+from dash import diagnostics, history, pdextra, projectdash, runledger, sievidence, throughput
 from infra import perf
 
 from webapi import common
@@ -123,7 +123,8 @@ class DashboardMixin:
         sysinfo = diagnostics.system(oc[1])
         res = {"time": time.time(), "projects": projects, "system": sysinfo, "findings": diagnostics.findings(projects, sysinfo),
                "tool": {**runledger.stats(common.ROOT / "self_improve"), "durations": diagnostics.tool_durations(common.ROOT / "self_improve"),
-                         "quality": history.quality(common.ROOT / "self_improve")}}
+                         "quality": history.quality(common.ROOT / "self_improve"),
+                         "runs": sievidence.run_times(runledger.all_runs(common.ROOT / "self_improve"))}}
         self._diag = (time.time(), res)
         return res
 
