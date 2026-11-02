@@ -68,6 +68,32 @@ DIRECT_ADDON = ("You are in DIRECT mode: you work on the linked project yourself
                 + "\n".join(f"- {n}: {d[0]}" + (' (needs "project")' if d[1] else "") for n, d in TOOLS.items() if n not in ("add_task", "create_project"))
                 + "\nOnly use projects linked to this chat. Pipeline tools (add_task, start, ...) exist too if the user explicitly asks for the pipeline.")
 
+# tool -> (description, changes something) for the self-improve chat: no "project" argument, it always targets the CodeFactory repo itself.
+SELF_TOOLS: dict[str, tuple[str, bool]] = {
+    "list_dir": ('args: optional "path": the files and folders of a repo folder (default: the repo root)', False),
+    "read_file": ('args: "path", optional "start" and "end" line numbers: a file of the repo with line numbers (long files in parts)', False),
+    "read_docs": ("the repo's own .md docs (PROJECT_MAP, README, architecture, agents): read them before you change code", False),
+    "edit_file": ('args: "path", "old", "new": replace the text "old" (must occur exactly once) with "new" in a repo file; commits', True),
+    "delete_file": ('args: "path": delete a repo file; commits', True),
+    "write_file": ('args: "path", "content": write a whole file straight into the repo; commits', True),
+    "make_folder": ('args: "path": create an (empty) folder in the repo, for example "docs/notes"', True),
+}
+
+SELF_DIRECT_ADDON = ("You are in DIRECT mode on CodeFactory's OWN source code (the program the user is running), like a pair-programming "
+                     "assistant. This is separate from the self-improve pipeline (no task/branch/review step): your edits are committed "
+                     "straight to the current branch, so be careful and work in small steps. Workflow:\n"
+                     "1. CodeFactory's own docs are given below (PROJECT_MAP.md is the code map): read them and follow their rules. "
+                     "Call read_docs if you need to re-read them.\n"
+                     "2. Explore before you change anything: list_dir, read_file (with start/end for long files). Never guess file contents.\n"
+                     "3. Implement in small steps with edit_file (exact old text -> new text) or write_file (whole new file). Keep the module "
+                     "size limit and existing style and tests in mind.\n"
+                     "4. When done, answer with a short summary of what changed and which files, and remind the user to run the test suite.\n"
+                     "Add exactly the action blocks of the next step to your answer, like this:\n"
+                     '```action\n{"tool": "read_file", "path": "webui.py"}\n```\n'
+                     "Never claim a change that you did not make with a tool. Tools (none need a \"project\"):\n"
+                     + "\n".join(f"- {n}: {d[0]}" for n, d in SELF_TOOLS.items())
+                     + "\nIf the user wants a bigger, reviewed change instead, propose a ```task block for the self-improve pipeline.")
+
 
 def parse(text: str) -> list[dict]:
     """The action blocks of a model answer that are valid JSON objects, in order. The UI numbers its cards with the same list."""
@@ -105,17 +131,26 @@ def results_text(msg: dict) -> str:
     return ("\n\n[Results of your actions]\n" + "\n".join(lines)) if lines else ""
 
 
-def validate(call: dict, linked: list[str] | None) -> tuple[str, dict]:
-    """Returns (tool, args). Raises ValueError for an unknown tool, a missing argument or a project that is not linked to the chat."""
-    if not isinstance(call, dict) or call.get("tool") not in TOOLS:
-        raise ValueError("Unknown tool")
-    tool = call["tool"]
-    _, needs_project, _ = TOOLS[tool]
-    args = {k: v for k, v in call.items() if k != "tool"}
-    if needs_project:
-        p = str(args.get("project") or "")
-        if not p or (linked is not None and p not in linked):
-            raise ValueError(f"Project '{p}' is not linked to this chat")
+def validate(call: dict, linked: list[str] | None, self_mode: bool = False) -> tuple[str, dict]:
+    """Returns (tool, args). Raises ValueError for an unknown tool, a missing argument or a project that is not linked to the chat.
+
+    self_mode is the self-improve chat's direct route: it targets CodeFactory's own repo, so only SELF_TOOLS are allowed and no
+    "project" argument is needed or accepted."""
+    if self_mode:
+        if not isinstance(call, dict) or call.get("tool") not in SELF_TOOLS:
+            raise ValueError("Unknown tool")
+        tool = call["tool"]
+        args = {k: v for k, v in call.items() if k not in ("tool", "project")}
+    else:
+        if not isinstance(call, dict) or call.get("tool") not in TOOLS:
+            raise ValueError("Unknown tool")
+        tool = call["tool"]
+        _, needs_project, _ = TOOLS[tool]
+        args = {k: v for k, v in call.items() if k != "tool"}
+        if needs_project:
+            p = str(args.get("project") or "")
+            if not p or (linked is not None and p not in linked):
+                raise ValueError(f"Project '{p}' is not linked to this chat")
     need = {"search_code": "query", "add_task": "text", "hint": "text", "run_next": "task", "set_priority": "task", "generate_tests": "file",
             "create_project": "idea", "read_file": "path", "cancel_task": "task", "show_task": "task", "reopen_task": "task",
             "delete_task": "task", "feedback": "text", "run_command": "command", "write_note": "text", "make_folder": "path",

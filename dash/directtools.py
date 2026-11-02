@@ -9,35 +9,33 @@ SKIP = {".git", "node_modules", "__pycache__", ".venv", "venv", "dist", "build",
 DOC_FIRST = ("README.md", "ARCHITECTURE.md", "PROJECT_MAP.md", "CONTRIBUTING.md", "CLAUDE.md", "AGENTS.md", "CHANGELOG.md")
 
 
-def doc_files(ws: Path) -> list[Path]:
-    """The important .md files: the project goal, then well-known docs at the repo root, then the rest (shallow, docs first)."""
-    repo, out = ws / "repo", []
-    goal = ws / "agent" / "GOAL.md"
-    if goal.is_file():
-        out.append(goal)
+def doc_files(repo: Path, goal: Path | None = None) -> list[Path]:
+    """The important .md files: the goal file (if any), then well-known docs at the repo root, then the rest (shallow, docs first)."""
+    out = [goal] if goal and goal.is_file() else []
     named = [repo / n for n in DOC_FIRST if (repo / n).is_file()]
     rest = sorted((p for p in repo.rglob("*.md") if not SKIP & set(p.relative_to(repo).parts) and len(p.relative_to(repo).parts) <= 3 and p not in named),
                   key=lambda p: (len(p.relative_to(repo).parts), str(p)))
     return out + named + rest[:20]
 
 
-def _label(ws: Path, p: Path) -> str:
-    return "GOAL.md (project goal)" if p == ws / "agent" / "GOAL.md" else str(p.relative_to(ws / "repo"))
+def _label(repo: Path, goal: Path | None, p: Path) -> str:
+    return "GOAL.md (project goal)" if goal and p == goal else str(p.relative_to(repo))
 
 
-def read_docs(ws: Path, limit: int = 20000, per_file: int = 5000) -> tuple[str, list[str]]:
+def read_docs(repo: Path, limit: int = 20000, per_file: int = 5000, goal: Path | None = None) -> tuple[str, list[str]]:
     """(text, names) of the important .md files, each cut to per_file characters and the whole to limit."""
     parts, names, used = [], [], 0
-    for p in doc_files(ws):
+    for p in doc_files(repo, goal):
         room = min(per_file, limit - used)
         if room < 200:
             break
         body = p.read_text("utf-8", "replace")
         body = body[:room] + ("\n[...cut]" if len(body) > room else "")
-        parts.append(f"### {_label(ws, p)}\n{body}")
-        names.append(_label(ws, p))
+        parts.append(f"### {_label(repo, goal, p)}\n{body}")
+        names.append(_label(repo, goal, p))
         used += len(body)
     return "\n\n".join(parts), names
+
 
 
 def list_dir(repo: Path, path: str = "") -> str:

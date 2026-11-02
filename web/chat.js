@@ -56,9 +56,10 @@ const stripActions=t=>t.replace(/```action[ \t]*\n[\s\S]*?```/g,"").replace(/```
 function taskBlocks(t){return[...t.matchAll(/```task[ \t]*\n([\s\S]*?)```/g)].map(m=>m[1].trim()).filter(x=>x.length>=10)}
 function actionBlocks(t){return[...t.matchAll(/```action[ \t]*\n([\s\S]*?)```/g)].map(m=>{try{const j=JSON.parse(m[1].trim());return j&&typeof j==="object"?j:null}catch(e){return null}}).filter(Boolean)}
 const hhmm=t=>t?new Date(t*1000).toLocaleTimeString([],{hour:"2-digit",minute:"2-digit"}):"";
-const isAgent=c=>!!(c&&c.agent&&c.projects.length&&!c.tool);
+const isAgent=c=>!!(c&&c.agent&&(c.tool?c.route==="direct":c.projects.length));
 const isDirect=c=>isAgent(c)&&c.route==="direct";
-const phText=c=>(isDirect(c)?"Tell me what to build or change: I read the docs and edit the project myself":isAgent(c)?"Tell the agent what to do, or type / for commands":"Message CodeFactory…")+"  (Enter sends, Shift+Enter: new line)";
+const phText=c=>(isDirect(c)&&c.tool?"Tell me what to change in CodeFactory itself: I read its docs and edit the repo myself"
+  :isDirect(c)?"Tell me what to build or change: I read the docs and edit the project myself":isAgent(c)?"Tell the agent what to do, or type / for commands":"Message CodeFactory…")+"  (Enter sends, Shift+Enter: new line)";
 
 /* ---- loading and the frame ---- */
 async function showChat(id,projects){
@@ -101,16 +102,16 @@ function drawList(){
 function drawBar(){
   const c=chat.cur,el=$("#cxBar");if(!el||!c)return;
   const names=list.projects.map(p=>p.name),models=[...new Set([c.model,...chat.models])];
-  const canAgent=!c.tool&&c.projects.length;
+  const canAgent=c.tool||c.projects.length;
   el.innerHTML=`<div class="cx-head">
     <button class="cx-toggle" onclick="chat.listOpen=!chat.listOpen;document.querySelector('.cx').classList.toggle('list-open')" title="Chats">☰</button>
     <div class="cx-title" onclick="renameChat()" title="Rename">${esc(c.title)}</div>
-    ${c.tool?"":`<div class="seg" title="Agent mode lets the model act on the linked projects (you confirm changes)"><button class="${isAgent(c)?"":"on"}" onclick="chatUpdate({agent:false})">Chat</button><button class="${isAgent(c)?"on":""}" ${canAgent?"":"disabled"} onclick="chatUpdate({agent:true})">Agent</button></div>`}
-    ${isAgent(c)?`<div class="seg" title="Pipeline: tasks go through plan, build, test and merge. Direct: the agent reads the docs and edits the project itself, step by step."><button class="${isDirect(c)?"":"on"}" onclick="chatUpdate({route:'pipeline'})">Pipeline</button><button class="${isDirect(c)?"on":""}" onclick="chatUpdate({route:'direct'})">Direct</button></div>`:""}
+    <div class="seg" title="${c.tool?"Direct mode lets the model read CodeFactory's own docs and edit its source straight away (you confirm changes)":"Agent mode lets the model act on the linked projects (you confirm changes)"}"><button class="${isAgent(c)?"":"on"}" onclick="chatUpdate({agent:false})">Chat</button><button class="${isAgent(c)?"on":""}" ${canAgent?"":"disabled"} onclick="chatUpdate(${c.tool?"{agent:true,route:'direct'}":"{agent:true}"})">${c.tool?"Direct":"Agent"}</button></div>
+    ${isAgent(c)&&!c.tool?`<div class="seg" title="Pipeline: tasks go through plan, build, test and merge. Direct: the agent reads the docs and edits the project itself, step by step."><button class="${isDirect(c)?"":"on"}" onclick="chatUpdate({route:'pipeline'})">Pipeline</button><button class="${isDirect(c)?"on":""}" onclick="chatUpdate({route:'direct'})">Direct</button></div>`:""}
     <select id="chModel" class="cx-model" onchange="chatUpdate({model:this.value})" title="Model of this chat">${models.map(m=>`<option ${m===c.model?"selected":""}>${esc(m)}</option>`).join("")}</select>
     <label class="cx-web" title="Searches the web for each question and gives the model the top pages."><input type="checkbox" ${c.web?"checked":""} onchange="chatUpdate({web:this.checked})"> Web</label>
     <button class="ghost" onclick="exportChat()" title="Download as Markdown">⤓</button><button class="ghost danger" onclick="delChat()" title="Delete this chat">🗑</button></div>
-  ${c.tool?`<div class="cx-note">Talks about CodeFactory itself. Proposed changes are built and tested on a separate branch; you try them in a preview and merge. <a href="#" onclick="showTool();return false">Open branches / preview / merge</a></div>`
+  ${c.tool?`<div class="cx-note">Talks about CodeFactory itself.${isDirect(c)?" Direct mode: changes are committed straight away, no review branch.":" Proposed changes are built and tested on a separate branch; you try them in a preview and merge."} <a href="#" onclick="showTool();return false">Open branches / preview / merge</a></div>`
    :c.project?"":`<div class="cx-note"><span class="lbl">Projects</span><div class="chips">${names.map(n=>`<span class="chip ${c.projects.includes(n)?"on":""}" onclick="toggleLink('${esc(n)}')">${esc(n)}</span>`).join("")||'<span class="hint" style="margin:0">no projects yet</span>'}</div>
      ${!isAgent(c)?`<label class="lbl">Answer buttons use <select id="chTarget">${c.projects.map(n=>`<option>${esc(n)}</option>`).join("")||"<option value=''>(link a project)</option>"}</select></label>`:""}</div>`}`;
 }

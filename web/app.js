@@ -317,7 +317,7 @@ function projectBody(d){
     const rows=d.backlog_items.filter(i=>!((P.hideDone||P.showFeatures)&&i.status==="done")).map(i=>{
       const cur=i.id===liveId&&i.status!=="done"&&i.status!=="blocked";
       const prog=cur&&livePct!=null?pctBar(livePct):i.status==="done"?`<span class="meta">100%</span>`:`<span class="meta">-</span>`;
-      return `<tr><td>${esc(i.id)}</td><td>${i.layer!=null?`<span class="pill info" title="Build layer: lower layers are built first">L${i.layer}</span> `:""}${esc(i.title)}${i.source==="ideas"?' <span class="pill ok">from you</span>':i.source==="user"?' <span class="pill info">your task</span>':""}</td><td>${esc(i.type)}</td><td>${Math.round(i.priority*10)/10}</td><td><span class="pill ${i.status==="done"?"ok":i.status==="blocked"?"bad":""}">${esc(i.status)}</span>${(i.status==="blocked"||i.status==="cancelled")&&i.reason?`<div class="meta reason" title="${esc(i.reason)}">Why: ${esc(i.reason)}</div>`:""}</td><td style="min-width:90px">${prog}</td><td style="white-space:nowrap">${taskBtns(i)}</td></tr>`}).join("");
+      return `<tr><td>${esc(i.id)}</td><td>${i.layer!=null?`<span class="pill info" title="Build layer: lower layers are built first">L${i.layer}</span> `:""}${esc(i.title)}${i.source==="ideas"?' <span class="pill ok">from you</span>':i.source==="user"?' <span class="pill info">your task</span>':""}</td><td>${esc(i.type)}</td><td>${Math.round(i.priority*10)/10}</td><td><span class="pill ${i.status==="done"?"ok":i.status==="blocked"?"bad":""}">${esc(i.status)}</span>${(i.status==="blocked"||i.status==="cancelled")&&i.reason?`<div class="meta reason" title="${esc(i.reason)}">Why: ${esc(i.reason)}</div>`:""}</td><td style="min-width:90px">${prog}</td><td style="white-space:nowrap">${taskBtns(i,d.running)}</td></tr>`}).join("");
     const plan=(d.plan||[]).length?`<div class="panel" style="margin-bottom:16px"><h3>Build plan (core first)</h3>${d.plan.map(l=>`<div class="cap"><div><b>L${l.layer} ${esc(l.name)}</b> <span class="meta">${esc(l.goal)}</span></div><div style="min-width:140px">${pctBar(l.total?Math.round(100*l.done/l.total):0)} <span class="meta">${l.done}/${l.total}</span></div></div>`).join("")}</div>`:"";
     return plan+`<div class="${P.showFeatures?"grid2":""}"><div class="panel"><h3>Backlog</h3><table><tr><th>ID</th><th>Task</th><th>Type</th><th>Prio</th><th>Status</th><th>Progress</th><th></th></tr>${rows||'<tr><td colspan=7 class="hint">empty</td></tr>'}</table></div>
     ${P.showFeatures?finishedTasks(d):""}</div>`;
@@ -436,11 +436,12 @@ function customizeBody(d){
   <div class="panel" style="margin-top:16px"><h3>Pages</h3><p class="hint">Hide pages you do not need. They stay reachable while you are on them.</p>${GROUPS.filter(g=>g[0]!=="customize"&&g[0]!=="overview").map(g=>`<div class="cap"><div>${g[1]}</div>${chk(!P.hide.includes(g[0]),`togglePref('hide','${g[0]}')`)}</div>`).join("")}
     <div class="row" style="justify-content:flex-end;margin-top:10px"><button onclick="localStorage.removeItem('pref:'+sel);setPref('accent','')">Reset to defaults</button></div></div>`;
 }
-function taskBtns(i){
+function taskBtns(i,running){
   const b=(a,l,c)=>`<button class="small ${c||""}" onclick="taskAct('${a}','${esc(i.id)}')">${l}</button> `;
-  if(i.status==="pending")return b("task-top","Top")+b("task-cancel","Cancel");
+  if(i.status==="pending")return b("task-top","Top")+b("task-cancel","Cancel")+b("task-delete","Delete");
   if(i.status==="blocked")return b("task-reopen","Reopen")+b("task-cancel","Cancel")+b("task-delete","Delete");
   if(i.status==="cancelled")return b("task-reopen","Reopen")+b("task-delete","Delete");
+  if(i.status==="in_progress"&&!running)return b("task-delete","Delete");
   return "";
 }
 async function taskAct(a,id){if(a==="task-delete"&&!confirm("Delete this task for good?"))return;await act(a,{id})}

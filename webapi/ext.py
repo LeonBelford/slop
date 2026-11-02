@@ -197,10 +197,11 @@ class ExtMixin:
         """Runs one action: a card of a stored answer ({msg, k[, skip]}) or a direct slash command ({call}). A failure is stored on the card, not raised."""
         chat = self.chats.load(cid)
         now = time.time()
+        self_mode = bool(chat.get("tool"))
         if "call" in body:
             call = body["call"]
             try:
-                tool, args = chatagent.validate(call, chat["projects"])
+                tool, args = chatagent.validate(call, chat["projects"], self_mode)
                 text, ok = self._run_tool(tool, args, chat.get("route") == "direct"), True
             except (ValueError, UiError) as e:
                 text, ok, tool, args = str(e), False, str(call.get("tool", "")), call
@@ -220,7 +221,7 @@ class ExtMixin:
                 acts[k], ok, text = {"status": "skipped", "t": now}, True, "skipped"
             else:
                 try:
-                    tool, args = chatagent.validate(call, chat["projects"])
+                    tool, args = chatagent.validate(call, chat["projects"], self_mode)
                     text, ok = self._run_tool(tool, args, chat.get("route") == "direct"), True
                 except (ValueError, UiError) as e:
                     text, ok = str(e), False
@@ -229,6 +230,8 @@ class ExtMixin:
         return {"ok": ok, "result": text, "chat": chat}
 
     def _run_tool(self, tool: str, args: dict, direct: bool = False) -> str:
+        if tool in chatagent.SELF_TOOLS and not args.get("project"):
+            return self._run_tool_self(tool, args, direct)
         name = str(args.get("project", ""))
         if tool == "create_project":
             r = self.create({"idea": args["idea"], "name": args.get("name", ""), "template": args.get("template", "")})
@@ -259,7 +262,7 @@ class ExtMixin:
             except ValueError as e:
                 raise UiError(str(e)) from None
         if tool == "read_docs":
-            return directtools.read_docs(ws)[0] or "no .md files yet"
+            return directtools.read_docs(ws / "repo", goal=a / "GOAL.md")[0] or "no .md files yet"
         if tool == "health":
             h = adrs.health(a, ws / "repo")
             return f"score {h['score']}/100: " + ", ".join(f"{k} {v['value']}" for k, v in h["parts"].items())
@@ -328,6 +331,38 @@ class ExtMixin:
                 if tool == "delete_file":
                     return directtools.delete_file(ws / "repo", str(args["path"]))
                 return directedit.write_file(ws / "repo", str(args["path"]), str(args["content"]), test_cmd)
+            except ValueError as e:
+                raise UiError(str(e)) from None
+        raise UiError("Unknown tool", 404)
+
+    def _run_tool_self(self, tool: str, args: dict, direct: bool) -> str:
+        """Self-improve chat's direct route: tools that target CodeFactory's own repo (common.ROOT), not a project workspace."""
+        repo = common.ROOT
+        if tool == "list_dir":
+            try:
+                return directtools.list_dir(repo, str(args.get("path") or ""))
+            except ValueError as e:
+                raise UiError(str(e)) from None
+        if tool == "read_file":
+            try:
+                return directtools.read_range(repo, str(args["path"]), int(args.get("start") or 1), int(args.get("end") or 0))
+            except (ValueError, TypeError) as e:
+                raise UiError(str(e)) from None
+        if tool == "read_docs":
+            return directtools.read_docs(repo)[0] or "no .md files yet"
+        if tool == "make_folder":
+            return directedit.make_folder(repo, str(args["path"]))
+        if tool in ("write_file", "edit_file", "delete_file"):
+            if not direct:
+                raise UiError("This tool only runs in Direct mode.", 403)
+            if common.alive("tool"):
+                raise UiError("The self-improve pipeline is working on the repo right now. Wait for it to finish before editing directly.", 409)
+            try:
+                if tool == "edit_file":
+                    return directtools.edit_file(repo, str(args["path"]), str(args["old"]), str(args["new"]))
+                if tool == "delete_file":
+                    return directtools.delete_file(repo, str(args["path"]))
+                return directedit.write_file(repo, str(args["path"]), str(args["content"]), "")
             except ValueError as e:
                 raise UiError(str(e)) from None
         raise UiError("Unknown tool", 404)
