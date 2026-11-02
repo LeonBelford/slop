@@ -309,7 +309,7 @@ function projectBody(d){
   if(tab==="overview"){
     const P=pref();
     const live=d.activity&&d.activity.now,liveId=live&&live.task?live.task.split(" ")[0]:null,livePct=live?live.pct:null;
-    const rows=d.backlog_items.filter(i=>!(P.hideDone&&i.status==="done")).map(i=>{
+    const rows=d.backlog_items.filter(i=>!((P.hideDone||P.showFeatures)&&i.status==="done")).map(i=>{
       const cur=i.id===liveId&&i.status!=="done"&&i.status!=="blocked";
       const prog=cur&&livePct!=null?pctBar(livePct):i.status==="done"?`<span class="meta">100%</span>`:`<span class="meta">-</span>`;
       return `<tr><td>${esc(i.id)}</td><td>${i.layer!=null?`<span class="pill info" title="Build layer: lower layers are built first">L${i.layer}</span> `:""}${esc(i.title)}${i.source==="ideas"?' <span class="pill ok">from you</span>':i.source==="user"?' <span class="pill info">your task</span>':""}</td><td>${esc(i.type)}</td><td>${Math.round(i.priority*10)/10}</td><td><span class="pill ${i.status==="done"?"ok":i.status==="blocked"?"bad":""}">${esc(i.status)}</span>${(i.status==="blocked"||i.status==="cancelled")&&i.reason?`<div class="meta reason" title="${esc(i.reason)}">Why: ${esc(i.reason)}</div>`:""}</td><td style="min-width:90px">${prog}</td><td style="white-space:nowrap">${taskBtns(i)}</td></tr>`}).join("");
