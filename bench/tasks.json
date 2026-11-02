@@ -1,0 +1,14 @@
+[
+  {"id": "b01-slugify", "title": "Add slugify", "prompt": "Add a function slugify(text) in app/text.py that lowercases the text, replaces every run of non-alphanumeric characters with one '-' and strips leading/trailing '-'. Add tests.",
+   "seed": {}, "check": "from app.text import slugify; assert slugify('Hello, World!') == 'hello-world'; assert slugify('  A  b ') == 'a-b'"},
+  {"id": "b02-fizzbuzz", "title": "Add fizzbuzz", "prompt": "Add fizzbuzz(n) in app/fizz.py returning the list of strings for 1..n (Fizz for multiples of 3, Buzz for 5, FizzBuzz for both, else the number as a string). Add tests.",
+   "seed": {}, "check": "from app.fizz import fizzbuzz; r = fizzbuzz(15); assert r[2] == 'Fizz' and r[4] == 'Buzz' and r[14] == 'FizzBuzz' and r[0] == '1' and len(r) == 15"},
+  {"id": "b03-bugfix-average", "title": "Fix average of empty list", "prompt": "Bug: app/stats.py average([]) raises ZeroDivisionError. It must return 0.0 for an empty list. Fix it and add a regression test.",
+   "seed": {"app/stats.py": "def average(values):\n    return sum(values) / len(values)\n"}, "check": "from app.stats import average; assert average([]) == 0.0; assert average([2, 4]) == 3"},
+  {"id": "b04-wordcount", "title": "Add word counter", "prompt": "Add count_words(text) in app/words.py returning a dict of lowercase word -> count (words are split on whitespace, punctuation .,;:!? is stripped). Add tests.",
+   "seed": {}, "check": "from app.words import count_words; assert count_words('The the. cat!') == {'the': 2, 'cat': 1}"},
+  {"id": "b05-refactor-greet", "title": "Refactor greeting", "prompt": "Refactor: move the greeting text of app/main.py into a new function greeting(name='world') in app/greet.py that returns 'Hello, <name>!'. app/main.py keeps its health() function. Add tests.",
+   "seed": {}, "check": "from app.greet import greeting; assert greeting() == 'Hello, world!'; assert greeting('Ada') == 'Hello, Ada!'; from app.main import health; assert health() == 'ok'"},
+  {"id": "b06-stack", "title": "Add a stack class", "prompt": "Add class Stack in app/stack.py with push(x), pop() (raises IndexError when empty), peek() and __len__. Add tests including the empty case.",
+   "seed": {}, "check": "from app.stack import Stack; s = Stack(); s.push(1); s.push(2); assert s.pop() == 2 and s.peek() == 1 and len(s) == 1; s.pop()\ntry:\n    s.pop()\n    raise SystemExit('no IndexError')\nexcept IndexError:\n    pass"}
+]

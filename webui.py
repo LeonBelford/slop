@@ -25,6 +25,7 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 
 from dash import chat as chatlib
+from dash import replay
 import codefactory as sa
 from core import cfprofile
 from infra import qr
@@ -165,6 +166,15 @@ class Service(ProjectMixin, DashboardMixin, ToolMixin, ModelsMixin, ChatMixin):
             sa.Agent(ws).add_feedback(msg)
         elif action in ("task-cancel", "task-reopen", "task-top"):
             self.backlog_edit(ws, action, body)
+        elif action == "replay":
+            try:
+                replay.validate(ws, str(body.get("task", "")), str(body.get("model", "")).strip())
+            except ValueError as e:
+                raise UiError(str(e)) from None
+            if alive(f"replay:{name}"):
+                raise UiError("A replay is already running", 409)
+            spawn(f"replay:{name}", ["replay", name, str(body["task"]), str(body.get("model", "")).strip(), str(body.get("hint", ""))], a / "replay.out")
+            return {"ok": True, "started": True}
         elif action == "settings":
             self.save_settings(ws, body)
             return {"ok": True, "applies": "next start" if self.summary(ws)["running"] else "now"}
@@ -371,6 +381,9 @@ def make_handler(svc: Service, port: int, token: str | None = None):
                 m = re.fullmatch(r"/api/project/([^/]+)/dashboard", path)
                 if m:
                     return svc.project_dashboard(m.group(1))
+                m = re.fullmatch(r"/api/project/([^/]+)/task", path)
+                if m:
+                    return svc.task_detail(m.group(1), q.get("id", ""))
                 m = re.fullmatch(r"/api/project/([^/]+)/profile", path)
                 if m:
                     return svc.profile(m.group(1))

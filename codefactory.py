@@ -101,9 +101,11 @@ from core.cfa_milestone import MilestoneMixin
 from core.cfa_rules import RulesMixin
 from core.cfa_spike import SpikeMixin
 from core.cfa_triage import TriageMixin
+from core.cfa_quality import QualityMixin
+from core.cfa_gates import GateMixin
 
 
-class Agent(BuildMixin, FlowMixin, VerifyMixin, SecurityMixin, ResearchMixin, OpsMixin, PlanMixin, SplitMixin, ConductorMixin, SpikeMixin, MilestoneMixin, RulesMixin, HandoffMixin, TriageMixin):
+class Agent(BuildMixin, FlowMixin, VerifyMixin, SecurityMixin, ResearchMixin, OpsMixin, PlanMixin, SplitMixin, ConductorMixin, SpikeMixin, MilestoneMixin, RulesMixin, HandoffMixin, TriageMixin, QualityMixin, GateMixin):
     def __init__(self, ws: Path, cfg: dict | None = None):
         self.ws = ws.resolve()
         self.repo, self.dir = self.ws / "repo", self.ws / "agent"
@@ -375,6 +377,9 @@ class Agent(BuildMixin, FlowMixin, VerifyMixin, SecurityMixin, ResearchMixin, Op
             self.schedule_hygiene()
             self.triage()
             item = self.backlog.next(getattr(self, "last_light", None))
+            if item and self.backlog.deadlock:
+                waiting = [d for d in item.get("depends_on", []) if d not in {i["id"] for i in self.backlog.items if i["status"] in ("done", "cancelled")}]
+                self.log(f"Dependency deadlock: {item['id']} starts although {', '.join(waiting) or 'a dependency'} is not finished")
             if not item:
                 run = self.cfg["run"]
                 if run["mode"] == "rounds" and self.state.get("rounds_run", 0) >= int(run["rounds"]):
@@ -484,6 +489,7 @@ def selftest() -> None:
     cfg["src_dirs"] = PRESETS["minimal"]["src_dirs"]
     cfg["web"]["mode"] = "open"
     cfg["limits"]["max_iterations"] = 6
+    cfg["features"].update(skeleton=False, dependency_plan=False, contracts_code=False)  # keeps the selftest to its 6 iterations
     cfg["limits"]["reflect_every"] = 2
     cfg["limits"]["architecture_refresh_every"] = 1
     a = Agent(ws, cfg)
@@ -492,7 +498,8 @@ def selftest() -> None:
     a.web.mock_search = lambda q: [("https://example.com/found", "Found")]
     a.init("demo idea")
     seeded = [i for i in a.backlog.items if i["source"] == "blueprint"]
-    assert [i["layer"] for i in seeded] == [0, 1] and seeded[1]["depends_on"] == [seeded[0]["id"]], "blueprint must seed layered tasks"
+    assert [i["layer"] for i in seeded] == sorted(i["layer"] for i in seeded) and seeded[-1]["layer"] == 1 \
+        and seeded[-1]["depends_on"] == [seeded[-2]["id"]], "blueprint must seed layered tasks as one chain"
     assert a.backlog.next()["id"] == seeded[0]["id"], "the core layer is built first"
     assert (a.repo / "docs" / "BLUEPRINT.md").exists()
     stats = a.reevaluate()
@@ -583,6 +590,12 @@ def main() -> None:
     p_do.add_argument("--project")
     p_do.add_argument("--task", required=True)
     p_do.add_argument("--queue-only", action="store_true")
+    p_rp = sub.add_parser("replay", help="Play a task again in a sandbox copy with another model or a hint")
+    p_rp.add_argument("--projects-dir", default="projects")
+    p_rp.add_argument("--project")
+    p_rp.add_argument("--task", required=True, help="Task id, e.g. T0007")
+    p_rp.add_argument("--model", default="")
+    p_rp.add_argument("--hint", default="")
     p_re = sub.add_parser("replan", help="Think the plan through again: new layers, re-ordered tasks (agent must be stopped)")
     p_re.add_argument("--projects-dir", default="projects")
     p_re.add_argument("--project")
@@ -627,6 +640,21 @@ def main() -> None:
         print(f"Queued {item['id']}: {item['title']}")
         if not a.queue_only and not ag.is_running():
             ag.run_user_tasks()
+        return
+    if a.cmd == "replay":
+        from dash import replay
+        try:
+            info = replay.prepare(ws, a.task, a.model, a.hint)
+        except ValueError as e:
+            sys.exit(str(e))
+        print(f"Replaying {a.task} in {info['dest']}")
+        t0 = time.time()
+        ag = Agent(info["dest"])
+        item = ag.add_user_task(info["text"])
+        ag.run_user_tasks()
+        status = item["status"]
+        replay.record(ws, a.task, info, status, time.time() - t0)
+        print(f"Replay finished: {status}")
         return
     if a.cmd == "replan":
         ag = Agent(ws)

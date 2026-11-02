@@ -13,6 +13,8 @@ class SpikeMixin:
         or the knowledge base knows many consequences/lessons for the files involved."""
         if not self.feat("spike") or self.cur_attempt != 1 or int(item.get("split_depth", 0)) > 0:
             return False
+        if self.feat("risk_spikes") and item.get("risk") == "high":
+            return True  # risk-first: unsure libraries, parsers and performance are tested early
         return (int(item.get("revives", 0)) > 0 or len(plan.get("risks") or []) >= RISKS_FOR_SPIKE
                 or len(plan.get("known_consequences") or []) >= KNOWN_FOR_SPIKE)
 

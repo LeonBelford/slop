@@ -39,6 +39,9 @@ Code lives in five places: the entry points in the root (`codefactory.py`, `webu
 | `core/cfa_conductor.py` | `ConductorMixin`: per-task pipeline profile from recent outcomes (`conducting`: fast/flow/careful, never disables correctness gates), task journal (`note`, shown to every prompt of the task), `replan_if_stuck` |
 | `core/cfa_write.py` | Last-resort writer: files the coder only printed in the chat are taken from its answer and written to disk (only allowed files) |
 | `core/cfa_handoff.py` | `HandoffMixin`: every step passes the next one a pinned instruction block (goal, decisions with reasons, do, do not, done when, open); it leads every coder prompt and model call of the task |
+| `core/cfa_priority.py` | `PriorityMixin.light_check`: light strategist priority check after every merge, changes logged with reasons; feature `triage_light` |
+| `core/cfa_quality.py` | `QualityMixin`: size estimate before the start, spec before code (design + review, pinned), protected contract tests |
+| `core/cfa_gates.py` | `GateMixin`: layer gate (integration, smoke, strategist) and the deterministic drift check after merges |
 | `core/cfa_triage.py` | `TriageMixin`: every iteration re-scores open tasks for the current project state (fan-out bonus, failure penalty, `dyn`) and lays the plan out again (strategist) when enough was merged or tasks lack a layer; feature `triage` |
 | `core/cfa_spike.py` | `SpikeMixin`: for uncertain tasks (revived, many risks or known consequences) a throwaway spike proves the approach before the real attempt; a failed spike triggers re-planning |
 | `core/cfa_milestone.py` | `MilestoneMixin`: after each finished layer the strategist checks the product against the vision, adds missing tasks, cancels obsolete ones and can schedule a re-plan |
@@ -48,6 +51,12 @@ Code lives in five places: the entry points in the root (`codefactory.py`, `webu
 | `core/cfa_ops.py` | `OpsMixin`: user tasks, stop, test version, feedback, status, `reload_models` (re-reads models/coder/routing from `config.json` before each task) |
 | `dash/estimate.py` | Duration estimates from comparable past tasks (`durations.jsonl` per project and for self-improve), queue forecast, write-access checks |
 | `dash/diagnostics.py` | Dashboard key figures (`/api/diagnostics`): first-try rate, attempts, failure causes, model time, reasoning share, stalls, repo size, system load, findings |
+| `dash/pdextra.py` | Extra project-dashboard data: Gantt timeline, failure causes, time per pipeline step, models per role, `task_detail` for the drawer |
+| `web/widgets.js` | Widget board for dashboards: drag-and-drop order, hide, size, layout in localStorage and URL |
+| `dash/sievidence.py` | Self-improve evidence: metric rule engine (`suggestions`), task journals and triage/gate history of the projects, `retry_plan` (stall detection: escalate model, change strategy), `run_times` for the dashboard |
+| `dash/recommend.py` | Model advice per role from the project's call statistics (coder without reasoning, planner/reviewer with reasoning) |
+| `dash/replay.py` | Run replay: copies a project to `projects/.replay/`, applies another model or hint, records the result in `agent/replays.jsonl` |
+| `bench/harness.py` | Benchmark harness: fixed tasks (`bench/tasks.json`), per-task check, reports in `bench/results/`, A/B `compare` verdict; CLI `bench/run.py` (`make bench`) |
 | `dash/history.py` | Per-day history series and quality figures (fail/retry rate, GPU hours, failure-class histogram) from `metrics.json`/`metrics.jsonl`, backs `/api/history` and the dashboard History section |
 | `dash/toolmodels.py` | Model choice for self-improve (`self_improve/models.json`: planner/reviewer/summarizer/coder, light/heavy/final reviewer, auto or fixed); `apply` merges it into the run config, a per-task model pins the coder (`improve --model`) |
 | `dash/chatweb.py` | Opt-in web search for chats: `search_context` returns the top pages as prompt context plus sources (per-chat `web` flag, project web settings apply) |

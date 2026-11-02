@@ -1,7 +1,7 @@
-const DKEY="dashpref",DSEC={live:"Live figures",attention:"Needs attention",projects:"Per project (live)",history:"History (30 days)",estimates:"Time estimates",diag:"Project diagnostics"},
+const DKEY="dashpref",DSEC={live:"Live figures",attention:"Needs attention",projects:"Per project (live)",history:"History (30 days)",estimates:"Time estimates",diag:"Project diagnostics",compare:"Project comparison",report:"Daily report",selfimp:"Self-improve runs"},
   DCARDS={agents:"Agents running",tps:"Tokens / s",tpm:"Tokens / min (avg)",alerts:"Alerts",chars:"Characters now",gpu:"GPU",vram:"VRAM",models:"Loaded models",today:"Today",all:"All time"},
   DFILTERS=[["all","All"],["running","Running"],["idle","Idle"],["attention","Needs attention"]];
-const DDEF=()=>({collapsed:{},hide:{},cards:{},order:Object.keys(DSEC),sort:{},q:"",f:"all",paused:false,notify:false,hmetric:"tokens",hscope:"total"});
+const DDEF=()=>({collapsed:{},hide:{},cards:{},order:Object.keys(DSEC),sort:{},q:"",f:"all",paused:false,notify:false,hmetric:"tokens",hscope:"total",cmp:"tasks"});
 let DP=(()=>{try{const p={...DDEF(),...JSON.parse(localStorage.getItem(DKEY)||"{}")};p.order=[...p.order.filter(k=>DSEC[k]),...Object.keys(DSEC).filter(k=>!p.order.includes(k))];return p}catch(e){return DDEF()}})();
 let DLAST=null;const DT={};
 const dsave=()=>{localStorage.setItem(DKEY,JSON.stringify(DP));dhash()};
@@ -47,6 +47,9 @@ function dall(c){Object.keys(DSEC).forEach(k=>DP.collapsed[k]=c);dsave();paintDa
 function dreset(){DP=DDEF();dsave();dtoolbar();paintDash()}
 function dtoggle(id){DP.collapsed[id]=!DP.collapsed[id];dsave();paintDash()}
 function dmove(id,dir){const o=DP.order,i=o.indexOf(id),j=i+dir;if(j<0||j>=o.length)return;[o[i],o[j]]=[o[j],o[i]];dsave();paintDash()}
+let DDRAG=null;
+function ddrag(e,id){DDRAG=id;e.dataTransfer.effectAllowed="move";e.dataTransfer.setData("text/plain",id)}
+function ddrop(e,id){e.preventDefault();if(!DDRAG||DDRAG===id)return;const o=DP.order;o.splice(o.indexOf(DDRAG),1);o.splice(o.indexOf(id),0,DDRAG);DDRAG=null;dsave();paintDash()}
 function dsort(t,k){const s=DP.sort[t];DP.sort[t]=s&&s.k===k?(s.dir==="asc"?{k,dir:"desc"}:null):{k,dir:"asc"};if(!DP.sort[t])delete DP.sort[t];dsave();paintDash()}
 function dexport(t){
   const T=DT[t];if(!T)return;const q=v=>`"${String(v??"").replace(/"/g,'""')}"`;
@@ -55,7 +58,7 @@ function dexport(t){
 }
 function dsec(id,body,summary,tid){
   const c=DP.collapsed[id];
-  return `<div class="panel dsec"><div class="dsh"><span class="dtitle" onclick="dtoggle('${id}')"><span class="chev">${c?"▸":"▾"}</span> ${DSEC[id]}</span><span class="hint dsum">${summary||""}</span><span class="grow"></span>${tid&&!c?`<button class="small" title="Download as CSV" onclick="dexport('${tid}')">CSV</button>`:""}<button class="small" title="Move up" onclick="dmove('${id}',-1)">▲</button><button class="small" title="Move down" onclick="dmove('${id}',1)">▼</button></div>${c?"":`<div class="dsb">${body}</div>`}</div>`;
+  return `<div class="panel dsec" ondragover="event.preventDefault()" ondrop="ddrop(event,'${id}')"><div class="dsh"><span class="grip" draggable="true" title="Drag to reorder" ondragstart="ddrag(event,'${id}')">⠿</span><span class="dtitle" onclick="dtoggle('${id}')"><span class="chev">${c?"▸":"▾"}</span> ${DSEC[id]}</span><span class="hint dsum">${summary||""}</span><span class="grow"></span>${tid&&!c?`<button class="small" title="Download as CSV" onclick="dexport('${tid}')">CSV</button>`:""}<button class="small" title="Move up" onclick="dmove('${id}',-1)">▲</button><button class="small" title="Move down" onclick="dmove('${id}',1)">▼</button></div>${c?"":`<div class="dsb">${body}</div>`}</div>`;
 }
 function dtable(id,cols,rows,empty){
   const s=DP.sort[id],c0=s&&cols.find(c=>c.k===s.k);
@@ -130,6 +133,31 @@ function sectionDiag(){
   const rows=DIAG.projects.filter(p=>dvisible(p.name,!!live(p.name)));
   return [dtable("diag",cols,rows,"No project matches the filter."),`${rows.length} project${rows.length===1?"":"s"}`];
 }
+const CMP={tasks:["Tasks done",p=>p.flow.done,v=>v],tph:["Tasks / hour",p=>p.flow.tasks_per_hour,v=>v],first:["First-try rate",p=>p.flow.first_try_rate,v=>pct(v)],
+  fail:["Failure rate",p=>(p.quality||{}).fail_rate,v=>pct(v)],gpu:["GPU hours",p=>(p.quality||{}).gpu_hours,v=>v+" h"]};
+function sectionCompare(){
+  const k=CMP[DP.cmp]?DP.cmp:"tasks",[label,fn,fmt]=CMP[k],ps=DIAG.projects.filter(p=>dvisible(p.name,!!(DLAST.projects.find(x=>x.name===p.name)||{}).running));
+  const vals=ps.map(p=>[p,fn(p)]).filter(([,v])=>v!=null).sort((a,b)=>b[1]-a[1]),max=Math.max(...vals.map(([,v])=>v),0.0001);
+  const ctl=`<select onchange="DP.cmp=this.value;dsave();paintDash()" style="width:auto">${Object.entries(CMP).map(([id,v])=>`<option value="${id}" ${k===id?"selected":""}>${v[0]}</option>`).join("")}</select>`;
+  return [ctl+(vals.map(([p,v])=>`<div class="cap"><div><a class="plink" onclick="select('${nm(p.name)}')">${esc(p.name)}</a></div><div class="meta">${fmt(v)}</div></div><div class="bar"><i style="width:${Math.round(100*v/max)}%"></i></div>`).join("")||`<div class="hint">No data yet.</div>`),label];
+}
+function sectionReport(){
+  const today=n=>{const r=HIST&&HIST.projects[n];return r&&r.length?r[r.length-1]:{done:0,failed:0}};
+  const ps=DIAG.projects,built=ps.filter(p=>today(p.name).done),blocked=ps.filter(p=>p.flow.blocked>0);
+  const need=(DIAG.findings||[]).filter(f=>f.level!=="info");
+  const sec=(t,rows)=>`<b>${t}</b>${rows||`<div class="hint">Nothing.</div>`}`;
+  return [sec("Built today",built.map(p=>`<div class="cap"><div>${esc(p.name)}</div><div class="meta">${today(p.name).done} task(s), ${today(p.name).failed} failed attempt(s)</div></div>`).join(""))+
+    sec("Blocked",blocked.map(p=>`<div class="cap"><div>${esc(p.name)}</div><div class="meta">${p.flow.blocked} blocked task(s)</div></div>`).join(""))+
+    sec("Needs you",need.map(f=>`<div class="row" style="margin:4px 0"><span class="pill ${f.level==="bad"?"bad":"warn"}">${esc(f.level)}</span> ${esc(f.text)}</div>`).join("")),`${built.reduce((a,p)=>a+today(p.name).done,0)} done today`];
+}
+function sectionSelfImp(){
+  const T=DIAG.tool||{},runs=(T.runs||[]).slice().reverse(),ms=Object.entries(T.models||{}).sort((a,b)=>b[1].tries-a[1].tries);
+  const mod=ms.map(([m,v])=>`<div class="cap"><div>${esc(m)}</div><div class="meta">${v.ok}/${v.tries} ok (${pct(v.tries?v.ok/v.tries:null)})</div></div><div class="bar"><i style="width:${v.tries?Math.round(100*v.ok/v.tries):0}%"></i></div>`).join("")||`<div class="hint">No coder attempts recorded yet.</div>`;
+  const cols=[{k:"id",l:"Run",v:r=>r.id,h:r=>esc(r.id)},{k:"kind",l:"Kind",v:r=>r.kind,h:r=>esc(r.kind||"")},{k:"st",l:"Status",v:r=>r.status,h:r=>`<span class="pill ${r.status==="done"?"ok":r.status==="failed"?"bad":"info"}">${esc(r.status||"")}</span>`},
+    {k:"rt",l:"Runtime",v:r=>r.runtime_s,h:r=>dur(r.runtime_s)},{k:"kept",l:"Kept",v:r=>r.kept,h:r=>`${r.kept}/${r.proposals}`}];
+  const bn=(T.bench||[]).map(b=>`<div class="cap"><div>${esc(b.label)} <span class="hint" style="margin:0">${esc(b.time||"")}</span></div><div class="meta">${b.passed}/${b.tasks} passed · ${dur(b.seconds)}</div></div>`).join("")||`<div class="hint">No benchmark run yet: <code>make bench LABEL=base</code></div>`;
+  return [`<b>Success per model</b>${mod}<b>Runs</b>${dtable("selfimp",cols,runs,"No runs yet.")}<b>Benchmark (merge evidence)</b>${bn}`,`${T.kept||0}/${T.proposals||0} steps kept`];
+}
 const dq=n=>{if(!DIAG)return null;const p=n==="Self-improve"?{quality:(DIAG.tool||{}).quality}:DIAG.projects.find(x=>x.name===n);return p&&p.quality};
 function sectionProjects(d){
   const cols=[
@@ -187,7 +215,7 @@ function paintDash(){
   const d=DLAST,sel_=window.getSelection&&String(window.getSelection());
   if(sel_&&$("#body").contains(window.getSelection().anchorNode))return;  // do not destroy a text selection
   const parts={live:[sectionLive(d),""],attention:DIAG?sectionAttention(d):[`<div class="hint">Loading diagnostics…</div>`,""],projects:sectionProjects(d),
-    history:sectionHistory(),estimates:DIAG?sectionEstimates():[`<div class="hint">Loading…</div>`,""],diag:DIAG?sectionDiag():[`<div class="hint">Loading…</div>`,""]};
+    history:sectionHistory(),compare:DIAG?sectionCompare():[`<div class="hint">Loading…</div>`,""],selfimp:DIAG?sectionSelfImp():[`<div class="hint">Loading…</div>`,""],report:DIAG?sectionReport():[`<div class="hint">Loading…</div>`,""],estimates:DIAG?sectionEstimates():[`<div class="hint">Loading…</div>`,""],diag:DIAG?sectionDiag():[`<div class="hint">Loading…</div>`,""]};
   const tid={projects:"projects",diag:"diag"};
   const keepTop=$("#main").scrollTop;
   $("#body").innerHTML=DP.order.filter(k=>!DP.hide[k]).map(k=>dsec(k,parts[k][0],parts[k][1],tid[k])).join("")||`<div class="hint">All sections are hidden. Use View ▾ to show them.</div>`;

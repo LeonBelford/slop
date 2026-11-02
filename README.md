@@ -225,6 +225,25 @@ every iteration. User tasks are never touched. Switch off with `features.triage:
 ## Visibility in the overview
 Every blocked or cancelled task shows **why** (`reason`, set centrally in `Backlog.set`, e.g. last failure or split slices). "Finished features" is now **Finished tasks** with the total runtime per task (summed over all attempts, `runtime_s`). The "UI test" step is hidden when the project has no UI (`has_ui`).
 
+## Essentiality check before blocking
+When a task keeps failing, the strategist first decides whether the project standard needs it (`essential_check` flag). Essential (or others depend on it): it is split into smaller slices and retried. Not essential: cancelled with the reason shown in the overview. LLM errors count as essential.
+
+## Strictly sequential build
+The blueprint is one linear chain: `blueprint.normalize` adds the direct predecessor to `depends_on`, and `Backlog.next` only starts a task once its dependencies are done or cancelled. Only a real deadlock (a blocked dependency) breaks the order, and it is logged. The planning prompt says what the task builds on.
+
+## Light priority check after every merge
+After each merge the strategist sees only open task titles, status and recent results and corrects priorities (`triage_light` flag); every change is stored with its reason and shown in the project dashboard under Triage. The dynamic priority also rewards essential tasks, `risk: high` tasks and small tasks.
+
+## Planning quality (each part has a feature flag)
+- `skeleton`: layer 0 starts with a walking skeleton, the thinnest end-to-end path with one test.
+- `dependency_plan`: the strategist picks libraries (name, version, reason) into the blueprint; the first task installs them.
+- `contracts_code`: a task turns the contracts into signatures, types, stubs and `tests/contracts/`; those tests can never be removed or loosened (policy check).
+- `spec_first`: per task the planner writes a design (files, signatures, edge cases), the reviewer checks it against the contracts, it is pinned as handoff.
+- `size_gate`: before the first attempt files/lines are estimated; too big means split at once.
+- `risk_spikes`: tasks marked `risk: high` always get a spike first (and a dynamic priority bonus).
+- `layer_gate`: before climbing, build+tests, the optional `commands.smoke` and a strategist check of the layer goal must pass; otherwise fix tasks are queued (gives up after 2 failures with a note).
+- `drift_check`: after every merge, file size (800 lines) and module imports (`uses` in the blueprint modules) are checked; violations become fix tasks.
+
 ## Self-Improve uses the same quality standard
 
 The self-improve pipeline shares the helpers of the project pipeline: pinned instruction blocks (`core/cfa_handoff.py`) in front of
@@ -292,3 +311,18 @@ Every change passes a security gate (static rules, attacker-minded review, runti
 
 The agent works only in `projects/<name>/repo/`, but runs build and test commands there without a sandbox. Use a container or VM
 if needed. It publishes nothing and spends no money; review the code before deploying.
+
+## Interactive dashboards
+
+The project dashboard is a widget board (`web/widgets.js`): drag tiles to reorder, hide or resize them via *Customize*; the layout is stored per project and shareable via the URL. New tiles: Gantt timeline, failure causes (click opens the task), triage log, layer gates, drift, time per step, models per role. Clicking a task opens a detail drawer (journal, plan, reason). The global dashboard gets drag-and-drop plus *Project comparison* and *Daily report* sections.
+
+## Self-improve from metrics
+
+Self-improve now reads measured evidence: a rule engine (`dash/sievidence.py`) turns diagnostics (reasoning share, first-try rate, failure rate, stalls, flaky tests, call time) into suggestions that name the metric and value; the journals of blocked tasks and the triage/layer-gate/drift history are added to the planner's evidence. A repair that fails the same way twice escalates to the heavy model and gets a stricter strategy hint. The global dashboard has a *Self-improve runs* section (runtime, kept steps, success per model). Note: `selfimprove.py` is protected, so these changes are merged by you, not by the self-run.
+
+## Benchmark, replay, regression tests, model advice
+
+- **Benchmark** (`make bench LABEL=base`, `python3 bench/run.py --compare base other`): six fixed mini tasks run through the real pipeline in fresh projects; each is checked by its own snippet. Use `--features size_gate=false` or `--model ...` to compare a pipeline or model change on the same tasks; the verdict (better/same/worse) is the evidence before merging a change. Results show in the *Self-improve runs* dashboard section.
+- **Run replay**: in a task's detail drawer, *Replay in a sandbox copy* plays the task again with another model or a hint (`scripts/run.sh replay <project> <task> [model] [hint]`). The original project is untouched.
+- **Regression tests**: with the flag `regression_tests`, a task of type `bug` is only accepted if the change adds a new test function; the tests are listed in `agent/regressions.jsonl` and in the *Regression tests* dashboard tile.
+- **Model advice** per role is derived from the project's own call statistics and shown in the *Model per role* tile.

@@ -70,6 +70,7 @@ class ProcessOutageTests(unittest.TestCase):
                 raise LLMError("HTTP 400", 400)
             ag.attempt = boom
             ag.retry_strategy = lambda *a, **k: None
+            ag.size_gate = lambda i: False
             with self.assertRaises(LLMError):
                 ag.process(item)
             self.assertEqual((item["status"], item["attempts"]), ("pending", 0))

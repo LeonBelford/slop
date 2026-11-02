@@ -8,7 +8,7 @@ import time
 from pathlib import Path
 
 from core.cfgit import UNLAYERED
-from dash import diagnostics, history
+from dash import diagnostics, history, pdextra
 
 QUEUE_SIZE = 6
 EVENTS_SHOWN = 14
@@ -121,11 +121,12 @@ def build(ws: Path, running: bool, now: float | None = None, has_ui: bool = True
         "backlog": counts, "queue": queue(backlog), "layers": layers(backlog, _json(a / "blueprint.json", None)),
         "blocked": [{"id": i["id"], "title": i["title"], "attempts": i.get("attempts", 0), "note": (i.get("reason") or (i.get("notes") or [""])[-1])[:200]}
                     for i in backlog if i.get("status") == "blocked"][:8],
-        "triage": {"adjusted": [{"id": i["id"], "title": i["title"], "dyn": i["dyn"]} for i in backlog if i.get("status") == "pending" and i.get("dyn")][:6],
+        "triage": {"log": list(state.get("triage_log", []))[-12:], "adjusted": [{"id": i["id"], "title": i["title"], "dyn": i["dyn"]} for i in backlog if i.get("status") == "pending" and i.get("dyn")][:6],
                    "last_layout_at_merge": state.get("triage_at"), "merges_since_layout": merged - state.get("triage_at", 0),
                    "last_replan_at_merge": state.get("auto_replan_at")},
         "outcomes": outcomes, "flow": diag["flow"], "models": diag["models"], "health": diag["health"], "repo": diag.get("repo", {}),
         "forecast": diag.get("forecast"), "quality": history.quality(a), "journal": journal(a),
     }
+    snap.update(pdextra.extras(ws, backlog, state))
     snap["findings"] = findings(snap)
     return snap

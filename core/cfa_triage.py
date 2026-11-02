@@ -1,5 +1,6 @@
 """Per-iteration triage: before every pick the open tasks are re-scored for the current state of the project, and the plan is
 laid out again (strategist) when the state has changed enough to make the old layout stale."""
+from core.cfa_priority import PriorityMixin
 from core.cfutil import clip
 
 RELAYOUT_EVERY_MERGES = 3  # re-layout only after this many merges since the last one
@@ -38,11 +39,13 @@ def score(items: list[dict]) -> dict[str, float]:
             continue
         bonus = min(MAX_FANOUT_BONUS, 0.75 * fan.get(i["id"], 0))
         penalty = min(MAX_PENALTY, ATTEMPT_PENALTY * int(i.get("attempts", 0)) + 0.5 * int(i.get("revives", 0)))
-        out[i["id"]] = round(bonus - penalty, 2)
+        extra = (1.0 if i.get("essential_note") else 0) + (1.5 if i.get("risk") == "high" else 0)  # essential and risky work first
+        extra += 0.5 if 0 < float(i.get("estimate_s") or 0) < 900 else -0.5 if float(i.get("estimate_s") or 0) > 3600 else 0  # small before big
+        out[i["id"]] = round(bonus + extra - penalty, 2)
     return out
 
 
-class TriageMixin:
+class TriageMixin(PriorityMixin):
     def triage(self) -> None:
         """Called every iteration before the next task is picked. Never raises: a failed triage keeps the current order."""
         if not self.cfg["features"].get("triage", True):
@@ -50,7 +53,8 @@ class TriageMixin:
             return
         try:
             self.backlog.reload()
-            changed = self._rescore()
+            changed = self.light_check()
+            changed = self._rescore() or changed
             relaid = self.replan_if_stuck() or self._relayout_if_stale()
             if relaid:
                 self.backlog.reload()

@@ -8,7 +8,8 @@ import urllib.parse
 import urllib.request
 
 import codefactory as sa
-from dash import diagnostics, history, projectdash, runledger, throughput
+from bench import harness
+from dash import diagnostics, history, pdextra, projectdash, replay, runledger, sievidence, throughput
 from infra import perf
 
 from webapi import common
@@ -104,6 +105,9 @@ class DashboardMixin:
         self._pdash[name] = (time.time(), res)
         return res
 
+    def task_detail(self, name: str, task_id: str) -> dict:
+        return {**pdextra.task_detail(self.ws(name), task_id), "replays": replay.history(self.ws(name) / "agent")}
+
     def diagnostics(self) -> dict:
         """Slow-moving figures for the Dashboard (flow, quality, model time, health, repo, system), cached for a few seconds."""
         c = getattr(self, "_diag", None)
@@ -120,7 +124,8 @@ class DashboardMixin:
         sysinfo = diagnostics.system(oc[1])
         res = {"time": time.time(), "projects": projects, "system": sysinfo, "findings": diagnostics.findings(projects, sysinfo),
                "tool": {**runledger.stats(common.ROOT / "self_improve"), "durations": diagnostics.tool_durations(common.ROOT / "self_improve"),
-                         "quality": history.quality(common.ROOT / "self_improve")}}
+                         "quality": history.quality(common.ROOT / "self_improve"),
+                         "runs": sievidence.run_times(runledger.all_runs(common.ROOT / "self_improve")), "bench": harness.load_results()}}
         self._diag = (time.time(), res)
         return res
 

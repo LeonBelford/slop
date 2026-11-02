@@ -11,13 +11,13 @@ SYSTEM = ("You are a software architect planning a build strategy, not a feature
           "feature cheap and safe (domain model, storage, core logic, public interfaces, error handling, configuration, test harness) "
           "and put it in layer 0. Every next layer builds only on the public interfaces of the layers below and adds user-visible "
           "capability. Keep interfaces stable so lower layers are never reworked. The last layer is polish and hardening. Tasks are "
-          "small enough for one iteration. Realistic and focused, no monetization.")
+          "small enough for one iteration. Choose the libraries up front in `dependencies` (name, exact version, reason); never leave library choice to later tasks. Layer 0 starts with a walking skeleton: the thinnest end-to-end path (input, logic, storage, output) with one test, marked skeleton=true. Mark uncertain tasks (unknown library, parser, performance) risk=high and place them early. The tasks form ONE linear chain in build order (Foundation, then basic input, then ...): each task visibly builds on the previous one and lists it in depends_on. Realistic and focused, no monetization.")
 
-SCHEMA = ('{"architecture": {"principles": ["..."], "modules": [{"name": "", "responsibility": ""}], '
-          '"contracts": ["stable interface, e.g. function or endpoint signature and its meaning"], "decisions": ["decision and why"]}, '
+SCHEMA = ('{"architecture": {"principles": ["..."], "modules": [{"name": "", "responsibility": "", "uses": ["names of modules it may import"]}], '
+          '"contracts": ["stable interface, e.g. function or endpoint signature and its meaning"], "decisions": ["decision and why"]}, "dependencies": [{"name": "", "version": "", "reason": ""}], '
           '"layers": [{"name": "", "goal": "what exists and works after this layer", "tasks": [{"key": "short-unique-id", "title": "", '
           '"description": "", "acceptance": ["testable"], "depends_on": ["keys of earlier tasks"], "type": "feature|refactor|test", '
-          '"value": 1-10, "effort": 1-10}]}]}')
+          '"risk": "low|high", "skeleton": false, "value": 1-10, "effort": 1-10}]}]}')
 
 
 REEVAL_SCHEMA = ('{"assessment": "what is wrong with the current order, 2-4 sentences", "architecture": {"principles": ["..."], '
@@ -56,7 +56,12 @@ class PlanMixin:
 
     def blueprint_ctx(self, item: dict) -> str:
         """Where a task sits in the architecture, for the planning prompt."""
-        return blueprint.context_for(self.blueprint(), item)
+        base = [self.backlog.by_id(d) for d in item.get("depends_on", [])]
+        built = [f"{b['id']} {b['title']}" for b in base if b and b["status"] == "done"]
+        text = blueprint.context_for(self.blueprint(), item)
+        if built:
+            text += "\nBuilds on (already merged, extend it, do not redo it): " + "; ".join(built)
+        return text
 
     def make_blueprint(self, idea: str, brief: dict) -> bool:
         """Plans the layers and seeds the backlog from them. False (nothing changed) if the model gave no usable plan."""
@@ -68,7 +73,8 @@ class PlanMixin:
                 f"Features wanted (each must end up in some layer): {json.dumps(brief.get('mvp_features', []))}\n"
                 f"Performance goals: {brief.get('performance_goals', [])}\nNon-goals: {brief.get('non_goals', [])}\n"
                 f"3 to 5 layers, at most {blueprint.MAX_TASKS} tasks each. Schema: {SCHEMA}")
-            bp = blueprint.normalize(data, brief.get("mvp_features", []))
+            bp = blueprint.normalize(data, brief.get("mvp_features", []), skeleton=bool(self.feat("skeleton")),
+                                     deps_task=bool(self.feat("dependency_plan")), contracts_task=bool(self.feat("contracts_code")))
         except Exception as e:  # noqa: BLE001  (a failed plan must not stop the project: the flat MVP list is the fallback)
             self.log(f"Blueprint failed, using the flat MVP list: {e}")
             return False
@@ -83,6 +89,9 @@ class PlanMixin:
                                         depends_on=[ids[d] for d in t["depends_on"] if d in ids])
                 ids[t["key"]] = item["id"]
                 t["id"] = item["id"]
+                item["key"] = t["key"]
+                if t.get("risk") == "high":
+                    item["risk"] = "high"
         blueprint.save(self.blueprint_path, bp)
         write_text(self.repo / "docs" / "BLUEPRINT.md", blueprint.render_md(bp))
         sizes = ", ".join(f"{ly['name']} ({len(ly['tasks'])})" for ly in bp["layers"])
@@ -97,6 +106,8 @@ class PlanMixin:
         if any(i.get("layer") == layer and i["status"] in ("pending", "in_progress") for i in self.backlog.items):
             return
         name = bp["layers"][layer]["name"]
+        if not self.layer_gate(layer, name):
+            return
         self.log(f"Layer {layer} '{name}' complete: everything above builds on it from here.")
         self.metric(kind="layer_done", layer=layer, name=name)
         try:

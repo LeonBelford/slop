@@ -11,7 +11,7 @@ import re
 import shutil
 import time
 from core import failures
-from core.cfa_flow import removed_test_names, removed_tests
+from core.cfa_flow import added_test_names, removed_test_names, removed_tests
 from core.cfllm import LLMError
 from core.cfa_write import extract_files, write_files
 from core.cfutil import PRESETS, clip, read_json, sh, sh_live, sha, tail, write_json, write_text
@@ -195,6 +195,7 @@ class BuildMixin:
                       f"Risks: {plan.get('risks')}\nSecurity impact: {plan.get('security_impact')}\nKnown consequences (earlier decisions/lessons): {plan.get('known_consequences')}\n"
                       f"Affected callers: {plan.get('affected_dependents')}\n"
                       f"Tests to write: {plan.get('tests_to_add')}\nNew files: {plan.get('new_files')}\n"
+                      + (f"Design (follow it): {plan['spec']}\n" if plan.get("spec") else "")
                       + (f"Tests already written for this task (make them pass, change them only if they are wrong): {tests}\n" if tests else "")
                       + f"{part}\n{self.RULES}")
             self.code("implement" if len(groups) == 1 else f"implement{n}", edit, read + tests, prompt)
@@ -218,6 +219,15 @@ class BuildMixin:
                 gone = "; ".join(removed_test_names(self.git.diff()))
                 ok, report = False, ("[policy] The change deletes tests (more test definitions removed than added). Put these back "
                                      f"(rewriting is fine if the same cases are still tested): {gone or 'see git diff main'}. Fix the code, not the tests.")
+            if ok and self.feat("regression_tests") and item["type"] == "bug":
+                names = added_test_names(self.git.diff())
+                if not names:
+                    ok, report = False, ("[policy] A bug fix needs a regression test: add a test that fails without the fix and passes with it "
+                                         "(a new test function, not only a changed one).")
+                else:
+                    item["regression"] = names
+            if ok and (bad := self.contract_violation(item)):
+                ok, report = False, bad
             if ok:
                 return True, report
             self.log(f"Debug round {n}: {report.splitlines()[0]}")
@@ -282,6 +292,16 @@ class BuildMixin:
         if est["seconds"]:
             self.log(f"estimate: ~{round(est['seconds'] / 60)} min ({est['basis']}, {est['n']} comparable tasks)")
             self.backlog.set(item, estimate_s=est["seconds"])
+        try:
+            split = self.size_gate(item)
+        except LLMError:
+            self.backlog.set(item, status="pending")
+            self.cur_task, self.cur_attempt = "", 0
+            raise
+        if split:
+            self.cur_task, self.cur_attempt = "", 0
+            self.phase("Task split before the start (too large)", None, item["title"])
+            return False
         for attempt in range(1, self.lim["max_attempts_per_task"] + 1):
             self.cur_attempt = attempt
             self.backlog.set(item, attempts=item["attempts"] + 1)
@@ -304,7 +324,11 @@ class BuildMixin:
                 estimate.record(self.dir / "durations.jsonl", item["title"], time.time() - t0, item["type"], item["attempts"], True,
                                 desc=item.get("description", ""))
                 self.backlog.set(item, status="done")
+                if item.get("regression"):
+                    with open(self.dir / "regressions.jsonl", "a", encoding="utf-8") as f:
+                        f.write(json.dumps({"item": item["id"], "title": item["title"], "tests": item["regression"], "time": time.strftime("%Y-%m-%d %H:%M:%S")}) + "\n")
                 self.layer_done(item)
+                self.drift_check(item)
                 self.force_heavy = False
                 self.last_light = item["type"] in ("docs", "test")
                 self.cur_task, self.cur_attempt = "", 0
@@ -343,6 +367,9 @@ class BuildMixin:
                 break
         self.force_heavy = False
         self.drop_wip(item)
+        if self.essential_gate(item, previous):
+            self.cur_task, self.cur_attempt = "", 0
+            return False
         if self.split_task(item, previous):
             self.cur_task, self.cur_attempt = "", 0
             self.phase("Task split into smaller slices", None, item["title"])
@@ -391,6 +418,7 @@ class BuildMixin:
                       + "\n".join(previous[-3:]) + f"\n\n{self.RULES}")
         else:
             plan = self.impact_analysis(item, previous)
+            self.make_spec(item, plan)
             if self.spike_due(item, plan):
                 worked, finding = self.spike(item, plan)
                 if not worked:

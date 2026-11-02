@@ -28,7 +28,7 @@ from pathlib import Path
 import codefactory as sa
 from core import cfa_handoff, cfa_write, failures, progress
 from core.cfa_flow import removed_test_names, removed_tests
-from dash import estimate, toolmodels
+from dash import diagnostics, estimate, history, sievidence, toolmodels
 from infra import models
 from infra import perf
 from dash import runledger
@@ -85,7 +85,14 @@ def gather_evidence(projects: Path) -> dict:
         merged = sum(1 for r in rows if r.get("review_score") is not None)
         failed = sum(1 for r in rows if r.get("kind") == "attempt_failed")
         pb = a / "playbook.md"
-        evidence["projects"].append({
+        try:
+            diag = diagnostics.project(ws, False, 0.0, with_repo=False)
+            diag["quality"] = history.quality(a)
+            hints = sievidence.suggestions(diag)
+        except Exception:  # evidence is optional: a broken project must not stop the plan
+            hints = []
+        evidence["projects"].append({"suggestions": hints, "journals": sievidence.journal_evidence(a), "planning": sievidence.triage_evidence(a),
+
             "project": ws.name, "merged": merged, "failed_attempts": failed, "tool_ideas": ideas,
             "playbook": sa.clip(pb.read_text("utf-8"), 1500) if pb.exists() else "",
             "recent_failures": [r.get("why", "") for r in rows if r.get("kind") == "attempt_failed"][-8:]})
@@ -340,13 +347,15 @@ def main(projects: Path, dry_run: bool = False, repo: Path | None = None, llm=No
         ledger.status("failed", "No evidence yet")
         return {"branch": None, "proposals": []}
     pmap = project_map(repo, required=_is_tool(repo))  # mandatory for the real tool: without the map there is no plan
-    code_files = sorted(str(p.relative_to(repo)) for p in [*repo.glob("*.py"), *repo.glob("core/*.py"), *repo.glob("infra/*.py"), *repo.glob("dash/*.py"), *repo.glob("webapi/*.py")]
+    code_files = sorted(str(p.relative_to(repo)) for p in [*repo.glob("*.py"), *repo.glob("core/*.py"), *repo.glob("infra/*.py"), *repo.glob("dash/*.py"), *repo.glob("webapi/*.py"), *repo.glob("bench/*.py")]
                         if not str(p.relative_to(repo)).startswith(PROTECTED)) + ["scripts/run.sh"]
     d = llm.json("improve_plan", "planner",
                  "You improve an autonomous coding agent (this repository). Propose small, safe, high-value changes to the "
                  "agent's own code: better prompts, smarter heuristics, more robust error handling, better context selection. "
                  "Prefer fixing observed failures over adding features. Never propose changes to safety guards. "
-                 "First study the project map: it describes the whole repository, its data flow and its invariants.",
+                 "First study the project map: it describes the whole repository, its data flow and its invariants. "
+                 "Evidence entries named `suggestions` carry a measured metric: prefer a proposal that fixes the metric and cite it in the rationale. "
+                 "`journals` and `planning` show how tasks failed and where planning had to be corrected.",
                  f"Project map (whole repository):\n{pmap}\n\nEvidence from running projects:\n{sa.clip(json.dumps(evidence, ensure_ascii=False), 9000)}\n"
                  f"Editable files: {code_files}\nPropose at most {MAX_PROPOSALS}. Schema: "
                  '{"proposals": [{"title": "...", "rationale": "which evidence", "files": ["..."], "change": "precise instructions", '
@@ -669,6 +678,9 @@ def _work_on(work: Path, p: dict, files: list[str], impact: str, llm, coder, log
         cls = models.classify("feature", max(2, len(files)), rnd, complex_files=sa.DEFAULT_CONFIG["routing"]["complex_files"])
         cls = "standard" if cls == "light" else cls  # real changes never go to the light model
         cls, why = _learned_cls(coder, cls, rnd)
+        retry = sievidence.retry_plan(tried, stage, bool(getattr(coder, "routes", None) and coder.routes.get("heavy")))
+        if retry["escalate"] and cls != "heavy":
+            cls, why = "heavy", "two identical failures in a row, escalating to the heavy model"
         if why:
             log(f"  routing by track record: {cls} ({why})")
         run = _coder_for(coder, cls)
@@ -694,7 +706,8 @@ def _work_on(work: Path, p: dict, files: list[str], impact: str, llm, coder, log
             break
         if stalled:
             log(f"  repair stalled: round {rnd + 1} failed exactly like the one before, demanding a different approach")
-            report += "\nThe previous round failed in exactly this way. Do NOT repeat that approach; change strategy."
+            report += "\n" + (sievidence.retry_plan(tried, stage, False)["hint"] or "The previous round failed in exactly this way. Do NOT repeat that approach; change strategy.")
+            ledger.d["proposals"][pi].setdefault("stalls", []).append({"round": rnd + 1, "stage": stage})
         log(f"  round {rnd + 1} failed at {stage}; diagnosing and repairing ({rnd + 1}/{FIX_ROUNDS})")
         _phase("implement", f"Diagnosing the failure ({stage})")
         diag = _diagnose(llm, p, stage, report, work)

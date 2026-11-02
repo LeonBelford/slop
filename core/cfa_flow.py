@@ -6,7 +6,7 @@ import re
 
 from core.cfutil import clip
 
-FEATURE_DEFAULTS = {"test_first": "auto", "step_by_step": "auto", "acceptance_check": True, "retry_replan": True, "protect_tests": True, "spike": True, "coder_no_think": True, "triage": True}
+FEATURE_DEFAULTS = {"test_first": "auto", "step_by_step": "auto", "acceptance_check": True, "retry_replan": True, "protect_tests": True, "spike": True, "coder_no_think": True, "triage": True, "essential_check": True, "triage_light": True, "skeleton": True, "dependency_plan": True, "contracts_code": True, "spec_first": True, "size_gate": True, "risk_spikes": True, "layer_gate": True, "drift_check": True, "regression_tests": True}
 TEST_DEF = re.compile(r"^\s*(?:async\s+def\s+test_|def\s+test_|func\s+Test|(?:pub\s+)?(?:async\s+)?fn\s+test_|#\[(?:\w+::)*test\b[^\]]*\]|@Test\b|(?:it|test|describe)\s*\(|public\s+void\s+test)", re.M)
 
 
@@ -21,6 +21,11 @@ def removed_tests(diff: str) -> int:
         elif line.startswith("+") and TEST_DEF.match(line[1:]):
             added += 1
     return gone - added
+
+
+def added_test_names(diff: str, limit: int = 12) -> list[str]:
+    """The test definitions a diff adds (names a bug fix must bring as its regression test)."""
+    return [line[1:].strip() for line in diff.splitlines() if line.startswith("+") and not line.startswith("+++") and TEST_DEF.match(line[1:])][:limit]
 
 
 def removed_test_names(diff: str, limit: int = 12) -> list[str]:
