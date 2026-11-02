@@ -225,6 +225,9 @@ every iteration. User tasks are never touched. Switch off with `features.triage:
 ## Visibility in the overview
 Every blocked or cancelled task shows **why** (`reason`, set centrally in `Backlog.set`, e.g. last failure or split slices). "Finished features" is now **Finished tasks** with the total runtime per task (summed over all attempts, `runtime_s`). The "UI test" step is hidden when the project has no UI (`has_ui`).
 
+## Essentiality check before blocking
+When a task keeps failing, the strategist first decides whether the project standard needs it (`essential_check` flag). Essential (or others depend on it): it is split into smaller slices and retried. Not essential: cancelled with the reason shown in the overview. LLM errors count as essential.
+
 ## Self-Improve uses the same quality standard
 
 The self-improve pipeline shares the helpers of the project pipeline: pinned instruction blocks (`core/cfa_handoff.py`) in front of

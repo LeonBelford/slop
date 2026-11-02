@@ -343,6 +343,9 @@ class BuildMixin:
                 break
         self.force_heavy = False
         self.drop_wip(item)
+        if self.essential_gate(item, previous):
+            self.cur_task, self.cur_attempt = "", 0
+            return False
         if self.split_task(item, previous):
             self.cur_task, self.cur_attempt = "", 0
             self.phase("Task split into smaller slices", None, item["title"])

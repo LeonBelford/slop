@@ -10,7 +10,38 @@ SLICE_SCHEMA = ('{"cause": "why the task keeps failing, one sentence", "subtasks
                 '"acceptance": ["testable"], "type": "feature|refactor|test"}]}')
 
 
+ESSENTIAL_SCHEMA = '{"essential": true, "reason": "one sentence: why the project standard needs this task (or why it can be dropped)"}'
+
+
 class SplitMixin:
+    def essential_gate(self, item: dict, previous: list[str]) -> bool:
+        """Asks the strategist whether a failing task is essential for the project. Not essential: cancelled with the reason, True."""
+        if not self.feat("essential_check") or item.get("essential_checked"):
+            return False
+        self.backlog.set(item, essential_checked=True)
+        try:
+            d = self.llm.json(
+                "essential_check", "strategist",
+                "A task keeps failing. Decide whether the project can meet its basic standard (vision, core function, working build) "
+                "WITHOUT it. essential=true if the core product needs it or later tasks depend on it. essential=false only for "
+                "nice-to-have extras. When unsure, answer true.",
+                f"Vision:\n{clip(self.goal, 2000)}\n{self.blueprint_ctx(item)}\nTask {item['id']} ({item['type']}): {item['title']}\n"
+                f"{item['description']}\nLast failures:\n{chr(10).join(previous[-3:])}\nSchema: {ESSENTIAL_SCHEMA}")
+        except Exception as e:  # noqa: BLE001
+            self.log(f"Essentiality check failed ({e}): treating the task as essential")
+            return False
+        why = str(d.get("reason", "")).strip()[:300] or "no reason given"
+        dependents = [o["id"] for o in self.backlog.items if item["id"] in o.get("depends_on", []) and o["status"] in ("pending", "in_progress")]
+        if d.get("essential") is False and not dependents:
+            self.backlog.set(item, status="cancelled", reason=f"not essential: {why}",
+                             notes=item.get("notes", []) + [f"cancelled as not essential: {why}"])
+            self.metric(kind="not_essential", item=item["id"], why=why)
+            self.log(f"{item['id']} judged not essential and cancelled: {why}")
+            return True
+        self.log(f"{item['id']} is essential ({why}): splitting into smaller slices")
+        item["essential_note"] = why
+        return False
+
     def split_task(self, item: dict, previous: list[str]) -> bool:
         """Replaces a failed task by 2-4 smaller, ordered slices (the first one is the smallest working core). True if it was split."""
         depth = int(item.get("split_depth", 0))
