@@ -1,7 +1,7 @@
 """Planning-quality gates: size estimate before the start, spec before code, protected contract tests."""
 from __future__ import annotations
 
-from core.cfllm import LLMError
+from core.cfllm import LLMError, scaled
 from core.cfutil import clip
 
 MAX_LINES_ESTIMATE = 250
@@ -32,7 +32,7 @@ class QualityMixin:
             d = self.llm.json("size_estimate", "planner",
                               "Estimate how many files must change and how many lines must be written for this task. Be realistic.",
                               f"Task: {item['title']}\n{item['description']}\nAcceptance: {item.get('acceptance')}\n"
-                              f"Code map:\n{clip(self.mem.render_codemap(), 2500)}\nSchema: {SIZE_SCHEMA}")
+                              f"Code map:\n{clip(self.mem.render_codemap(), scaled(self.llm, 2500))}\nSchema: {SIZE_SCHEMA}")
             files, lines = int(d.get("files", 0)), int(d.get("lines", 0))
         except LLMError:
             self.backlog.set(item, size_checked=False)

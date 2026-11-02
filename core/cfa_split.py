@@ -1,6 +1,7 @@
 """Keeps essential tasks from dying: a task that keeps failing is split into smaller slices, and a blocked task gets new chances later."""
 from __future__ import annotations
 
+from core.cfllm import scaled
 from core.cfutil import clip
 
 MAX_SPLIT_DEPTH = 2
@@ -56,8 +57,8 @@ class SplitMixin:
                 "no extras); later slices build on it. Together they must fulfil the original acceptance criteria. Do not repeat the "
                 "approach that failed.",
                 f"Task {item['id']} ({item['type']}): {item['title']}\n{item['description']}\nAcceptance: {item.get('acceptance')}\n"
-                f"Goal:\n{clip(self.goal, 1500)}\nCode map:\n{clip(self.mem.render_codemap(), 3500)}\n"
-                f"Failed attempts:\n{chr(10).join(previous[-6:])}\nSchema: {SLICE_SCHEMA}")
+                f"Goal:\n{clip(self.goal, scaled(self.llm, 1500))}\nCode map:\n{clip(self.mem.render_codemap(), scaled(self.llm, 3500))}\n"
+                f"Failed attempts:\n{chr(10).join(previous[-(2 if getattr(self.llm, "server_ctx", 0) else 6):])}\nSchema: {SLICE_SCHEMA}")
             subs = [s for s in d.get("subtasks", []) if isinstance(s, dict) and str(s.get("title", "")).strip()][:4]
         except Exception as e:  # noqa: BLE001
             self.log(f"Splitting failed: {e}")
