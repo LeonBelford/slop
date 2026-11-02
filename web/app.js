@@ -3,9 +3,9 @@ const esc=s=>String(s??"").replace(/[&<>"]/g,c=>({"&":"&amp;","<":"&lt;",">":"&g
 let sel=localStorage.getItem("sel")||null, view="project", tab="overview", list={projects:[],init_jobs:[]}, detail=null, extra=null, dirty=false, langs=[];
 let taskModel="",toolMcfg=null,toolTab_="tool",toolBranch="",planId="",taskPrefill="",codeBase="head",codeOpen=new Set(),codeView=null,codeInit=false;
 let diffView=null, lastBody="", lastHead="", lastTabs="", openKeys=new Set();
-const EDITABLE=["ideas","sources","task","tool","settings","goal","profile","knowledge"];
-const GROUPS=[["overview","Overview",["overview"]],["pdash","Dashboard",["pdash"]],["task","Do a task",["task"]],["agent","Agent",["profile","knowledge","goal","ideas","sources","settings"]],["activity","Activity",["log","reasoning","llm"]],["code","Code & test",["editor","changes","testing"]],["customize","Customize",["customize"]]];
-const LEAF={overview:"Task graph",pdash:"Dashboard",profile:"Instructions & capabilities",knowledge:"Knowledge files",goal:"Goal",ideas:"Ideas",sources:"Web sources",settings:"Models & limits",log:"Live log",reasoning:"Reasoning",llm:"AI activity",editor:"Editor",changes:"Review changes",testing:"Test version"};
+const EDITABLE=["speed","ideas","sources","task","tool","settings","goal","profile","knowledge"];
+const GROUPS=[["overview","Overview",["overview"]],["pdash","Dashboard",["pdash"]],["task","Do a task",["task"]],["agent","Agent",["profile","knowledge","goal","ideas","sources","settings"]],["speed","Speed",["speed"]],["activity","Activity",["log","reasoning","llm"]],["code","Code & test",["editor","changes","testing"]],["customize","Customize",["customize"]]];
+const LEAF={speed:"Speed: task tiers",overview:"Task graph",pdash:"Dashboard",profile:"Instructions & capabilities",knowledge:"Knowledge files",goal:"Goal",ideas:"Ideas",sources:"Web sources",settings:"Models & limits",log:"Live log",reasoning:"Reasoning",llm:"AI activity",editor:"Editor",changes:"Review changes",testing:"Test version"};
 const ACCENTS=["","#5fb36b","#6fa3d8","#d6a23c","#c678dd","#e06c75","#56b6c2"];
 const STAT_KEYS=[["merged","Features merged"],["open","Open tasks"],["done","Done"],["blocked","Blocked"],["iterations","Iterations"],["hours","Runtime"],["tokens","Tokens used"],["tps","Tokens / s"],["wps","Words / s"],["tpm","Tokens / min"],["gpu","GPU"],["avgcall","Avg. call time"]];
 let lastLeaf={};
@@ -385,6 +385,7 @@ function projectBody(d){
   if(tab==="log")return `<div class="loglegend"><span class="lg-step">step</span><span class="lg-ok">success</span><span class="lg-sec">security</span><span class="lg-warn">warning</span><span class="lg-err">error</span></div><pre id="logbox">${colorLog(d.log||"No log yet.")}${d.run_out&&/Traceback|Error/.test(d.run_out)?"\n\n--- run.out ---\n"+colorLog(d.run_out):""}${d.do_out&&/Traceback|Error/.test(d.do_out)?"\n\n--- do.out ---\n"+colorLog(d.do_out):""}</pre>`;
   if(tab==="settings")return settingsBody(d);
   if(tab==="profile")return profileBody(d);
+  if(tab==="speed")return speedBody(d);
   if(tab==="knowledge")return knowledgeBody(d);
   if(tab==="customize")return customizeBody(d);
   return `<div class="panel"><h3>GOAL.md: vision and quality bar</h3><p class="hint">The agent measures its work against this. Edit it to change direction; for single wishes use "Quick feedback" under "Do a task".</p>
@@ -398,11 +399,24 @@ const CAP_GROUPS=[["Before coding",[["plan_critique","Plan review","A second loo
  ["Speed: task tiers",[["tiers","Task tiers","Small changes skip the expensive gates. Tiny (1 source file, up to 40 lines) only runs the UI test and the security gate; small (2 files) adds the review. Full (3+ source files, 150+ added lines, risky tasks, or a second attempt) runs everything: coverage, mutation, review, acceptance, cleanup"],["tier","Force a tier","auto picks the tier from the real diff after coding. Force full for maximum checks, tiny for maximum speed",["auto","tiny","small","full"]],["fast_verify","Fast verify","Debug rounds run only the targeted tests; one full run follows before the gates and the commit. Documentation-only changes do not re-run the build"],["light_plan","Light plan","Small tasks whose files the graph knows skip the planner call"],["graph_split","Graph split","A too big task is cut along its module groups in the graph, without a model call; slice 1 runs next"],["dep_replan","Re-plan after cancel","A task whose dependency was cancelled is adjusted once, or dropped if no longer needed"]]],
  ["After a failure",[["retry_replan","Retry strategy","Before a retry, analyses why the last attempt failed and picks a different approach"]]]];
 const CAPS=CAP_GROUPS.flatMap(g=>g[1]);
+const SPEED="Speed: task tiers";
+function speedBody(d){
+  const x=extra&&extra.kind==="profile"?extra:null;
+  if(!x)return `<div class="hint">Loading…</div>`;
+  const F=x.features,sw=(id,on)=>`<label class="sw"><input type="checkbox" id="${id}" ${on?"checked":""} onchange="dirty=true"><span class="sw-track"><span class="sw-thumb"></span></span></label>`;
+  const g=CAP_GROUPS.find(g=>g[0]===SPEED)[1];
+  return `<div class="panel"><h3>${SPEED}</h3><p class="hint">Every task is sorted by its real diff. tiny: 1 source file, up to 40 lines (UI test + security). small: 2 files (adds review). full: 3+ files, 150+ lines or risky (all gates).</p>`+g.map(([k,l,sub,opts])=>`<div class="cap"><div>${l}<small>${sub}</small></div>${opts?`<select id="cap-${k}" style="width:auto" onchange="dirty=true">${opts.map(t=>`<option ${t===F[k]?"selected":""}>${t}</option>`).join("")}</select>`:sw("cap-"+k,F[k])}</div>`).join("")+`<div class="row" style="justify-content:flex-end;margin-top:12px"><button class="primary" onclick="saveSpeed()">Save</button></div></div>`;
+}
+async function saveSpeed(){
+  const g=CAP_GROUPS.find(g=>g[0]===SPEED)[1],features={};
+  g.forEach(([k,,,o])=>features[k]=o?$("#cap-"+k).value:$("#cap-"+k).checked);
+  try{const p=extra.profile;await api(`/api/project/${sel}/profile`,{title:p.title,description:p.description,tone:p.tone,instructions:p.instructions,features});dirty=false;toast("Saved");extra=null;await fetchExtra();lastBody="";renderProject()}catch(e){toast(e.message,true)}
+}
 function profileBody(d){
   const x=extra&&extra.kind==="profile"?extra:null;
   if(!x)return `<div class="hint">Loading…</div>`;
   const p=x.profile,F=x.features,sw=(id,on)=>`<label class="sw"><input type="checkbox" id="${id}" ${on?"checked":""} onchange="dirty=true"><span class="sw-track"><span class="sw-thumb"></span></span></label>`;
-  const cap=CAP_GROUPS.map(([g,list])=>`<h4 style="margin:14px 0 4px">${g}</h4>`+list.map(([k,l,sub,opts])=>`<div class="cap"><div>${l}<small>${sub}</small></div>${opts?`<select id="cap-${k}" style="width:auto" onchange="dirty=true">${opts.map(t=>`<option ${t===F[k]?"selected":""}>${t}</option>`).join("")}</select>`:sw("cap-"+k,F[k])}</div>`).join("")).join("");
+  const cap=CAP_GROUPS.filter(g=>g[0]!==SPEED).map(([g,list])=>`<h4 style="margin:14px 0 4px">${g}</h4>`+list.map(([k,l,sub,opts])=>`<div class="cap"><div>${l}<small>${sub}</small></div>${opts?`<select id="cap-${k}" style="width:auto" onchange="dirty=true">${opts.map(t=>`<option ${t===F[k]?"selected":""}>${t}</option>`).join("")}</select>`:sw("cap-"+k,F[k])}</div>`).join("")).join("");
   return `<div class="panel"><h3>${esc(p.title||d.name)}</h3><p class="hint">${esc(p.description||d.idea)}</p>
     <div class="row" style="flex-wrap:wrap;gap:6px"><span class="pill info">${x.context.length} knowledge file(s)</span><span class="pill info">web: ${esc(x.web_mode)}</span><span class="pill info">security gate: ${esc(F.security)}</span><span class="pill info">UI tests: ${esc(F.e2e)}</span></div></div>
   <div class="panel" style="margin-top:16px"><h3>Details</h3><div class="grid2"><label class="fld">Name shown for the agent<input id="pf-title" value="${esc(p.title)}" maxlength="80" oninput="dirty=true" placeholder="${esc(d.name)}"></label>
@@ -416,7 +430,7 @@ function profileBody(d){
 }
 async function saveProfile(){
   const v=id=>$("#"+id).value,features={};
-  CAPS.forEach(([k,,,o])=>features[k]=o?v("cap-"+k):$("#cap-"+k).checked);
+  CAPS.forEach(([k,,,o])=>{if($("#cap-"+k))features[k]=o?v("cap-"+k):$("#cap-"+k).checked});
   try{await api(`/api/project/${sel}/profile`,{title:v("pf-title"),description:v("pf-description"),tone:v("pf-tone"),instructions:v("pf-instructions"),features});dirty=false;toast("Saved");extra=null;await fetchExtra();lastBody="";renderProject()}catch(e){toast(e.message,true)}
 }
 let ctxView=null;
@@ -530,7 +544,7 @@ async function fetchExtra(){
     if(!sel)return;
     if(tab==="pdash")extra={kind:"pdash",name:sel,...await api(`/api/project/${encodeURIComponent(sel)}/dashboard`)};
     else if(tab==="llm")extra={kind:"llm",...await api(`/api/project/${encodeURIComponent(sel)}/llm`)};
-    else if(tab==="profile"||tab==="knowledge")extra={kind:"profile",...await api(`/api/project/${encodeURIComponent(sel)}/profile`)};
+    else if(tab==="profile"||tab==="knowledge"||tab==="speed")extra={kind:"profile",...await api(`/api/project/${encodeURIComponent(sel)}/profile`)};
     else if(tab==="settings"){if(!extra||extra.kind!=="settings")extra={kind:"settings",...await api(`/api/project/${encodeURIComponent(sel)}/settings`)}}
     else if(tab==="changes"){const n=encodeURIComponent(sel);const [c,t]=await Promise.all([api(`/api/project/${n}/changes`),api(`/api/project/${n}/tree?base=${encodeURIComponent(codeBase)}`)]);extra={kind:"changes",...c,tree:t};
       if(!codeInit&&t.files.length){codeInit=true;t.files.filter(f=>f.status).forEach(f=>f.path.split("/").slice(0,-1).forEach((_,i,a)=>codeOpen.add(a.slice(0,i+1).join("/"))))}}
