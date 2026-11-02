@@ -1,7 +1,7 @@
 P ?=
 
 .DEFAULT_GOAL := help
-.PHONY: doctor update e2e-setup models ui-lan force-stop kill help setup selftest lint check init start run status stop list ui start-tmux tmux attach watch thinking logs task do self-improve improve test-build try feedback say
+.PHONY: bench doctor update e2e-setup models ui-lan force-stop kill help setup selftest lint check init start run status stop list ui start-tmux tmux attach watch thinking logs task do self-improve improve test-build try feedback say
 
 update:
 	@python3 -m infra.update
@@ -95,3 +95,7 @@ self-improve improve:
 # Give the agent one explicit task and nothing else: make task P=name TASK="add a dark mode"
 task do:
 	bash scripts/run.sh do $(P) "$(TASK)"
+
+# make bench LABEL=base [FEATURES=size_gate=false]   |   python3 bench/run.py --compare base other
+bench:
+	python3 bench/run.py --label $(or $(LABEL),bench) $(if $(FEATURES),--features $(FEATURES),)

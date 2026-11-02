@@ -319,3 +319,10 @@ The project dashboard is a widget board (`web/widgets.js`): drag tiles to reorde
 ## Self-improve from metrics
 
 Self-improve now reads measured evidence: a rule engine (`dash/sievidence.py`) turns diagnostics (reasoning share, first-try rate, failure rate, stalls, flaky tests, call time) into suggestions that name the metric and value; the journals of blocked tasks and the triage/layer-gate/drift history are added to the planner's evidence. A repair that fails the same way twice escalates to the heavy model and gets a stricter strategy hint. The global dashboard has a *Self-improve runs* section (runtime, kept steps, success per model). Note: `selfimprove.py` is protected, so these changes are merged by you, not by the self-run.
+
+## Benchmark, replay, regression tests, model advice
+
+- **Benchmark** (`make bench LABEL=base`, `python3 bench/run.py --compare base other`): six fixed mini tasks run through the real pipeline in fresh projects; each is checked by its own snippet. Use `--features size_gate=false` or `--model ...` to compare a pipeline or model change on the same tasks; the verdict (better/same/worse) is the evidence before merging a change. Results show in the *Self-improve runs* dashboard section.
+- **Run replay**: in a task's detail drawer, *Replay in a sandbox copy* plays the task again with another model or a hint (`scripts/run.sh replay <project> <task> [model] [hint]`). The original project is untouched.
+- **Regression tests**: with the flag `regression_tests`, a task of type `bug` is only accepted if the change adds a new test function; the tests are listed in `agent/regressions.jsonl` and in the *Regression tests* dashboard tile.
+- **Model advice** per role is derived from the project's own call statistics and shown in the *Model per role* tile.

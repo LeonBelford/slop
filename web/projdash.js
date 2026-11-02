@@ -13,6 +13,9 @@ async function pdOpen(id){
   try{PD.task=await api(`/api/project/${encodeURIComponent(sel)}/task?id=${encodeURIComponent(id)}`);PD.task.id=id}catch(e){toast(e.message,true);return}
   pdRepaint();
 }
+async function pdReplay(id){
+  try{await api(`/api/project/${encodeURIComponent(sel)}/replay`,{task:id,model:$("#pdrm").value,hint:$("#pdrh").value});toast("Replay started in a sandbox copy; the original project is untouched")}catch(e){toast(e.message,true)}
+}
 function pdClose(){PD.task=null;pdRepaint()}
 function pdFilter(v){PD.q=v;pdRepaint();const e=$("#pdq");if(e){e.focus();e.setSelectionRange(v.length,v.length)}}
 function pdPause(){PD.paused=!PD.paused;pdRepaint();if(!PD.paused)refresh()}
@@ -27,7 +30,9 @@ function pdDrawer(){
     ${t.failures.length?`<h4>Failed attempts</h4>${t.failures.map(f=>`<div class="cap"><div><span class="pill warn">${esc(f.cls||"")}</span> ${esc(f.why)}</div><div class="meta">attempt ${f.attempt??"?"}</div></div>`).join("")}`:""}
     ${t.plan.understanding?`<h4>Plan</h4><p>${esc(t.plan.understanding)}</p>${list(t.plan.steps)}`:""}
     ${t.journal.length?`<h4>Journal</h4><pre class="pd-j">${esc(t.journal.join("\n"))}</pre>`:""}
-    ${t.notes.length?`<details data-k="pd-notes"><summary>Notes (${t.notes.length})</summary>${list(t.notes)}</details>`:""}</div>`;
+    ${t.notes.length?`<details data-k="pd-notes"><summary>Notes (${t.notes.length})</summary>${list(t.notes)}</details>`:""}
+    <h4>Replay</h4><div class="row" style="gap:6px;flex-wrap:wrap"><input id="pdrm" placeholder="other model (optional), e.g. qwen2.5-coder:14b" style="flex:1;min-width:200px"><input id="pdrh" placeholder="hint (optional)" style="flex:2;min-width:200px"><button class="small" onclick="pdReplay('${esc(i.id)}')">Replay in a sandbox copy</button></div>
+    ${(t.replays||[]).filter(r=>r.task===i.id).map(r=>`<div class="cap"><div>${esc(r.model||"same model")} ${r.hint?"· "+esc(r.hint):""}</div><div class="meta"><span class="pill ${r.status==="done"?"ok":"warn"}">${esc(r.status)}</span> ${dur(r.seconds)} · ${esc(r.time)}</div></div>`).join("")}</div>`;
 }
 function pdGantt(x){
   const rows=x.timeline.filter(pdMatch);if(!rows.length)return "";
@@ -56,7 +61,8 @@ const PD_WIDGETS={
   causes:{title:"Failure causes",body:x=>(x.causes||[]).filter(c=>pdMatch({id:"",title:"",cls:c.cls})||c.tasks.some(pdMatch)).map(c=>`<div class="cap"><div><span class="pill warn">${esc(c.cls)}</span> ${c.n}×<small>${c.tasks.map(t=>pdTask(t.id,esc(t.id+" "+t.title))).join(" · ")}</small></div></div>`).join("")},
   steptime:{title:"Time per pipeline step",body:x=>{const e=Object.entries(x.step_time||{}),tot=e.reduce((a,[,v])=>a+v,0);return e.length?e.map(([k,v])=>`<div class="cap"><div>${esc(k)}</div><div class="meta">${dur(v)} · ${Math.round(100*v/tot)}%</div></div><div class="bar"><i style="width:${Math.round(100*v/tot)}%"></i></div>`).join(""):""}},
   tokens:{title:"Tokens and GPU",body:pdBars},
-  roles:{title:"Model per role",body:x=>Object.entries(x.role_models||{}).map(([k,v])=>`<div class="cap"><div>${esc(k)}</div><div class="meta">${esc(v)}</div></div>`).join("")},
+  roles:{title:"Model per role",body:x=>Object.entries(x.role_models||{}).map(([k,v])=>`<div class="cap"><div>${esc(k)}</div><div class="meta">${esc(v)}</div></div>`).join("")+(x.advice||[]).map(a=>`<div class="row" style="margin:4px 0"><span class="pill info">advice</span> ${esc(a.text)}</div>`).join("")},
+  regress:{title:"Regression tests",body:x=>(x.regressions||[]).slice().reverse().map(r=>`<div class="cap"><div>${esc(r.item)} ${esc(r.title)}</div><div class="meta">${(r.tests||[]).length} test(s)</div></div>`).join("")||`<div class="hint">Every fixed bug gets a mandatory test; none recorded yet.</div>`},
   quality:{title:"Quality",body:x=>{const q=x.quality,f=x.flow||{},bad=Object.entries(q.by_class||{}).sort((a,b)=>b[1]-a[1]).slice(0,5).map(([k,n])=>`<span class="pill warn">${esc(k)} ${n}</span>`).join(" ");
     return `<div class="stats">${pdStat(f.first_try_rate!=null?pct(f.first_try_rate):"–","first try")}${pdStat(f.avg_attempts!=null?f.avg_attempts:"–","attempts / task")}${pdStat(q.fail_rate!=null?pct(q.fail_rate):"–","attempts failing")}${pdStat(f.avg_review_score!=null?f.avg_review_score:"–","review score")}${pdStat(q.flaky,"flaky tests")}${pdStat(q.stalled,"stalls")}</div>${bad?`<div>${bad}</div>`:""}`}},
   model:{title:"Model time",body:x=>{const m=x.models||{},q=x.quality;return `<div class="stats">${pdStat(m.avg_call_s!=null?dur(m.avg_call_s):"–","avg per call")}${pdStat(m.reasoning_share!=null?pct(m.reasoning_share):"–","reasoning share")}${pdStat(q.gpu_hours,"GPU hours")}${pdStat(x.forecast&&x.forecast.known?dur(x.forecast.total_s):"–","forecast for the backlog")}</div>`}},

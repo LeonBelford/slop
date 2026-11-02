@@ -54,6 +54,9 @@ Code lives in five places: the entry points in the root (`codefactory.py`, `webu
 | `dash/pdextra.py` | Extra project-dashboard data: Gantt timeline, failure causes, time per pipeline step, models per role, `task_detail` for the drawer |
 | `web/widgets.js` | Widget board for dashboards: drag-and-drop order, hide, size, layout in localStorage and URL |
 | `dash/sievidence.py` | Self-improve evidence: metric rule engine (`suggestions`), task journals and triage/gate history of the projects, `retry_plan` (stall detection: escalate model, change strategy), `run_times` for the dashboard |
+| `dash/recommend.py` | Model advice per role from the project's call statistics (coder without reasoning, planner/reviewer with reasoning) |
+| `dash/replay.py` | Run replay: copies a project to `projects/.replay/`, applies another model or hint, records the result in `agent/replays.jsonl` |
+| `bench/harness.py` | Benchmark harness: fixed tasks (`bench/tasks.json`), per-task check, reports in `bench/results/`, A/B `compare` verdict; CLI `bench/run.py` (`make bench`) |
 | `dash/history.py` | Per-day history series and quality figures (fail/retry rate, GPU hours, failure-class histogram) from `metrics.json`/`metrics.jsonl`, backs `/api/history` and the dashboard History section |
 | `dash/toolmodels.py` | Model choice for self-improve (`self_improve/models.json`: planner/reviewer/summarizer/coder, light/heavy/final reviewer, auto or fixed); `apply` merges it into the run config, a per-task model pins the coder (`improve --model`) |
 | `dash/chatweb.py` | Opt-in web search for chats: `search_context` returns the top pages as prompt context plus sources (per-chat `web` flag, project web settings apply) |

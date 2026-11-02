@@ -590,6 +590,12 @@ def main() -> None:
     p_do.add_argument("--project")
     p_do.add_argument("--task", required=True)
     p_do.add_argument("--queue-only", action="store_true")
+    p_rp = sub.add_parser("replay", help="Play a task again in a sandbox copy with another model or a hint")
+    p_rp.add_argument("--projects-dir", default="projects")
+    p_rp.add_argument("--project")
+    p_rp.add_argument("--task", required=True, help="Task id, e.g. T0007")
+    p_rp.add_argument("--model", default="")
+    p_rp.add_argument("--hint", default="")
     p_re = sub.add_parser("replan", help="Think the plan through again: new layers, re-ordered tasks (agent must be stopped)")
     p_re.add_argument("--projects-dir", default="projects")
     p_re.add_argument("--project")
@@ -634,6 +640,21 @@ def main() -> None:
         print(f"Queued {item['id']}: {item['title']}")
         if not a.queue_only and not ag.is_running():
             ag.run_user_tasks()
+        return
+    if a.cmd == "replay":
+        from dash import replay
+        try:
+            info = replay.prepare(ws, a.task, a.model, a.hint)
+        except ValueError as e:
+            sys.exit(str(e))
+        print(f"Replaying {a.task} in {info['dest']}")
+        t0 = time.time()
+        ag = Agent(info["dest"])
+        item = ag.add_user_task(info["text"])
+        ag.run_user_tasks()
+        status = item["status"]
+        replay.record(ws, a.task, info, status, time.time() - t0)
+        print(f"Replay finished: {status}")
         return
     if a.cmd == "replan":
         ag = Agent(ws)
