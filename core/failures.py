@@ -4,6 +4,8 @@ from __future__ import annotations
 
 import re
 
+from core.cfutil import tail
+
 RULES = [  # (class, pattern); the first match wins
     ("no_edit", r"no usable edit|made no (?:usable )?edit"),
     ("timeout", r"TIMEOUT after|timed out"),
@@ -49,6 +51,19 @@ def signature(why: str) -> str:
         if line and not line.startswith(("$", "[")) and len(line) > 8:
             return classify(why) + ":" + re.sub(r"0x[0-9a-f]+|\d+|\s+", "", line)[:120]
     return classify(why)
+
+
+def focus(out: str, n: int) -> str:
+    """The part of a long build/test output that matters: compilers print the root cause FIRST and cascades after it, so from the
+    first `error` line on, not the tail. Without such a line the tail is kept (test runners summarise at the end)."""
+    if len(out) <= n:
+        return out
+    m = re.search(r"^error(?:\[\w+\])?:", out, re.M)
+    if not m:
+        return tail(out, n)
+    head = out[m.start(): m.start() + n * 2 // 3]
+    rest = out[m.start() + len(head):]
+    return head + (f"\n...[{len(rest)} more characters]...\n" + tail(rest, n // 3) if rest.strip() else "")
 
 
 def advice(cls: str) -> str:

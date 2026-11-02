@@ -11,7 +11,7 @@ import re
 import shutil
 import time
 from core import failures
-from core.cfa_flow import removed_tests
+from core.cfa_flow import removed_test_names, removed_tests
 from core.cfllm import LLMError
 from core.cfa_write import extract_files, write_files
 from core.cfutil import PRESETS, clip, read_json, sh, sh_live, sha, tail, write_json, write_text
@@ -71,20 +71,23 @@ class BuildMixin:
         before = self.work_fingerprint(edit)
         rc, out = run_aider(cmd)
         if edit and self.work_fingerprint(edit) == before:
-            # the coder must always write to disk (reasoning models like to answer in the chat only): retry once, then write it ourselves
-            self.log(f"[coder/{tag}] no file changed: retrying once in whole-file mode")
-            write_text(pf, prompt + "\n\nIMPORTANT: your last answer changed NO file. Do not explain and do not only show code in the chat. "
-                                     "Output the complete updated content of every file you must change so that it is written to disk.")
-            rc, out2 = run_aider(cmd + ["--edit-format", "whole"])
-            out += "\n" + out2
-            if self.work_fingerprint(edit) == before:
-                written = write_files(self.repo, extract_files(out2, edit) or extract_files(out, edit))
-                if written:
-                    self.log(f"[coder/{tag}] wrote {written} from the chat answer")
-                    self.note("coder", f"{tag}: files written from the chat answer: {written}")
-                else:
-                    self.log(f"[coder/{tag}] still no file written")
-                    self.note("coder", f"{tag} produced no file change even in whole-file mode")
+            # the coder must always write to disk (reasoning models like to answer in the chat only). First take complete files from
+            # its answer (free), then ask once more in whole-file mode, then take them from that answer.
+            written = write_files(self.repo, extract_files(out, edit))
+            if not written:
+                self.log(f"[coder/{tag}] no file changed: retrying once in whole-file mode")
+                write_text(pf, prompt + "\n\nIMPORTANT: your last answer changed NO file. Do not explain and do not only show code in the chat. "
+                                         "Output the complete updated content of every file you must change so that it is written to disk.")
+                rc, out2 = run_aider(cmd + ["--edit-format", "whole"])
+                out += "\n" + out2
+                if self.work_fingerprint(edit) == before:
+                    written = write_files(self.repo, extract_files(out2, edit))
+            if written:
+                self.log(f"[coder/{tag}] wrote {written} from the chat answer")
+                self.note("coder", f"{tag}: files written from the chat answer: {written}")
+            elif self.work_fingerprint(edit) == before:
+                self.log(f"[coder/{tag}] still no file written")
+                self.note("coder", f"{tag} produced no file change even in whole-file mode")
         (self.dir / "coder_now.json").unlink(missing_ok=True)
         (self.dir / "coder_live.txt").unlink(missing_ok=True)
         self.llm.record(tag, "coder", model, prompt, out, "", time.time() - t0)
@@ -109,7 +112,7 @@ class BuildMixin:
         if cmds.get("setup") and h != self.state.get("req_hash"):
             rc, out = sh(cmds["setup"], self.repo, t, shell=True)
             if rc:
-                return False, f"[setup] FAILED rc={rc}\n{tail(out, 5000)}"
+                return False, f"[setup] FAILED rc={rc}\n{failures.focus(out, 5000)}"
             self.state["req_hash"] = h
             self.save_state()
         for name in ("build", "test", "lint"):
@@ -119,7 +122,7 @@ class BuildMixin:
             self.log(f"▶ running {name}: {c}")
             rc, out = self.run_cmd(name, c, t)
             if rc:
-                return False, f"[{name}] FAILED rc={rc}\n$ {c}\n{tail(out, 6000)}"
+                return False, f"[{name}] FAILED rc={rc}\n$ {c}\n{failures.focus(out, 6000)}"
         return True, "build + tests ok"
 
     # ---- Planning
@@ -138,7 +141,7 @@ class BuildMixin:
         plan = self.llm.json("impact", "planner", sys_p,
                              f"Task {item['id']} ({item['type']}): {item['title']}\n{item['description']}\n"
                              f"Acceptance: {item.get('acceptance')}\nStack: {self.cfg['stack']}\n"
-                             f"{self.blueprint_ctx(item)}{self.ui_note()}\nPrevious failed attempts:\n{chr(10).join(previous) or '-'}\n\n{ctx}\n\nSource code:\n{src}\n\nSchema: {schema}")
+                             f"{self.blueprint_ctx(item)}{self.ui_note()}\nPrevious failed attempts (they tell you HOW to do it better; the task above is still the FULL task with all its acceptance criteria: never shrink it to repairing an earlier error):\n{chr(10).join(previous) or '-'}\n\n{ctx}\n\nSource code:\n{src}\n\nSchema: {schema}")
         known = self.mem.consequences_for(plan.get("files_to_change", []) + plan.get("new_files", []), item["title"])
         plan["known_consequences"] = known
         if known:
@@ -212,7 +215,9 @@ class BuildMixin:
                     and not any("test" in f.lower() for f in self.git.changed_files()):
                 ok, report = False, "[policy] No tests were written/changed. Add tests for the change."
             if ok and self.feat("protect_tests") and removed_tests(self.git.diff()) > 0:
-                ok, report = False, "[policy] The change deletes tests (more test definitions removed than added). Restore them; fix the code, not the tests."
+                gone = "; ".join(removed_test_names(self.git.diff()))
+                ok, report = False, ("[policy] The change deletes tests (more test definitions removed than added). Put these back "
+                                     f"(rewriting is fine if the same cases are still tested): {gone or 'see git diff main'}. Fix the code, not the tests.")
             if ok:
                 return True, report
             self.log(f"Debug round {n}: {report.splitlines()[0]}")
@@ -222,7 +227,7 @@ class BuildMixin:
                          decided=[f"current failure: {report.splitlines()[0]}"] + [f"already tried, did not fix it: {t}" for t in self.tried[-3:]],
                          do=["find the cause, not the symptom, then fix it", "write every change into the files; code shown only in the chat is lost and the next test run is wasted"],
                          do_not=["repeat an approach listed as already tried", "delete or weaken tests"], done_when=["build and tests are green"])
-            mentioned = [f for f in re.findall(r"[\w./-]+\.(?:py|js|ts|html)", report) if (self.repo / f).exists()]
+            mentioned = [f for f in re.findall(r"[\w./-]+\.(?:py|js|ts|tsx|jsx|html|css|rs|go|toml|json|java|kt|c|cc|cpp|h|hpp|cs|rb|php|swift|yml|yaml|sql)\b", report) if (self.repo / f).exists()]
             files = sorted(set(self.git.changed_files()) | set(mentioned))[:self.lim["max_files_per_task"] + 4]
             self.code(f"debug{n}", files, [str(self.run_dir / "context.md")],
                       f"The build/test failed. Find the cause (not the symptoms) and fix it.\n"

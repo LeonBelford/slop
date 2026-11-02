@@ -7,7 +7,7 @@ import re
 from core.cfutil import clip
 
 FEATURE_DEFAULTS = {"test_first": "auto", "step_by_step": "auto", "acceptance_check": True, "retry_replan": True, "protect_tests": True, "spike": True, "coder_no_think": True}
-TEST_DEF = re.compile(r"^\s*(?:async\s+def\s+test_|def\s+test_|func\s+Test|fn\s+test_|@Test\b|(?:it|test|describe)\s*\(|public\s+void\s+test)", re.M)
+TEST_DEF = re.compile(r"^\s*(?:async\s+def\s+test_|def\s+test_|func\s+Test|(?:pub\s+)?(?:async\s+)?fn\s+test_|#\[(?:\w+::)*test\b[^\]]*\]|@Test\b|(?:it|test|describe)\s*\(|public\s+void\s+test)", re.M)
 
 
 def removed_tests(diff: str) -> int:
@@ -21,6 +21,20 @@ def removed_tests(diff: str) -> int:
         elif line.startswith("+") and TEST_DEF.match(line[1:]):
             added += 1
     return gone - added
+
+
+def removed_test_names(diff: str, limit: int = 12) -> list[str]:
+    """The test definition lines a diff deletes without adding the same line back (for the message to the coder)."""
+    gone, added = [], set()
+    for line in diff.splitlines():
+        if line.startswith(("---", "+++")) or not TEST_DEF.match(line[1:]):
+            continue
+        text = line[1:].strip()
+        if line.startswith("+"):
+            added.add(text)
+        elif line.startswith("-") and not text.startswith("#["):
+            gone.append(text)
+    return [t for t in gone if t not in added][:limit]
 
 
 def split_steps(steps: list, parts: int = 3) -> list[list]:
@@ -124,8 +138,10 @@ class FlowMixin:
                               '\nSchema: {"cause": "root cause in one sentence", "change": "what to do differently this time, concretely"}')
             previous.append(f"Strategy for the next attempt: cause: {d.get('cause', '')}; do differently: {d.get('change', '')}")
             self.handoff("planning of the next attempt", "failure analysis", goal=item["title"],
-                         decided=[f"root cause of the last failure: {d.get('cause', '')}"], do=[str(d.get("change", ""))],
-                         do_not=["repeat the approach of the failed attempt"])
+                         decided=[f"root cause of the last failure: {d.get('cause', '')}"],
+                         do=[str(d.get("change", "")), "then still deliver the WHOLE task, not only this fix"],
+                         do_not=["repeat the approach of the failed attempt", "reduce the task to repairing the earlier error"],
+                         done_when=["all acceptance criteria of the task are met"])
             self.log(f"Retry strategy: {clip(str(d.get('change', '')), 160)}")
         except Exception as e:  # noqa: BLE001
             self.log(f"Retry strategy failed: {e}")

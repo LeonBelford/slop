@@ -11,7 +11,7 @@ class SpikeMixin:
     def spike_due(self, item: dict, plan: dict) -> bool:
         """Only the first attempt, and only if the task looks uncertain: it was blocked before, the plan lists many risks,
         or the knowledge base knows many consequences/lessons for the files involved."""
-        if not self.feat("spike") or self.cur_attempt != 1:
+        if not self.feat("spike") or self.cur_attempt != 1 or int(item.get("split_depth", 0)) > 0:
             return False
         return (int(item.get("revives", 0)) > 0 or len(plan.get("risks") or []) >= RISKS_FOR_SPIKE
                 or len(plan.get("known_consequences") or []) >= KNOWN_FOR_SPIKE)
@@ -28,6 +28,11 @@ class SpikeMixin:
         changed = self.git.changed_files()
         ok, report = self.verify_stage() if changed else (False, "the spike produced no change")
         self.git.hard_reset()
+        if not ok and changed and report.startswith(("[build]", "[setup]", "[lint]")):
+            # unfixed throwaway code that does not compile says nothing about the approach: do not re-plan because of it
+            self.note("spike", "inconclusive: the spike code did not compile")
+            self.log(f"Spike {item['id']}: inconclusive (the throwaway code did not compile), continuing with the plan")
+            return True, "inconclusive"
         finding = (f"approach holds (proved with {changed[:5]})" if ok else f"approach did not hold: {clip(report.splitlines()[0] if report else '', 220)}")
         self.note("spike", finding)
         self.metric(kind="spike", item=item["id"], ok=bool(ok))
