@@ -4,7 +4,7 @@ from __future__ import annotations
 from pathlib import Path
 
 import codefactory as sa
-from core import graph_templates, taskgraph
+from core import graph_ideas, graph_templates, taskgraph
 
 from webapi.common import UiError, alive, spawn
 
@@ -16,7 +16,8 @@ class GraphEditMixin:
         prop = sa.read_json(a / "plan_proposal.json", None)
         return {"graphs": taskgraph.summaries(backlog), "blocks": {k: len(v) for k, v in impact.items() if v},
                 "proposal": {k: prop.get(k) for k in ("ts", "assessment", "lines", "reason")} if prop else None,
-                "templates": graph_templates.labels()}
+                "templates": graph_templates.labels(), "ideas": graph_ideas.load_ideas(a / "graph_ideas.json", sa.read_json)["ideas"],
+                "processes": sa.read_json(a / "processes.json", [])}
 
     def graph_history(self, name: str) -> dict:
         return {"history": sa.read_json(self.ws(name) / "agent" / "graph_history.json", [])}
@@ -84,6 +85,41 @@ class GraphEditMixin:
             ids = ag.split_into_steps(item, [{"title": t[:120], "description": f"{t}. Part of: {item['title']}. {item.get('description', '')}"[:1500],
                                               "acceptance": []} for t in steps], by)
             return {"ok": True, "ids": ids}
+        if action.startswith(("idea-", "process-")):
+            return self.graph_routine(ws, action, body)
+        raise UiError("Unknown graph action")
+
+    def graph_routine(self, ws: Path, action: str, body: dict) -> dict:
+        """AI graph ideas (add / dismiss) and your own standard processes (save / delete / run)."""
+        a = ws / "agent"
+        ag = sa.Agent(ws)
+        if action.startswith("idea-"):
+            cur = graph_ideas.load_ideas(a / "graph_ideas.json", sa.read_json)
+            idea = next((i for i in cur["ideas"] if i["id"] == body.get("id")), None)
+            if not idea:
+                raise UiError("Idea not found", 404)
+            made = []
+            if action == "idea-add":
+                made = graph_ideas.add_graph(ag.backlog, idea["steps"], f"Idea: {idea['title']}", "idea", idea.get("why", ""))
+            sa.write_json(a / "graph_ideas.json", {"ideas": [i for i in cur["ideas"] if i is not idea], "dismissed": (cur["dismissed"] + [idea["title"]])[-40:]})
+            return {"ok": True, "ids": [m["id"] for m in made]}
+        procs = sa.read_json(a / "processes.json", [])
+        if action == "process-save":
+            pid = str(body.get("id") or "") or "P" + str(max([int(p["id"][1:]) for p in procs if p["id"][1:].isdigit()] + [0]) + 1)
+            try:
+                proc = graph_ideas.norm_process(body, pid)
+            except ValueError as e:
+                raise UiError(str(e)) from e
+            sa.write_json(a / "processes.json", [p for p in procs if p["id"] != pid] + [proc])
+            return {"ok": True, "id": pid}
+        proc = next((p for p in procs if p["id"] == body.get("id")), None)
+        if not proc:
+            raise UiError("Process not found", 404)
+        if action == "process-delete":
+            sa.write_json(a / "processes.json", [p for p in procs if p is not proc])
+            return {"ok": True}
+        if action == "process-run":
+            return {"ok": True, "ids": [m["id"] for m in ag.run_process(proc)]}
         raise UiError("Unknown graph action")
 
     def start_replan(self, ws: Path, name: str, flags: list[str]) -> dict:
