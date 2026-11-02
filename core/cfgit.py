@@ -153,6 +153,8 @@ class Backlog:
             return False
         if it["status"] == "done":
             return True
+        if it["status"] == "blocked" and it.get("process"):
+            return True  # optional hygiene work that gave up must not hold the project back
         if it["status"] != "cancelled":
             return False
         heir = (it.get("split_into") or [None])[-1] if it.get("split_into") else it.get("merged_into")

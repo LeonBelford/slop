@@ -270,6 +270,9 @@ class ProjectMixin:
                 raise UiError("Stop the agent first: this task is being worked on right now")
             bl.items = [i for i in bl.items if i is not item]
             for i in bl.items:
+                for k in ("merged_into", "split_into"):  # a cancelled task that handed over to the deleted one hands over to what it handed to
+                    if item["id"] == i.get(k) or (isinstance(i.get(k), list) and item["id"] in i[k]):
+                        i.pop(k, None)
                 if item["id"] in (i.get("depends_on") or []):
                     # the tasks that built on it now build on what it built on, so the chain stays connected
                     i["depends_on"] = list(dict.fromkeys(d for dep in i["depends_on"] for d in ((item.get("depends_on") or []) if dep == item["id"] else [dep])))

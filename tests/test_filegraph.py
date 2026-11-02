@@ -39,3 +39,28 @@ class PackHistoryTest(unittest.TestCase):
         self.assertIn("used by c.py, d.py", text)
         busy = graphctx.hotspot_score("a.py", 100, 2, [it], cm)
         self.assertGreater(busy, graphctx.hotspot_score("b.py", 100, 2, [it], cm))
+
+    def test_budget_trims_only_the_builds_on_list(self):
+        from core import graphctx
+        items = [{"id": f"T{n}", "title": "x" * 70, "status": "done", "files": ["a.py"], "result": "r" * 100, "depends_on": [f"T{n - 1}"] if n > 1 else [], "type": "feature"} for n in range(1, 9)]
+        cur = {"id": "T9", "title": "t", "status": "pending", "files": ["a.py"], "depends_on": ["T8"], "type": "feature"}
+        cm = {"a.py": {"imports": ["b.py"], "imported_by": ["c.py"]}}
+        text = graphctx.context_pack(items + [cur], cur, codemap=cm)["text"]
+        self.assertLessEqual(len(text), graphctx.PACK_CHARS)
+        self.assertIn("File neighbourhood", text)
+
+    def test_python_import_forms(self):
+        files = {"core/graphctx.py", "core/__init__.py", "core/cfa_build.py", "tests/json.py", "pkg/util.py"}
+        text = "from core import graphctx\nfrom . import graphctx as g\nfrom .graphctx import x\nimport json\nfrom pkg.util import y\n"
+        self.assertEqual(filegraph.imports_of("core/cfa_build.py", text, files), {"core/graphctx.py", "pkg/util.py"})
+
+    def test_blocked_process_step_does_not_hold_back_successors(self):
+        import tempfile
+        from pathlib import Path
+
+        from core.cfgit import Backlog
+        bl = Backlog(Path(tempfile.mkdtemp()) / "b.json")
+        step = bl.add("Docs pass", "d", force=True)
+        bl.set(step, status="blocked", process="p1")
+        nxt = bl.add("Feature", "d", force=True, depends_on=[step["id"]])
+        self.assertTrue(bl.ready([nxt]))

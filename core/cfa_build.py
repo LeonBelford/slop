@@ -142,7 +142,8 @@ class BuildMixin:
         if light:
             return light
         self.phase("Planning: analysing the codebase and the impact of the change", "plan")
-        cands = graphctx.prefer_files(graphctx.context_pack(self.backlog.items, item, codemap=self.mem.codemap)["files"], self.mem.select_candidates(item), lambda f: (self.repo / f).exists())
+        pack = graphctx.context_pack(self.backlog.items, item, codemap=self.mem.codemap)
+        cands = graphctx.prefer_files(pack["files"], self.mem.select_candidates(item), lambda f: (self.repo / f).exists())
         ctx = self.mem.context_pack(item, cands)
         src = "\n\n".join(f"### {f}\n```\n{clip((self.repo / f).read_text('utf-8', 'replace'), self.cfg['context']['file_clip'])}\n```"
                           for f in (cands + self.mem.neighbors(cands))[:10] if (self.repo / f).exists())
@@ -178,7 +179,7 @@ class BuildMixin:
         plan["files_to_change"] = [f for f in plan.get("files_to_change", []) if (self.repo / f).exists()][:self.lim["max_files_per_task"]]
         plan["new_files"] = plan.get("new_files", [])
         write_json(self.run_dir / "plan.json", plan)
-        write_text(self.run_dir / "context.md", ctx)
+        write_text(self.run_dir / "context.md", ctx + ("\n" + pack["text"] if pack["text"] else ""))
         self.handoff("implementation", "planning", goal=f"{item['id']} {item['title']}: {plan.get('understanding', '')}",
                      decided=[f"{d.get('decision')} because {d.get('because')}" for d in plan.get("decisions") or [] if isinstance(d, dict)],
                      do=plan.get("steps") or [], do_not=list(plan.get("do_not") or []) + list(plan.get("risks") or []),
