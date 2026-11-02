@@ -50,6 +50,9 @@ def context_pack(items: list[dict], item: dict, budget: int = PACK_CHARS) -> dic
     shared = [i for i in live if i["id"] != item["id"] and i["status"] in ("pending", "in_progress") and mine & set(files_of(i))]
     if shared:
         text += "\nOther open tasks touching the same files: " + "; ".join(f"{i['id']} ({', '.join(sorted(mine & set(files_of(i)))[:2])})" for i in shared[:4])
+    past = [i for i in live if i["id"] != item["id"] and i["status"] == "done" and mine & set(files_of(i)) and i["id"] not in {u["id"] for u, _ in upstream(items, item["id"])}]
+    if past:
+        text += "\nEarlier tasks that touched the same files (keep their behaviour): " + "; ".join(f"{i['id']} {str(i['title'])[:50]}" for i in sorted(past, key=lambda x: x["id"])[-3:])
     return {"text": text[:budget], "files": files}
 
 

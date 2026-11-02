@@ -18,3 +18,14 @@ class FileGraphTest(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class PackHistoryTest(unittest.TestCase):
+    def test_pack_names_earlier_tasks_on_the_same_files(self):
+        from core import graphctx
+        mk = lambda n, st, f: {"id": f"T{n}", "title": f"task {n}", "status": st, "files": f, "depends_on": [], "type": "feature"}  # noqa: E731
+        items = [mk(1, "done", ["a.py"]), mk(2, "done", ["a.py"]), mk(3, "pending", ["a.py"])]
+        text = graphctx.context_pack(items, items[2])["text"]
+        self.assertIn("Earlier tasks that touched the same files", text)
+        self.assertIn("T1", text)
+        self.assertIn("T2", text)
