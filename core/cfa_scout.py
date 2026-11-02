@@ -43,6 +43,7 @@ class ScoutMixin:
                 i["scout"] = h
                 if not i.get("files"):
                     i["files"] = [p.split(" (")[0] for p in h.split("; ") if p][:4]
+                    i["files_guess"] = True  # word-matching hints, not a plan: the size, light-plan and split shortcuts must not trust them
             self.backlog.save()
             return len(todo)
         except Exception as e:  # noqa: BLE001  (look-ahead only)

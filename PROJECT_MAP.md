@@ -35,6 +35,8 @@ Code lives in five places: the entry points in the root (`codefactory.py`, `webu
 | `core/cfa_security.py` | `SecurityMixin`: security gate/probe/audit, e2e check |
 | `core/cfa_research.py` | `ResearchMixin`: ideation, product review, web research, sources/ideas sync, reflection |
 | `core/cfa_plan.py` | `PlanMixin`: strategic planning. `make_blueprint` (init) designs layers, core first, and seeds the backlog with `layer`/`depends_on`; `blueprint_ctx`, `top_layer`, `layer_done` (tags `layer-N`), `has_ui`, `ui_note` |
+| `core/graphctx.py` | Pure graph helpers: files per node, small context pack, file links, layer placement, `group_files` (split a big task along module groups) |
+| `core/cfa_tiers.py` | `TierMixin`: tiny/small/full task tiers decide the gates (review, mutation, acceptance, coverage only for 3+ source files or risk); light plan without planner call; one full verify before the commit, doc-only changes skip verify; graph split along file groups (first slice runs next via `hot`); re-plan after a cancelled dependency |
 | `core/cfa_split.py` | `SplitMixin`: a task that keeps failing is split into 2-4 smaller slices (`split_into_steps`, strategist model, max depth 2); blocked tasks are revived after other merges (`revive_blocked`, max 2x); `block_task` |
 | `core/cfa_conductor.py` | `ConductorMixin`: per-task pipeline profile from recent outcomes (`conducting`: fast/flow/careful, never disables correctness gates), task journal (`note`, shown to every prompt of the task), `replan_if_stuck` |
 | `core/cfa_write.py` | Last-resort writer: files the coder only printed in the chat are taken from its answer and written to disk (only allowed files) |

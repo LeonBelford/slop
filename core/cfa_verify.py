@@ -174,9 +174,11 @@ class VerifyMixin:
             return False, f"[test] FAILED rc={rc}\n$ {cmd}\n{tail(out, 6000)}"
         return True, "targeted tests ok"
 
-    def verify_stage(self) -> tuple[bool, str]:
+    def verify_stage(self, full: bool = True) -> tuple[bool, str]:
+        """One verification step of a debug round. `full=False` (fast_verify): the targeted tests alone decide while the work is in progress;
+        the one full run follows right before the commit (`full_gate`). Without targeted tests the full run is the only option."""
         fast = self.verify_fast()
-        if fast is not None and not fast[0]:
+        if fast is not None and (not fast[0] or (not full and self.feat("fast_verify"))):
             return fast
         return self.verify()
 

@@ -57,7 +57,7 @@ class ConductorMixin:
         lim = self.lim
         if len(outcomes) >= 3 and rate >= STUCK_RATE:
             return ("careful", f"{round(rate * 100)}% of the last {min(len(outcomes), WINDOW)} tasks failed",
-                    {"cleanup_pass": False, "plan_critique": True, "mutation_check": False},
+                    {"cleanup_pass": False, "plan_critique": True, "mutation_check": False, "tier": "full"},  # a struggling project gets every gate
                     {"max_debug_rounds": min(lim["max_debug_rounds"] + 1, 6)})
         if item["type"] in ("docs", "test"):
             return "fast", "docs/test task", {"cleanup_pass": False, "plan_critique": False, "mutation_check": False}, {}

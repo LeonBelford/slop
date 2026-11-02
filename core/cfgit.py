@@ -143,8 +143,29 @@ class Backlog:
 
     def ready(self, pending: list[dict]) -> list[dict]:
         """Pending items whose dependencies are finished (done or cancelled)."""
-        closed = {i["id"] for i in self.items if i["status"] in ("done", "cancelled")}
-        return [i for i in pending if all(d in closed for d in i.get("depends_on", []))]
+        return [i for i in pending if all(self.satisfied(d) for d in i.get("depends_on", []))]
+
+    def satisfied(self, dep_id: str, depth: int = 0) -> bool:
+        """A dependency is met when it is done. A cancelled one counts as met only if nothing replaced it: a split task hands over to its
+        last slice, a merged one to the task it was merged into."""
+        it = self.by_id(dep_id)
+        if it is None or depth > 6:
+            return False
+        if it["status"] == "done":
+            return True
+        if it["status"] != "cancelled":
+            return False
+        heir = (it.get("split_into") or [None])[-1] if it.get("split_into") else it.get("merged_into")
+        return self.satisfied(heir, depth + 1) if isinstance(heir, str) and heir != dep_id else True
+
+    def dead_deps(self, item: dict) -> list[str]:
+        """Dependencies that were cancelled without a replacement: the task was planned around work that will never exist."""
+        out = []
+        for d in item.get("depends_on", []):
+            it = self.by_id(d)
+            if it and it["status"] == "cancelled" and not it.get("split_into") and not it.get("merged_into"):
+                out.append(d)
+        return out
 
     def next(self, prefer_light: bool | None = None, chain_from: str | None = None):
         """User tasks first, then bugs. After that the lowest layer first (core before features, items without a layer come last),
@@ -169,7 +190,7 @@ class Backlog:
             bonus = 0.75 if prefer_light is not None and light == prefer_light else 0
             layer = i["layer"] if i.get("layer") is not None else UNLAYERED
             chain = CHAIN_BONUS if chain_from and chain_from in (i.get("depends_on") or []) else 0
-            return (i.get("source") == "user", i["type"] == "bug", -layer, i["priority"] + bonus + chain + i.get("dyn", 0))
+            return (i.get("source") == "user", i["type"] == "bug", -layer, bool(i.get("hot")), i["priority"] + bonus + chain + i.get("dyn", 0))
         return max(p, key=key)
 
     def set(self, item: dict, **kw) -> None:

@@ -440,3 +440,14 @@ table.tt .tt-g td{background:#ffffff08;padding:6px 8px;border-top:1px solid var(
 .pg-lay line{stroke:#ffffff0d}.pg-lt{font-size:12px;opacity:.7;pointer-events:none}.pg-live circle{animation:pgp 1.4s ease-in-out infinite}@keyframes pgp{50%{stroke-width:5}}
 .pg-stages{display:flex;gap:6px;flex-wrap:wrap}.pg-chip{display:inline-flex;gap:5px;align-items:center;font-size:12px;padding:2px 9px;border:1px solid var(--c);border-radius:999px;cursor:pointer;color:var(--mute)}.pg-chip i{width:8px;height:8px;border-radius:50%;background:var(--c)}.pg-chip.on{background:#ffffff14;color:#eee}
 #tgInfo{margin-top:8px}.pg-info{padding:10px 12px;border:1px solid var(--line);border-radius:10px;background:#ffffff06}.pg-rows>div{margin-top:4px}.pg-ch{display:inline-block;margin:2px 4px 2px 0;padding:1px 8px;border:1px solid var(--line);border-radius:999px;font-size:12px;cursor:pointer}.pg-ch:hover{border-color:#6fa3d8}.pg-ch.file{font-family:ui-monospace,monospace;font-size:11px;color:#9bd7a4}
+/* Anytype-like look: soft dark canvas, glowing bubbles, thin curved edges, smooth motion */
+.pg-wrap{background:radial-gradient(circle at 50% 40%,#17181c,#0d0e10 80%);border-color:#ffffff14;border-radius:16px;box-shadow:inset 0 0 60px #00000080}
+#pgSvg{background-image:radial-gradient(#ffffff12 1px,transparent 1px);background-size:26px 26px}
+.pg-n circle{stroke-width:1.5;stroke-opacity:.9;filter:drop-shadow(0 0 7px #00000090);transition:r .25s,fill-opacity .25s,stroke-width .2s,filter .25s}
+.pg-n:hover circle,.pg-n.hot circle{filter:drop-shadow(0 0 12px currentColor) brightness(1.25);stroke-width:2.5}
+.pg-n.sel circle{stroke:#fff;stroke-width:3;filter:drop-shadow(0 0 16px #ffffff90) brightness(1.3)}
+.pg-n{transition:opacity .3s}.pg-n.dim,.pg-e.dim{opacity:.07}
+.pg-l{font-size:11px;font-weight:500;fill:#e8e8ea;stroke:#0d0e10;stroke-width:3.5px;transition:opacity .25s}
+.pg-e{stroke:#ffffff30;stroke-width:1;stroke-linecap:round;transition:opacity .3s,stroke .2s,stroke-width .2s}.pg-e.old{stroke:#ffffff18}.pg-e.lit{stroke:#7fb2ff;stroke-width:1.8}.pg-e.crit{stroke:#f0b35a;stroke-width:1.8;filter:drop-shadow(0 0 4px #f0b35a80)}
+.pg-lay line{stroke:#ffffff08}.pg-chip{transition:background .2s,color .2s,transform .15s}.pg-chip:hover{transform:translateY(-1px)}
+.pg-info{border-radius:14px;background:#ffffff08;backdrop-filter:blur(6px)}

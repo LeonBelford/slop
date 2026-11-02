@@ -65,20 +65,31 @@ class SplitMixin:
             return False
         if len(subs) < 2:
             return False
+        return self.apply_split(item, subs, str(d.get("cause", "")), previous)
+
+    def apply_split(self, item: dict, subs: list[dict], cause: str, previous: list[str]) -> bool:
+        """Replaces `item` by a chain of slices (they inherit its layer and dependencies; its dependents wait for the last slice). The first slice
+        is marked hot so the loop continues with it at once, inside the same graph."""
+        depth = int(item.get("split_depth", 0))
         ids, prev_ids = [], list(item.get("depends_on", []))
         for n, s in enumerate(subs):
             kind = s.get("type") if s.get("type") in ("feature", "refactor", "test") else item["type"]
             new = self.backlog.add(str(s["title"])[:120], str(s.get("description", ""))[:800], kind, item["priority"] + 1 - 0.1 * n,
                                    [str(a)[:200] for a in (s.get("acceptance") or [])][:6] or item.get("acceptance", []),
-                                   f"Slice {n + 1}/{len(subs)} of {item['id']}: {d.get('cause', '')}", item.get("source", "ideation"),
+                                   f"Slice {n + 1}/{len(subs)} of {item['id']}: {cause}", item.get("source", "ideation"),
                                    force=True, layer=item.get("layer"), depends_on=prev_ids)
             new["split_depth"] = depth + 1
+            new["size_checked"] = True
+            if s.get("files"):
+                new["files"] = [str(f) for f in s["files"]][:12]
+            if n == 0:
+                new["hot"] = True
             ids.append(new["id"])
             prev_ids = [new["id"]]
         for other in self.backlog.items:  # whoever waited for the task now waits for its last slice
             if item["id"] in other.get("depends_on", []) and other["id"] not in ids:
                 other["depends_on"] = [ids[-1] if x == item["id"] else x for x in other["depends_on"]]
-        self.backlog.set(item, status="cancelled", split_into=ids, reason=f"split into {len(ids)} smaller slices ({', '.join(ids)}): {str(d.get('cause', ''))[:200]}",
+        self.backlog.set(item, status="cancelled", split_into=ids, reason=f"split into {len(ids)} smaller slices ({', '.join(ids)}): {cause[:200]}",
                          notes=item.get("notes", []) + [f"split into {', '.join(ids)} " + ("before the start (too large)" if previous and previous[-1].startswith("Pre-check") else "after repeated failures")])
         self.metric(kind="split", item=item["id"], into=ids)
         self.log(f"Split {item['id']} into {len(ids)} slices: {', '.join(ids)}")
