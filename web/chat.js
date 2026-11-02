@@ -172,11 +172,30 @@ function drawMsgs(){
   box.innerHTML=c.messages.map((m,i)=>msgHtml(m,i,i===last)).join("")||`<div class="chat-empty"><div class="big">${isAgent(c)?"What should the agent do?":"What are we working on?"}</div><div class="hint">${isAgent(c)?"It can look at the project, queue and reorder tasks, pause the agent and more. Type / for direct commands.":"Ask anything. Link a project and the model knows its goal, backlog and recent work."}</div><div class="suggs">${sug}</div></div>`;
   box.classList.toggle("busy",!!chat.ctrl);box.scrollTop=box.scrollHeight;
 }
+const WRITES=["write_file","edit_file","delete_file"];
+chat.prev=chat.prev||{};
+function diffHtml(t){return `<pre class="diff">${esc(t).split("\n").map(l=>`<span class="${l[0]==="+"&&!l.startsWith("+++")?"d-add":l[0]==="-"&&!l.startsWith("---")?"d-del":l[0]==="@"?"d-hunk":""}">${l||" "}</span>`).join("\n")}</pre>`}
+function ckHtml(i,k,t,a){const d=chat.prev[i+"_"+k];return d?`<div class="ck-diff">${diffHtml(d)}</div>`:""}
+function ckBtns(i,k,t,a){
+  if(!WRITES.includes(t))return "";
+  if(!a||a.status==="pending")return `<button class="small ghost" onclick="ckOp(${i},${k},'preview')" title="Show exactly what would change">Preview</button>`;
+  if(a.sha)return a.undone?`<span class="pill">undone</span>`:`<button class="small ghost" onclick="ckOp(${i},${k},'show')">Diff</button><button class="small" onclick="ckOp(${i},${k},'undo')" title="Revert this change (new commit)">Undo</button>`;
+  return "";
+}
+async function ckOp(i,k,op){
+  const key=i+"_"+k;
+  if(op!=="undo"&&chat.prev[key]){delete chat.prev[key];drawMsgs();return}
+  try{
+    const r=await api(`/api/chat/${chat.cur.id}/checkpoint`,{msg:i,k,op});
+    if(op==="undo"){chat.cur=r.chat;delete chat.prev[key];toast("Change undone")}else chat.prev[key]=r.diff;
+    drawMsgs();
+  }catch(e){toast(e.message,true)}
+}
 function actCard(i,k,call,a){
   const t=String(call.tool),st=a?a.status:"pending",d=call.text||call.command||call.title||(t==="design"?(call.approve?"approve":"reject"):"")||call.idea||call.query||call.task&&(call.task+(call.priority?" → "+call.priority:""))||call.file||call.path||call.filter||(t==="step_mode"?(call.on===false?"off":"on"):"");
   const ro=RO.includes(t),btns=st==="pending"?`<button class="small primary" onclick="runAction(${i},${k})">${ro?"Run":"Approve"}</button><button class="small ghost" onclick="runAction(${i},${k},true)">Skip</button>`
     :st==="failed"?`<span class="pill bad">failed</span><button class="small" onclick="runAction(${i},${k})">Retry</button>`:`<span class="pill ${st==="done"?"ok":""}">${st}</span>`;
-  return `<div class="act st-${st}"><span class="act-ic">${ICON[t]||"⚙"}</span><div class="act-b"><div><b>${esc(t.replace(/_/g," "))}</b>${call.project?` <span class="pill">${esc(call.project)}</span>`:""}${ro?` <span class="act-ro">read-only</span>`:""}</div>${d?`<div class="act-d">${esc(String(d).slice(0,300))}</div>`:""}${a&&a.result?`<details ${st==="failed"||a.result.length<160?"open":""}><summary>Result</summary><pre>${esc(a.result)}</pre></details>`:""}</div><div class="act-r">${btns}</div></div>`;
+  return `<div class="act st-${st}"><span class="act-ic">${ICON[t]||"⚙"}</span><div class="act-b"><div><b>${esc(t.replace(/_/g," "))}</b>${call.project?` <span class="pill">${esc(call.project)}</span>`:""}${ro?` <span class="act-ro">read-only</span>`:""}</div>${d?`<div class="act-d">${esc(String(d).slice(0,300))}</div>`:""}${a&&a.result?`<details ${st==="failed"||a.result.length<160?"open":""}><summary>Result</summary><pre>${esc(a.result)}</pre></details>`:""}${ckHtml(i,k,t,a)}</div><div class="act-r">${btns}${ckBtns(i,k,t,a)}</div></div>`;
 }
 function msgHtml(m,i,isLast){
   const when=hhmm(m.t);

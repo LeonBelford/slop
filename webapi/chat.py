@@ -162,7 +162,8 @@ class ChatMixin:
         for k, call in enumerate(calls):
             try:
                 tool, args = chatagent.validate(call, chat["projects"], self_mode)
-                acts[str(k)] = {"status": "done", "result": self._run_tool(tool, args, True), "t": time.time()}
+                text, ck = self._run_ck(chat, tool, args, True)
+                acts[str(k)] = {"status": "done", "result": text, "t": time.time(), **ck}
             except (ValueError, UiError) as e:
                 acts[str(k)] = {"status": "failed", "result": str(e), "t": time.time()}
             except Exception as e:  # noqa: BLE001 - a tool crash must not end the whole run

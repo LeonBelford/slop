@@ -416,3 +416,6 @@ body.dock-on main{flex:1 1 0;margin:0}
 #dock .composer,#dock .cx .composer{margin:8px;}
 #dock .cb pre,#dock .msg pre{font-size:12px}
 #dock .mb-gpu{display:none}
+
+.ck-diff{margin-top:8px}.diff{margin:0;max-height:260px;overflow:auto;font-size:12px;line-height:1.45;background:#0d0d0d;border:1px solid var(--line);border-radius:8px;padding:6px 0;white-space:pre}
+.diff span{display:block;padding:0 10px}.d-add{background:rgba(95,179,107,.16);color:#9bd7a4}.d-del{background:rgba(224,108,117,.16);color:#f0a1a8}.d-hunk{color:#6fa3d8}
