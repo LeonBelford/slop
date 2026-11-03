@@ -128,7 +128,7 @@ function pgCard(id,e){
     c.dataset.id=id;
     c.innerHTML=`<div class="pc-h"><i style="background:${pgFill(i)}"></i><b>${esc(i.id)}</b> <span class="pill ${i.status==="done"?"ok":i.status==="blocked"?"bad":""}">${esc(i.status.replace("_"," "))}</span>${i.layer!=null?` <span class="pill info">L${i.layer}</span>`:""}</div><div class="pc-t">${esc(i.title)}</div>
     <div class="meta">${i.estimate_s?"Estimated: "+dur(i.estimate_s):"No estimate yet"}${i.runtime_s?" · Took: "+dur(i.runtime_s):""}</div>
-    ${pgQuality(i)}${i.why?`<div class="meta">Why: ${esc(i.why.slice(0,160))}</div>`:""}${i.result?`<div class="meta">Result: ${esc(String(i.result).slice(0,140))}</div>`:""}
+    ${i.parent?`<div class="meta">Part of: ${esc(i.parent)} ${m.by[i.parent]?esc(m.by[i.parent].title.slice(0,40)):"(grew out of a bigger task)"}</div>`:""}${i.split_into&&i.split_into.length?`<div class="meta">Split into: ${esc(i.split_into.join(", "))}</div>`:""}${pgQuality(i)}${i.why?`<div class="meta">Why: ${esc(i.why.slice(0,160))}</div>`:""}${i.result?`<div class="meta">Result: ${esc(String(i.result).slice(0,140))}</div>`:""}
     <div class="meta">Builds on: ${needs.length?needs.slice(0,4).map(nm).join(", ")+(needs.length>4?" …":""):"foundation"}</div><div class="meta">Unlocks: ${later.length?later.slice(0,4).map(nm).join(", ")+(later.length>4?" …":""):"nothing yet"}</div>
     <div class="meta">Files: ${files.length?esc(files.slice(0,4).join(", "))+(files.length>4?" …":""):"not known yet"}</div>`;
   }
