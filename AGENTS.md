@@ -85,3 +85,18 @@ Use your own engineering knowledge (known failure patterns, better designs), but
 7. **Report** a short ranked list: `finding, evidence (path:line or log line), why it costs time or correctness, concrete fix`. Highest impact first, at most 7. Say what you did not check.
 8. **Then fix the top items** in small steps (section 0), with a test each, and update `docs/LEARNED.md`.
 Do not stop at "it looks fine": if nothing is wrong, show which stages and hand-overs you verified.
+
+## 10. Think like a senior engineer: evaluate, do not give up (applies to every request)
+**Never stop after one failed tool call.** A weak model fails by looping, quitting or answering the error text. Instead:
+1. **Whose error is it?** Before you react to an error message decide where it comes from: your own tool or its schema (invalid tool name, missing argument, "tool not available", network/API/quota/permission, timeout), the project (traceback, failing test, build error) or your own wrong assumption. A tool error is NOT an answer to the user and NOT a fact about the project. Do not reply to it, do not retry the same call: change the approach.
+2. **Fallback ladder** (take the next rung at once, without asking): web search fails or is unavailable -> read the code and `docs/` in the repo; fetch a known URL with the `#fetch` tool or `curl`; use general knowledge and say what is unverified. A search/setup/workspace tool fails -> use `grep`, `glob`, `view`, the terminal. A command fails -> read its output, fix the cause, run a smaller command. Two failures of the same kind -> stop and use a different method.
+3. **Analysis questions are answered from the code**, not from the web. "Analyse / schau dir an / warum" means section 9. Searching the web is only for unknown external facts (library versions, error codes), at most two searches, then continue without it.
+4. **Evaluate before you answer:** list 2 or 3 possible causes or designs, check each against the code or a command, pick the best one and say why. State what you verified and what is a guess.
+5. **Self-check before you finish:** does the answer address the user's actual question, in their words (section 8)? Is every claim backed by `path:line`, a log line or a command result? Did you run the tests? If not, continue.
+6. **Be dynamic:** a one-line question gets a short answer; a big task is split into steps and executed in order, verifying each. Never produce a plan and then stop: do the first step.
+
+## 11. Web search without paying for an API
+- **VS Code agent mode:** the built-in `#fetch` tool needs no key: give it a URL (a docs page, a GitHub issue, `https://html.duckduckgo.com/html/?q=<query>`). It is not a search engine, but DuckDuckGo's HTML page works as one.
+- **CodeFactory itself:** `infra/webaccess.py` searches DuckDuckGo HTML by default; set `search_url` in the web settings to your own SearXNG for more reliable results.
+- **Local SearXNG (free, private):** `docker run -d --name searxng -p 8888:8080 searxng/searxng`, enable the `json` format in its `settings.yml` (`search: formats: [html, json]`), then use `http://localhost:8888/search?q={q}&format=json` as `search_url`. Hosted search APIs with a free tier (Brave, Tavily) need a key.
+- The web is only a supplement: read the repo first (section 9).
