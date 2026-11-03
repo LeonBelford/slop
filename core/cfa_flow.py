@@ -42,6 +42,18 @@ def removed_test_names(diff: str, limit: int = 12) -> list[str]:
     return [t for t in gone if t not in added][:limit]
 
 
+GENERIC_STEP = re.compile(r"^\W*(?:then\s+|finally\s+|lastly\s+)?(?:(?:run|execute|re-?run)\b.*\b(?:tests?|pytest|unittest|build|command)\b|"
+                          r"update\b.*\b(?:docs?|documentation|readme|changelog)\b|(?:commit|push)\b|(?:document)\b)", re.I)
+
+
+def clean_steps(steps: list) -> list[str]:
+    """Drops the filler steps a model adds to every plan (run the tests, update the docs, commit): the pipeline does that itself, and each one
+    would count as work when the plan is sized, split and shown. Never empties the list."""
+    out = [str(x).strip() for x in steps if str(x).strip()]
+    kept = [x for x in out if not GENERIC_STEP.match(x)]
+    return kept or out
+
+
 def split_steps(steps: list, parts: int = 3) -> list[list]:
     """Splits the plan steps into at most `parts` consecutive groups of similar size."""
     if len(steps) < 2:
