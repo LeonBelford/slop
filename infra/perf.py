@@ -39,6 +39,19 @@ AIDER_ENV = {"BROWSER": "true"}  # Aider offers its help pages with --yes-always
 LIMIT_MARKS = ("hit a token limit", "token-limits.html", "exceeds the", "ContextWindowExceeded", "context window exceeded", "maximum context length")
 
 
+LOOP_RC = 125
+
+
+def looping(lines: list[str], window: int = 120, repeats: int = 6) -> bool:
+    """Whether Aider's recent output is a loop: the same substantial line (or the same short block) came back again and again.
+    A model that keeps writing never goes idle, so silence detection cannot catch this."""
+    recent = [x.strip() for x in lines[-window:] if len(x.strip()) > 12]
+    if len(recent) < repeats * 2:
+        return False
+    top = max((recent.count(x) for x in set(recent)), default=0)
+    return top >= repeats and top * 3 >= len(recent)  # one line makes up a third of the recent output
+
+
 def token_limit_hit(out: str) -> bool:
     """Whether Aider's output says the model ran out of context window or output tokens (the answer is then cut off or missing)."""
     low = out.lower()

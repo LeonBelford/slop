@@ -279,9 +279,10 @@ def sh(cmd, cwd: Path, timeout: int = 900, shell: bool = False, env: dict | None
 
 
 def sh_live(cmd, cwd: Path, timeout: int, live: Path, env: dict | None = None, shell: bool = False, gate=None, idle: bool = False,
-            hard_cap: float = 6 * 3600):
+            hard_cap: float = 6 * 3600, stuck=None):
     """Like sh(), but mirrors the output into `live` while the command runs so the UI can show it as it is written.
-    idle=True: `timeout` only counts silence (a model that is still writing is never cut off); `hard_cap` still ends a runaway."""
+    idle=True: `timeout` only counts silence (a model that is still writing is never cut off); `hard_cap` still ends a runaway.
+    stuck: optional callable(list of output lines) -> bool, checked about every 5 s; True ends the command with rc 125 (a loop)."""
     try:
         p = subprocess.Popen(cmd, cwd=str(cwd), stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True, errors="replace", shell=shell,
                              env={**os.environ, **(env or {})})
@@ -301,12 +302,19 @@ def sh_live(cmd, cwd: Path, timeout: int, live: Path, env: dict | None = None, s
     th = threading.Thread(target=pump, daemon=True)
     th.start()
     t0 = time.time()
+    checked = t0
     while True:
         try:
             p.wait(timeout=0.5)
             break
         except subprocess.TimeoutExpired:
             pass
+        if stuck is not None and time.time() - checked > 5:
+            checked = time.time()
+            if stuck(chunks[-200:]):
+                force_stop_pid(p.pid, grace=2.0)
+                th.join(2)
+                return 125, "LOOP: the output repeated itself\n" + "".join(chunks[-40:])
         waited = time.time() - (last_out[0] if idle else t0)
         if waited > timeout or (idle and time.time() - t0 > hard_cap):
             force_stop_pid(p.pid, grace=2.0)

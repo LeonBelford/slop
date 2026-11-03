@@ -8,3 +8,5 @@ Short, verified lessons for coding agents (see `AGENTS.md` section 7). One fact 
 - 2026-11-03 models: `deepseek-r1` is weak at tool calling; `qwen2.5-coder:14b` / `qwen3:14b` are better for agent mode. Set `OLLAMA_CONTEXT_LENGTH=16384`.
 - 2026-11-03 tests: `tests/test_selfimprove.py` copies the repo and runs the whole suite (70-210 s); it also fails when a module exceeds 700 lines.
 - 2026-11-03 git: a PR merged into a stacked PR's branch does not reach `main`; retarget or re-apply it.
+
+- 2026-11-03 aider: a looping Aider never goes idle, so `idle=True` never cut it off (hard cap 6 h); `perf.looping` + `sh_live(stuck=...)` now stops it with rc 125 (`coder_loop`) and `code()` retries once with a minimal context in whole-file mode.

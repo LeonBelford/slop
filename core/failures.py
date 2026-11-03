@@ -8,6 +8,7 @@ from core.cfutil import tail
 
 RULES = [  # (class, pattern); the first match wins
     ("no_edit", r"no usable edit|made no (?:usable )?edit"),
+    ("coder_loop", r"LOOP: the output repeated"),
     ("timeout", r"TIMEOUT after|timed out"),
     ("policy", r"\[policy\]"),
     ("setup_fail", r"\[setup\] FAILED"),
@@ -24,6 +25,7 @@ RULES = [  # (class, pattern); the first match wins
 ]
 ADVICE = {
     "no_edit": "The coder produced no edit last time. Name the exact files and the exact function to change, and keep the task smaller.",
+    "coder_loop": "The coder got stuck repeating itself. Touch fewer files, name the one function to change, and do not ask for more files.",
     "timeout": "A command ran into the time limit. Avoid long-running work and make the change smaller.",
     "policy": "A project rule rejected the change (tests missing or deleted). Satisfy the rule instead of working around it.",
     "build_fail": "The build failed. Fix the compile/import error first, before any other change.",

@@ -66,13 +66,21 @@ class BuildMixin:
         def run_aider(args: list[str]) -> tuple[int, str]:
             while True:
                 with self.llm.sched.gpu(f"coder/{tag}", model) as gate:
-                    rc, out = sh_live(args, self.repo, self.lim["coder_timeout"], self.dir / "coder_live.txt", env=env, gate=gate, idle=True)
+                    rc, out = sh_live(args, self.repo, self.lim["coder_timeout"], self.dir / "coder_live.txt", env=env, gate=gate, idle=True,
+                                    stuck=perf.looping)
                 if rc != gpusched.PREEMPTED_RC:
                     return rc, out
                 self.log(f"⏸ [coder/{tag}] Aider stopped for the main agent, retrying when the GPU is idle")
 
         before = self.work_fingerprint(edit)
         rc, out = run_aider(cmd)
+        if rc == perf.LOOP_RC:
+            self.log(f"[coder/{tag}] Aider repeated itself (loop): stopped it, retrying once with a minimal context and a plain edit request")
+            self.note("coder", f"{tag}: output loop, stopped and retried with a minimal context")
+            write_text(pf, prompt + "\n\nYour last answer got stuck repeating itself. Change ONLY the files you were given, write each change once, "
+                                     "do not ask for other files and do not repeat any text.")
+            rc, out2 = run_aider(perf.lean_cmd(cmd) + ["--edit-format", "whole"])
+            out += "\n" + out2
         if perf.token_limit_hit(out):
             self.log(f"[coder/{tag}] the model ran out of context/output tokens: retrying once with a minimal context (no repo map, one read-only file)")
             self.note("coder", f"{tag}: token limit hit, retried with a minimal context")
