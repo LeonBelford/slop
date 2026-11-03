@@ -56,6 +56,23 @@ class SizeSpecContractTests(AgentCase):
         self.assertIn("before the start", a["notes"][-1])
         self.assertFalse(self.ag.size_gate(a))
 
+    def test_new_default_limits_and_long_history_split(self):
+        def split(name, *x, **k):
+            if name == "size_estimate":
+                return {"files": 6, "lines": 100}
+            return {"cause": "big", "subtasks": [{"title": "S1", "description": "d"}, {"title": "S2", "description": "d"}]}
+        a = self.ag.backlog.add("Six files", "d", force=True)
+        self.ag.llm.json = split
+        self.assertTrue(self.ag.size_gate(a))  # 6 files was fine before (limit 8), now over 5
+        b = self.ag.backlog.add("Slow", "d", force=True)
+        b["estimate_s"] = 40 * 60
+        self.ag.llm.json = lambda name, *x, **k: ({"files": 3, "lines": 100} if name == "size_estimate" else split(name))
+        self.assertTrue(self.ag.size_gate(b))  # 3 files but comparable tasks took ~40 min
+        c = self.ag.backlog.add("Quick", "d", force=True)
+        c["estimate_s"] = 10 * 60
+        self.ag.llm.json = lambda *x, **k: {"files": 3, "lines": 100}
+        self.assertFalse(self.ag.size_gate(c))
+
     def test_small_task_passes(self):
         a = self.ag.backlog.add("Small", "d", force=True)
         self.ag.llm.json = lambda *x, **k: {"files": 1, "lines": 40}

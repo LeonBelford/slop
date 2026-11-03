@@ -4,7 +4,8 @@ from __future__ import annotations
 from core.cfllm import LLMError, scaled
 from core.cfutil import clip
 
-MAX_LINES_ESTIMATE = 250
+MAX_LINES_ESTIMATE = 250  # defaults; features.task_max_files / task_max_lines / task_max_minutes tighten them
+TASK_MAX_FILES, TASK_MAX_LINES, TASK_MAX_MINUTES = 5, 180, 25
 SIZE_SCHEMA = '{"files": 2, "lines": 120, "reason": "one sentence"}'
 SPEC_SCHEMA = '{"files": [{"path": "", "purpose": ""}], "signatures": ["function/type signatures"], "edge_cases": ["..."]}'
 REVIEW_SCHEMA = '{"ok": true, "problems": ["where the design breaks a contract or the task"]}'
@@ -45,10 +46,16 @@ class QualityMixin:
             self.log(f"Size estimate skipped: {clip(str(e), 120)}")
             return False
         self.backlog.set(item, size_files=files, size_lines=lines)
-        if files <= self.lim["max_files_per_task"] and lines <= MAX_LINES_ESTIMATE:
+        f = self.cfg["features"]
+        max_files = min(self.lim["max_files_per_task"], int(f.get("task_max_files", TASK_MAX_FILES)))
+        max_lines = int(f.get("task_max_lines", TASK_MAX_LINES))
+        minutes = float(item.get("estimate_s") or 0) / 60  # from the finished tasks of this project; a task that usually takes long is cut before it starts
+        too_long = minutes > float(f.get("task_max_minutes", TASK_MAX_MINUTES)) and files >= 3
+        if files <= max_files and lines <= max_lines and not too_long:
             return False
-        self.log(f"{item['id']} estimated at {files} files / {lines} lines: too big for one attempt, splitting before the start")
-        reason = f"estimated {files} files and {lines} lines, too large for one attempt. {d.get('reason', '')}"
+        why = f"about {round(minutes)} min by comparable tasks" if too_long and files <= max_files and lines <= max_lines else f"{files} files / {lines} lines"
+        self.log(f"{item['id']} estimated at {why}: too big for one attempt, splitting before the start")
+        reason = f"estimated {why} (limit {max_files} files, {max_lines} lines, {f.get('task_max_minutes', TASK_MAX_MINUTES)} min), too large for one attempt. {d.get('reason', '')}"
         if self.graph_split(item, reason):
             return True
         return self.split_task(item, [f"Pre-check: estimated {files} files and {lines} lines, too large for one attempt. {d.get('reason', '')}"])
