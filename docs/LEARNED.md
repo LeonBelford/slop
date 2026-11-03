@@ -10,3 +10,4 @@ Short, verified lessons for coding agents (see `AGENTS.md` section 7). One fact 
 - 2026-11-03 git: a PR merged into a stacked PR's branch does not reach `main`; retarget or re-apply it.
 
 - 2026-11-03 aider: a looping Aider never goes idle, so `idle=True` never cut it off (hard cap 6 h); `perf.looping` + `sh_live(stuck=...)` now stops it with rc 125 (`coder_loop`) and `code()` retries once with a minimal context in whole-file mode.
+- 2026-11-03 local-agent: weak models answered tool errors (invalid tool name, failed search) as if they were the user's problem; AGENTS.md sections 10/11 define the fallback ladder and free web search (`#fetch`, DuckDuckGo HTML, SearXNG).
