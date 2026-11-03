@@ -162,3 +162,11 @@ class ReevaluationRobustnessTests(unittest.TestCase):
         self.assertIn("wrote no file", prev[-1])
         self.assertIsNone(a.reuse_plan(item, ["Attempt 1 [test_fail]: red"]))
         self.assertIsNone(a.reuse_plan(item, []))
+
+class CleanStepsTests(unittest.TestCase):
+    def test_filler_steps_are_dropped_but_real_ones_stay(self):
+        from core.cfa_flow import clean_steps
+        steps = ["Implement parse_args in app/main.py", "Run tests with correct command: \"pytest -q\"", "Update the docs", "Commit the changes",
+                 "Write a test for parse_args", "Run the parser on empty input"]
+        self.assertEqual(clean_steps(steps), ["Implement parse_args in app/main.py", "Write a test for parse_args", "Run the parser on empty input"])
+        self.assertEqual(clean_steps(["Run the tests"]), ["Run the tests"])
