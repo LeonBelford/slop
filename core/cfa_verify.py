@@ -10,6 +10,18 @@ from pathlib import Path
 
 from core.cfutil import clip, sh, sh_live, sha, tail, write_json
 
+# Rust: cargo test links a binary anyway, so the build step only type-checks (no codegen); no debug info makes linking much faster
+RUST_ENV = {"CARGO_PROFILE_DEV_DEBUG": "0", "CARGO_TERM_COLOR": "never", "CARGO_INCREMENTAL": "1"}
+
+
+def quick_build(cmd: str) -> str:
+    return "cargo check --all-targets --quiet" if cmd.strip() == "cargo build" else cmd
+
+
+def cmd_env(cmd: str) -> dict:
+    return RUST_ENV if "cargo" in cmd else {}
+
+
 FEATURE_DEFAULTS = {"targeted_tests": True, "flaky_retry": True, "verify_cache": True, "coverage_gate": "off", "mutation_check": False}
 TEST_FILE = re.compile(r"(^|/)(test_[^/]+\.py|[^/]+_test\.py|[^/]+\.(test|spec)\.[jt]sx?)$")
 MUTATIONS = [(" == ", " != "), (" != ", " == "), (" >= ", " > "), (" <= ", " < "), (" > ", " >= "), (" < ", " <= "),
@@ -146,10 +158,10 @@ class VerifyMixin:
                 self.metric(kind="verify_cache_hit", cmd=name)
                 return 0, "cached ok"
         write_json(self.dir / "cmd_now.json", {"name": name, "cmd": cmd, "since": time.time()})
-        rc, out = sh_live(cmd, self.repo, timeout, self.dir / "cmd_live.txt", shell=True)
+        rc, out = sh_live(cmd, self.repo, timeout, self.dir / "cmd_live.txt", shell=True, env=cmd_env(cmd))
         if rc and name == "test" and rc != 124 and self.vfeat("flaky_retry"):
             self.log("▶ test failed, running it once more to rule out a flaky test")
-            rc2, out2 = sh_live(cmd, self.repo, timeout, self.dir / "cmd_live.txt", shell=True)
+            rc2, out2 = sh_live(cmd, self.repo, timeout, self.dir / "cmd_live.txt", shell=True, env=cmd_env(cmd))
             if rc2 == 0:
                 self.metric(kind="flaky_test", first_failure=clip(out, 300))
                 self.log("A test passed only on the second run (flaky); recorded, no debug round started.")
@@ -169,7 +181,7 @@ class VerifyMixin:
         if not cmd:
             return None
         self.log(f"▶ targeted tests first: {len(files)} file(s)")
-        rc, out = sh_live(cmd, self.repo, self.lim["cmd_timeout"], self.dir / "cmd_live.txt", shell=True)
+        rc, out = sh_live(cmd, self.repo, self.lim["cmd_timeout"], self.dir / "cmd_live.txt", shell=True, env=cmd_env(cmd))
         if rc:
             return False, f"[test] FAILED rc={rc}\n$ {cmd}\n{tail(out, 6000)}"
         return True, "targeted tests ok"
