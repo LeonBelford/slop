@@ -452,7 +452,7 @@ def make_handler(svc: Service, port: int, token: str | None = None):
                     if m.group(2) == "graph-history":
                         return svc.graph_history(m.group(1))
                     if m.group(2) == "thoughts":
-                        return svc.thoughts(m.group(1))
+                        return svc.thoughts(m.group(1), max(1, min(int(q.get("limit") or 60), 100)), q.get("brief") == "1")
                     if m.group(2) == "tree":
                         return svc.tree(m.group(1), q.get("base", "head"))
                     if m.group(2) == "file":

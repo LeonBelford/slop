@@ -72,7 +72,7 @@ class ProjectMixin:
             entries.append({"head": head, "prompt": prompt.replace("-- prompt (end) --\n", "", 1), "answer": answer.strip()})
         return {"entries": entries[::-1]}
 
-    def thoughts(self, name: str, limit: int = 60) -> dict:
+    def thoughts(self, name: str, limit: int = 60, brief: bool = False) -> dict:
         """Every model call in full (prompt, reasoning, answer), plus what is being streamed right now."""
         a = self.ws(name) / "agent"
         rows = []
@@ -87,6 +87,11 @@ class ProjectMixin:
         for f in (a / "thoughts-archive").glob("*.jsonl.gz"):
             lo, _, hi = f.name.split(".")[0].partition("-")
             archived += int(hi) - int(lo) + 1 if lo.isdigit() and hi.isdigit() else 0
+        if brief:  # the overview panel only needs a readable excerpt of every step
+            for r in rows:
+                for k, n in (("prompt", 1500), ("thinking", 4000), ("answer", 4000)):
+                    if isinstance(r.get(k), str) and len(r[k]) > n:
+                        r[k] = r[k][:n] + " …"
         return {"entries": rows[::-1], "archived": archived, "stream": read_live(a / "llm_stream.json", running), "coder_live": live,
                 "cmd": read_live(a / "cmd_now.json", running), "cmd_live": tail(a / "cmd_live.txt", 120, 60_000) if running else ""}
 

@@ -539,7 +539,7 @@ async function runTestsTab(){
   const o=$("#tests-out");o.textContent="Running…";
   try{const r=await api(`/api/project/${encodeURIComponent(sel)}/editor`,{op:"run-tests"});o.className="";testsRes=`<div class="row"><code>${esc(r.cmd)}</code> <b class="${r.rc===0?"lg-ok":"lg-err"}">${r.rc===0?"passed":"failed (exit "+r.rc+")"}</b></div><pre>${colorLog(r.out||"(no output)")}</pre>`;o.innerHTML=testsRes}catch(e){o.textContent=e.message}
 }
-function setTab(k){if(k==="chat")return sideOpen();$("#main").scrollTop=0;LS=null;liveHtml="";tab=k;dirty=false;extra=null;lastBody="";$("#body").dataset.tab="";lastTabs="";renderProject();fetchExtra().then(renderProject)}
+function setTab(k){if(k==="chat")return sideOpen();$("#main").scrollTop=0;LS=null;liveHtml="";tab=k;rpRender();dirty=false;extra=null;lastBody="";$("#body").dataset.tab="";lastTabs="";renderProject();fetchExtra().then(renderProject)}
 async function fetchExtra(){
   try{
     if(view==="chat"||view==="dash")return;
@@ -795,9 +795,10 @@ async function refresh(){
     renderList();
     if(view==="project"&&sel)detail=await api("/api/project/"+encodeURIComponent(sel));
     await fetchExtra();
-    if(view==="chat"){renderNow();return}
+    if(view==="project"&&sel)await rpFetch();
+    if(view==="chat"){renderNow();rpRender();return}
     if(view==="tool")renderTool();else renderProject();
-    renderNow();
+    renderNow();rpRender();
   }catch(e){if(!shownErr){shownErr=true;toast(e.message,true)}}
 }
 document.addEventListener("click",e=>{
