@@ -7,6 +7,14 @@ from dash import docsync
 
 
 class DocSyncMixin:
+    def flush_docs_idle(self) -> None:
+        """The task queue is empty: the module documentation that was left for later costs no task any time now (projects without layers never reach a layer end)."""
+        try:
+            if self.mem.flush_docs():
+                self.git.commit_all("docs: module documentation")
+        except Exception as e:  # noqa: BLE001  (documentation must never stop the build)
+            self.log(f"Module documentation skipped: {e}")
+
     def doc_sync(self, layer: int, name: str) -> None:
         """After a finished layer: README (model), docs/API.md and a layer heading in the existing CHANGELOG.md. Never blocks the build."""
         if not self.feat("doc_sync"):
