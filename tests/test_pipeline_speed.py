@@ -127,3 +127,30 @@ class DoneLedgerTests(unittest.TestCase):
             bl.forget(b["id"])
             bl.save()
             self.assertEqual(bl.items, [])
+
+
+class PlanOrderTests(unittest.TestCase):
+    def test_only_user_and_health_work_jumps_the_plan(self):
+        import tempfile
+        from pathlib import Path
+        from core.cfgit import Backlog
+        with tempfile.TemporaryDirectory() as d:
+            bl = Backlog(Path(d) / "backlog.json")
+            core = bl.add("core", "d", layer=0, priority=3, force=True)
+            bl.add("late sec bug", "d", "bug", 9.5, source="security", layer=3, force=True)
+            bl.add("late hygiene bug", "d", "bug", 9, source="hygiene", force=True)
+            self.assertEqual(bl.next()["id"], core["id"])
+            bl.add("repair", "d", "bug", 2000, source="health", force=True)
+            self.assertEqual(bl.next()["title"], "repair")
+
+    def test_run_order_matches_next(self):
+        import tempfile
+        from pathlib import Path
+        from core.cfgit import Backlog
+        with tempfile.TemporaryDirectory() as d:
+            bl = Backlog(Path(d) / "backlog.json")
+            a = bl.add("a", "d", layer=0, force=True)
+            b = bl.add("b", "d", layer=1, depends_on=[a["id"]], force=True)
+            r = bl.add("repair", "d", "bug", 2000, source="health", force=True)
+            self.assertEqual(bl.run_order(), {r["id"]: 1, a["id"]: 2, b["id"]: 3})
+            self.assertEqual(bl.next()["id"], r["id"])

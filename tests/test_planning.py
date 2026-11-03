@@ -82,9 +82,11 @@ class BacklogOrderTests(unittest.TestCase):
         self.b.set(a, status="blocked")
         self.assertEqual(self.b.next()["id"], c["id"])
 
-    def test_user_tasks_and_bugs_still_jump_the_queue(self):
-        self.b.add("Core", "d", layer=0)
-        bug = self.b.add("Crash", "d", "bug", layer=3)
+    def test_user_tasks_and_urgent_bugs_still_jump_the_queue(self):
+        core = self.b.add("Core", "d", layer=0)
+        self.b.add("Crash", "d", "bug", layer=3)
+        self.assertEqual(self.b.next()["id"], core["id"])
+        bug = self.b.add("Red main", "d", "bug", source="health", layer=3, force=True)
         self.assertEqual(self.b.next()["id"], bug["id"])
         user = self.b.add("Mine", "d", source="user", layer=5)
         self.assertEqual(self.b.next()["id"], user["id"])
