@@ -14,6 +14,7 @@ class DocSyncMixin:
         self.phase("Syncing README, API docs and changelog", "docs", f"layer {layer}")
         try:
             goal = (self.dir / "GOAL.md").read_text("utf-8") if (self.dir / "GOAL.md").exists() else ""
+            self.mem.flush_docs()
             self.mem.refresh_readme(goal)
             write_text(self.repo / "docs" / "API.md", docsync.api_markdown(self.mem.codemap))
             docsync.mark_layer(self.repo, layer, name)

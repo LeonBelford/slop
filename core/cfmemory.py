@@ -211,7 +211,7 @@ class Memory:
         return sorted(found)
 
     # ---- Synchronization with the code
-    def sync(self, force_docs_for: list[str] | None = None) -> list[str]:
+    def sync(self, force_docs_for: list[str] | None = None, defer_docs: bool = False) -> list[str]:
         files = self.source_files()
         known = set(files)
         changed = []
@@ -231,10 +231,26 @@ class Memory:
         write_json(self.dir / "codemap.json", self.codemap)
         write_text(self.dir / "CODEMAP.md", self.render_codemap())
         write_text(self.repo / "docs" / "CODEMAP.md", self.render_codemap())
-        for rel in sorted(set(changed) | set(force_docs_for or [])):
-            if rel in self.codemap:
-                self.write_module_doc(rel)
+        todo = [rel for rel in sorted(set(changed) | set(force_docs_for or [])) if rel in self.codemap]
+        if defer_docs:
+            self.queue_docs(todo)
+        for rel in todo:
+            self.write_module_doc(rel, body=not defer_docs)
         return changed
+
+    # ---- module docs: the facts are written at once, the long prose only once per layer (a model call of minutes per file on the task's critical path)
+    def queue_docs(self, files: list[str]) -> None:
+        p = self.dir / "docs_pending.json"
+        write_json(p, sorted(set(read_json(p, [])) | set(files)))
+
+    def flush_docs(self, limit: int = 12) -> int:
+        """Writes the full module documentation for the files changed since the last flush (newest queue first, at most `limit` model calls)."""
+        p = self.dir / "docs_pending.json"
+        pending = [f for f in read_json(p, []) if f in self.codemap]
+        for rel in pending[:limit]:
+            self.write_module_doc(rel)
+        write_json(p, pending[limit:])
+        return min(len(pending), limit)
 
     def summarize(self, rel: str, text: str) -> dict:
         schema = ('{"purpose": "1-2 sentences", "public_api": ["signature - effect"], "data_and_state": ["..."], '
@@ -263,33 +279,41 @@ class Memory:
     def render_codemap(self) -> str:
         return "# Codemap (auto-generated)\n\n" + "\n".join(self.render_entry(r, e) for r, e in sorted(self.codemap.items()))
 
-    def write_module_doc(self, rel: str) -> None:
+    def write_module_doc(self, rel: str, body: bool = True) -> None:
         e = self.codemap[rel]
         text = (self.repo / rel).read_text("utf-8", "replace")
         lang = self.cfg["doc_language"]
         try:
+            if not body:
+                raise LookupError("detailed text is written at the end of the layer")
             body = self.llm.chat(
                 "module_doc", "summarizer",
                 f"You write detailed module documentation in {lang} as Markdown for developers. Only facts from the code.",
                 f"File {rel}\nKnown metadata:\n{self.render_entry(rel, e)}\n\nCode:\n```\n{clip(text, 9000)}\n```\n"
                 "Structure: overview, responsibility, functions/classes with parameters and return values, data flow, "
                 "error cases, dependencies, example.")
+        except LookupError as ex:
+            body = f"({ex})"
         except Exception as ex:
             body = f"(documentation failed: {ex})"
         write_text(self.repo / "docs" / "modules" / (rel.replace("/", "__") + ".md"),
                    f"# `{rel}`\n\n{self.render_entry(rel, e)}\n---\n\n{body}\n")
 
     # ---- Retrieval before changes
-    def select_candidates(self, item: dict) -> list[str]:
+    def select_candidates(self, item: dict, use_llm: bool = True) -> list[str]:
         if not self.codemap:
             return []
         index = "\n".join(f"{r} — {e.get('purpose', '')[:110]}" for r, e in sorted(self.codemap.items()))
         picked: list[str] = []
         try:
+            if not use_llm:
+                raise LookupError("the task graph names the files")
             d = self.llm.json("select_files", "planner", "You select files that are relevant for a change.",
                               f"Task: {item['title']}\n{item['description']}\n\nFile index:\n{clip(index, 9000)}\n\n"
                               'Schema: {"files": ["path", ...]} (max 10, including tests and files that might be affected)')
             picked = [f for f in d.get("files", []) if f in self.codemap]
+        except LookupError:
+            pass
         except Exception as e:
             self.log(f"File selection via LLM failed: {e}")
         kw = words(item["title"] + " " + item["description"])
@@ -433,14 +457,17 @@ class Memory:
         except Exception as e:
             self.log(f"Lesson consolidation failed: {e}")
 
-    def add_decision(self, item: dict, plan: dict, review: dict, diff: str) -> None:
+    def add_decision(self, item: dict, plan: dict, review: dict, diff: str, use_llm: bool = True) -> None:
         try:
+            if not use_llm:
+                raise LookupError("small change: the review summary is the record")
             d = self.llm.json("decision", "summarizer", "You write an ADR (Architecture Decision Record).",
                               f"Task: {item['title']}\nPlan: {json.dumps(plan)[:3000]}\nReview: {review.get('summary', '')}\n"
                               f"Diff:\n{clip(diff, 5000)}\nSchema: "
                               '{"title": "", "context": "", "decision": "", "alternatives": "", "consequences": ""}')
         except Exception as e:  # noqa: BLE001
-            self.log(f"ADR generation failed, using a minimal record: {e}")
+            if not isinstance(e, LookupError):
+                self.log(f"ADR generation failed, using a minimal record: {e}")
             d = {"title": item["title"], "context": item["description"], "decision": review.get("summary", ""),
                  "alternatives": "", "consequences": ""}
         d["item"], d["time"] = item["id"], now()

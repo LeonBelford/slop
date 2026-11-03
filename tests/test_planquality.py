@@ -84,10 +84,19 @@ class SizeSpecContractTests(AgentCase):
         plan = {"steps": ["s1"]}
         self.ag.llm.json = lambda name, *x, **k: ({"files": [{"path": "a.py"}], "signatures": ["def parse(t)"], "edge_cases": ["empty"]}
                                                   if name == "spec" else {"ok": False, "problems": ["returns str not Doc"]})
+        self.ag.blueprint = lambda: {"architecture": {"contracts": ["parse returns Doc"]}}
         self.ag.make_spec(a, plan)
         self.assertIn("def parse(t)", self.ag.pinned)
         self.assertIn("returns str not Doc", self.ag.pinned)
         self.assertEqual(plan["spec"]["edge_cases"], ["empty"])
+
+    def test_spec_review_is_skipped_without_contracts(self):
+        a = self.ag.backlog.add("Parse2", "d", force=True)
+        calls = []
+        self.ag.llm.json = lambda name, *x, **k: (calls.append(name), {"files": [], "signatures": [], "edge_cases": []})[1]
+        self.ag.blueprint = lambda: {}
+        self.ag.make_spec(a, {"steps": ["s1"]})
+        self.assertEqual(calls, ["spec"])
 
     def test_contract_test_removal_detected(self):
         diff = ("diff --git a/tests/contracts/test_a.py b/tests/contracts/test_a.py\n--- a/x\n+++ b/x\n-    assert f(1) == 2\n+    assert f(1)\n"
