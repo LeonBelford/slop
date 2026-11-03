@@ -25,8 +25,33 @@ def sync(ws: Path) -> Path:
     """Refreshes the sandbox from the repo's current state. Installed dependencies (.venv, node_modules) of the sandbox are kept."""
     sb = sandbox_dir(ws)
     keep = shutil.ignore_patterns(".git", "node_modules", "__pycache__", ".pytest_cache", ".venv")
+    if _on_task_branch(ws / "repo"):  # the agent is mid-task: try the last merged state, not half-written files
+        for e in sb.iterdir() if sb.exists() else []:
+            if e.name in KEEP_DEPS:
+                continue
+            if e.is_dir() and not e.is_symlink():
+                shutil.rmtree(e)
+            else:
+                e.unlink()
+        sb.mkdir(exist_ok=True)
+        arc = subprocess.run(["git", "-C", str(ws / "repo"), "archive", "main"], capture_output=True, check=False)
+        if arc.returncode == 0:
+            subprocess.run(["tar", "-x", "-C", str(sb)], input=arc.stdout, check=False)
+            return sb
     shutil.copytree(ws / "repo", sb, ignore=keep, dirs_exist_ok=True, symlinks=True)
     return sb
+
+
+KEEP_DEPS = {".venv", "node_modules", "target"}
+
+
+def _on_task_branch(repo: Path) -> bool:
+    """True if the repo has a main branch but is checked out on another one."""
+    def git(*a: str) -> str:
+        r = subprocess.run(["git", "-C", str(repo), *a], capture_output=True, text=True, check=False)
+        return r.stdout.strip() if r.returncode == 0 else ""
+    cur = git("rev-parse", "--abbrev-ref", "HEAD")
+    return bool(cur) and cur != "main" and bool(git("rev-parse", "--verify", "-q", "main"))
 
 
 def _env(sb: Path) -> dict:

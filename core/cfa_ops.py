@@ -5,6 +5,7 @@ import os
 import shlex
 import sys
 import time
+from core import runplan
 from core.cfllm import LLMError
 from core.cfutil import PRESETS, clip, force_stop_pid, now, read_json, sh, write_text
 
@@ -96,11 +97,15 @@ class OpsMixin:
     def detect_run_plan(self) -> dict:
         """Build steps (shell commands) plus start command, URL and artifact for the user, from the stack definition."""
         st = PRESETS.get(self.cfg["preset"])
-        if not st:
-            return {"kind": "unknown", "build": [], "run": "see README.md in repo/", "binary": ""}
+        if not st:  # unknown stack: still look at what the product is
+            rp = runplan.plan(self.repo, self.dir / "interface.json", {"label": "unknown"})
+            return {"kind": "unknown", "build": [], "run": rp["run"] or "see README.md in repo/", "binary": "", "url": rp["url"],
+                    "mode": rp["mode"], "examples": rp["examples"], "hint": rp["hint"], "entry": rp.get("entry", "")}
         c = st["commands"]
         steps = [x for x in (c.get("setup"), c.get("build")) if x] + [shlex.join(r) for r in st.get("release", [])]
-        return {"kind": st["label"], "build": steps, "run": st["run"], "binary": st.get("artifact", ""), "url": st.get("url", "")}
+        rp = runplan.plan(self.repo, self.dir / "interface.json", st)  # what the product really is (CLI, web, library), not just the stack default
+        return {"kind": st["label"], "build": steps, "run": rp["run"], "binary": st.get("artifact", ""), "url": rp["url"],
+                "mode": rp["mode"], "examples": rp["examples"], "hint": rp["hint"], "entry": rp.get("entry", "")}
 
     def try_version(self, wait_minutes: int = 60) -> str:
         """Pauses the agent after the current task, builds the current main state and writes TESTING.md."""
@@ -129,7 +134,14 @@ class OpsMixin:
         if failed:
             lines += ["## Build failed", "```", *log, "```", "Install missing tools or report it to the agent via `make feedback`."]
         else:
-            lines += ["## How to start it", "```", f"cd {self.repo}", plan["run"], "```"]
+            if plan.get("mode") == "cli":
+                lines += ["## How to try it (command line tool)", plan["hint"], "```", f"cd {self.repo}"]
+                lines += [f"{plan['entry']} {a}" for a in plan["examples"]] if plan.get("entry") else []
+                lines.append("```")
+            elif plan.get("mode") == "library":
+                lines += ["## How to try it (library)", plan["hint"], "```", f"cd {self.repo}", plan["run"], "```"]
+            else:
+                lines += ["## How to start it", "```", f"cd {self.repo}", plan["run"], "```"]
             if plan.get("url"):
                 lines.append(f"Then open in your browser: {plan['url']}")
             if plan["binary"]:
