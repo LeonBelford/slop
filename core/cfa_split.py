@@ -78,6 +78,8 @@ class SplitMixin:
         if not self.feat("plan_split") or int(item.get("split_depth", 0)) >= MAX_SPLIT_DEPTH or item["type"] in ("docs", "test"):
             return False
         max_steps = int(f.get("plan_max_steps", PLAN_MAX_STEPS))
+        if getattr(self, "small_ctx", lambda: False)():
+            max_steps = min(max_steps, 3)  # a small model window cannot hold a big pass: cut earlier
         max_files = min(self.lim["max_files_per_task"], int(f.get("task_max_files", 5)))
         if len(steps) <= max_steps and len(files) <= max_files:
             return False

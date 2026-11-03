@@ -134,3 +134,12 @@ class WipTests(unittest.TestCase):
             self.assertTrue((repo / "b.py").exists())
             a.drop_wip(item)
             self.assertNotEqual(a.git.run("rev-parse", "--verify", "-q", "agent/wip-T0001")[0], 0)
+
+
+class CleanStepsTests(unittest.TestCase):
+    def test_filler_steps_are_dropped_but_real_ones_stay(self):
+        from core.cfa_flow import clean_steps
+        steps = ["Implement parse_args in app/main.py", "Run tests with correct command: \"pytest -q\"", "Update the docs", "Commit the changes",
+                 "Write a test for parse_args", "Run the parser on empty input"]
+        self.assertEqual(clean_steps(steps), ["Implement parse_args in app/main.py", "Write a test for parse_args", "Run the parser on empty input"])
+        self.assertEqual(clean_steps(["Run the tests"]), ["Run the tests"])
