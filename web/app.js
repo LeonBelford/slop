@@ -24,7 +24,12 @@ function setPref(k,v){const p=pref();p[k]=v;localStorage.setItem("pref:"+sel,JSO
 function togglePref(k,item){const a=pref()[k].slice(),i=a.indexOf(item);i<0?a.push(item):a.splice(i,1);setPref(k,a)}
 function applyPref(){const p=pref();document.documentElement.style.setProperty("--acc",p.accent||"");if(!p.accent)document.documentElement.style.removeProperty("--acc");document.body.classList.toggle("dense",!!p.dense)}
 const ALL_STEPS=[["plan","Plan"],["implement","Implement"],["build","Build & test"],["e2e","UI test"],["security","Security"],["review","Review"],["cleanup","Cleanup"],["docs","Docs & memory"],["merge","Merge"]];
-const stepsFor=()=>detail&&detail.has_ui===false?ALL_STEPS.filter(s=>s[0]!=="e2e"):ALL_STEPS; // no UI test step when the product has no UI
+// only the steps this task really goes through (route, published by the agent once the tier is known) plus any step that already ran
+const stepsFor=(route,durations,cur)=>{
+  const ran=k=>k===cur||(durations&&durations[k]>0);
+  if(route&&route.length)return ALL_STEPS.filter(s=>ran(s[0])||(route.includes(s[0])&&!(s[0]==="e2e"&&detail&&detail.has_ui===false)));
+  return detail&&detail.has_ui===false?ALL_STEPS.filter(s=>s[0]!=="e2e"):ALL_STEPS; // no UI test step when the product has no UI
+};
 
 const etags={};
 async function api(path,body){
@@ -248,8 +253,9 @@ function renderNow(){
   const a=detail.activity||{},n=a.now,t=Date.now()/1000;
   if(!a.running){box.className="now";box.innerHTML=`<div class="what">Agent is not running</div><div class="sub">Press Start for autonomous work, or give it one concrete job on the "Do a task" tab.</div>${a.queued_user_tasks&&a.queued_user_tasks.length?`<div class="sub">Queued for you: ${a.queued_user_tasks.map(esc).join("; ")}</div>`:""}${timeline(a.events)}`;return}
   box.className="now live";
-  const idx=n?stepsFor().findIndex(s=>s[0]===n.step):-1;
-  const stepper=idx>=0||(n&&n.task)?stepTimes(stepsFor(),idx,n&&n.durations,n&&n.step,n&&n.since,t):"";
+  const list=stepsFor(n&&n.route,n&&n.durations,n&&n.step);
+  const idx=n?list.findIndex(s=>s[0]===n.step):-1;
+  const stepper=idx>=0||(n&&n.task)?stepTimes(list,idx,n&&n.durations,n&&n.step,n&&n.since,t):"";
   const call=a.cmd?`<div class="call">Running <b>${esc(a.cmd.name)}</b> (<code>${esc(a.cmd.cmd)}</code>), ${fmtDur(t-a.cmd.since)}. Output: "Reasoning" tab.</div>`:a.coder?`<div class="call">Aider (code model <code>${esc(a.coder.model)}</code>) is editing ${a.coder.files.length?esc(a.coder.files.join(", ")):"files"} for <b>${esc(a.coder.tag)}</b>, ${fmtDur(t-a.coder.since)}</div>`
     :a.llm?`<div class="call">Waiting for the <b>${esc(a.llm.role)}</b> model (<code>${esc(a.llm.model)}</code>) on <b>${esc(a.llm.tag)}</b>, ${fmtDur(t-a.llm.since)}. Open "AI activity" to see the prompt once it answers.</div>`:"";
   reasoningLive();

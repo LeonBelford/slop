@@ -103,7 +103,7 @@ class FlowMixin:
     def step_groups(self, item: dict, plan: dict) -> list[list]:
         steps = [str(s) for s in plan.get("steps", [])]
         if self.wants("step_by_step", item, plan) and len(steps) >= 2:
-            groups = split_steps(steps)
+            groups = split_steps(steps, 2 if len(steps) < 6 else 3)  # every pass is a full coder call: two passes unless the plan is long
             if len(groups) > 1:
                 self.log(f"Step by step: implementing in {len(groups)} passes")
             return groups

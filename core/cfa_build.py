@@ -10,7 +10,7 @@ from infra import perf
 import re
 import shutil
 import time
-from core import failures, graphctx
+from core import failures, graphctx, progress
 from core.cfa_verify import quick_build
 from core.cfa_flow import added_test_names, removed_test_names, removed_tests
 from core.cfllm import LLMError
@@ -163,7 +163,8 @@ class BuildMixin:
         src = "\n\n".join(f"### {f}\n```\n{clip((self.repo / f).read_text('utf-8', 'replace'), self.cfg['context']['file_clip'])}\n```"
                           for f in (cands + self.mem.neighbors(cands))[:10] if (self.repo / f).exists())
         sys_p = ("You are a tech lead. Before every change you analyze relationships: who calls the files, "
-                 "which invariants apply, what can break. Plan minimally and concretely.")
+                 "which invariants apply, what can break. Plan minimally and concretely: at most 4 short steps, one per behaviour or file, "
+                 "no generic steps such as 'run the tests' or 'update the docs' (the pipeline does that).")
         schema = ('{"understanding": "", "files_to_change": ["existing paths"], "new_files": ["new paths"], '
                   '"read_only_context": ["paths"], "affected_dependents": ["paths that might break"], '
                   '"invariants": ["..."], "risks": ["..."], "steps": ["..."], "tests_to_add": ["..."], '
@@ -273,6 +274,7 @@ class BuildMixin:
                 ok, report = False, bad
             if ok:
                 return True, report
+            self.backlog.set(item, debug_rounds=int(item.get("debug_rounds", 0)) + 1)
             self.log(f"Debug round {n}: {report.splitlines()[0]}")
             self.note("debug", f"round {n} failed: {clip(report.splitlines()[0], 200)}")
             self.phase(f"Debugging, round {n}", "build", report.splitlines()[0])
@@ -353,6 +355,7 @@ class BuildMixin:
         for attempt in range(1, self.lim["max_attempts_per_task"] + 1):
             self.cur_attempt = attempt
             self.backlog.set(item, attempts=item["attempts"] + 1)
+            self.route = progress.route_for()  # the quality gates join it once the tier is known
             self.log(f"== {item['id']} {item['title']} (attempt {attempt})")
             branch = f"agent/{item['id']}-{attempt}"
             self.git.branch_from_main(branch)
@@ -519,6 +522,7 @@ class BuildMixin:
                       "add docstrings, simplify functions. Leave public interfaces and tests unchanged.")
             ok, report = self.verify()
             if ok:
+                self.backlog.set(item, cleaned=True)
                 self.git.commit_all(f"{item['id']}: cleanup")
             else:
                 self.log("Cleanup broke the build, discarded.")
@@ -554,7 +558,8 @@ class BuildMixin:
         shutil.rmtree(snap, ignore_errors=True)
         self.git.run("branch", "-D", branch)
         self.drop_wip(item)
-        self.backlog.set(item, files_guess=False, files=sorted(changed_all)[:30], result=clip(str(review.get("summary") or ""), 200))
+        self.backlog.set(item, files_guess=False, files=sorted(changed_all)[:30], result=clip(str(review.get("summary") or ""), 200),
+                         review_score=review.get("score"))
         self.state["merged"] += 1
         self.metric(item=item["id"], title=item["title"], type=item["type"], attempts=item["attempts"],
                     review_score=review.get("score"), files=len(changed_all), loc=sum(e.get("loc", 0) for e in self.mem.codemap.values()))

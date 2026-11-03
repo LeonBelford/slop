@@ -17,6 +17,22 @@ TOOL_PIPELINE = [("plan", 10), ("backup", 5), ("impact", 10), ("implement", 30),
                   ("test", 20), ("review", 7), ("docs", 3)]
 
 
+GATE_STEP = {"coverage": "build", "mutation": "build", "e2e": "e2e", "security": "security", "review": "review", "acceptance": "review"}
+CORE_ROUTE = ("plan", "implement", "build", "docs", "merge")
+
+
+def route_for(gates: list[str] | tuple = (), cleanup: bool = False) -> list[str]:
+    """The steps one task really goes through, in pipeline order: the core steps plus the ones its quality gates need. A tiny task shows
+    five steps, a big one all nine; the UI draws only these (plus any step that actually ran)."""
+    want = set(CORE_ROUTE) | {GATE_STEP[g] for g in gates if g in GATE_STEP} | ({"cleanup"} if cleanup else set())
+    return [n for n, _ in AGENT_PIPELINE if n in want]
+
+
+def shown(route: list[str] | None, step: str | None) -> list[tuple[str, int]]:
+    """AGENT_PIPELINE cut down to the task's route plus the current step."""
+    return [(n, w) for n, w in AGENT_PIPELINE if not route or n in route or n == step]
+
+
 def step_pct(pipeline: list[tuple[str, int]], step: str | None, enter_credit: float = 0.35) -> int | None:
     """Percentage reached once `step` starts: every earlier step's weight plus partial credit for this one."""
     if not step:
