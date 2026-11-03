@@ -210,7 +210,7 @@ def _write_guard(work: Path, edit: list[str], before: str, answer: str, cmd: lis
     pf.write_text(prompt + "\n\nIMPORTANT: your last answer changed NO file. Do not explain and do not only show code in the chat. "
                   "Output the complete updated content of every file you must change so that it is written to disk.", "utf-8")
     rc, out = sa.sh_live(cmd + ["--edit-format", "whole"], work, timeout, STATE / "coder_live.txt",
-                         env={"OLLAMA_API_BASE": sa.os.getenv("OLLAMA_API_BASE", "http://localhost:11434"), "PYTHONUNBUFFERED": "1"}, idle=True)
+                         env={"OLLAMA_API_BASE": sa.os.getenv("OLLAMA_API_BASE", "http://localhost:11434"), "PYTHONUNBUFFERED": "1", **perf.AIDER_ENV}, idle=True)
     if _fingerprint(work, edit) == before:
         cfa_write.write_files(work, cfa_write.extract_files(out, edit))
     return "\n" + out
@@ -236,7 +236,7 @@ def _aider(model: str, timeout: int):
         sa.write_json(STATE / "coder_now.json", {"tag": "self-change", "files": files[:12], "model": model, "since": time.time()})
         t0, before = time.time(), _fingerprint(work, edit)
         rc, out = sa.sh_live(cmd, work, timeout, STATE / "coder_live.txt",
-                             env={"OLLAMA_API_BASE": sa.os.getenv("OLLAMA_API_BASE", "http://localhost:11434"), "PYTHONUNBUFFERED": "1"},
+                             env={"OLLAMA_API_BASE": sa.os.getenv("OLLAMA_API_BASE", "http://localhost:11434"), "PYTHONUNBUFFERED": "1", **perf.AIDER_ENV},
                              idle=True)  # the timeout only counts silence: Aider is never cut off while it is still writing
         out += _write_guard(work, edit, before, out, cmd, pf, prompt, timeout)
         for f in ("coder_now.json", "coder_live.txt"):

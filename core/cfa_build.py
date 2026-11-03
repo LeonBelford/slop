@@ -57,7 +57,7 @@ class BuildMixin:
             cmd += ["--read", r]
         cmd += perf.aider_args(model, self.dir)
         cmd += edit
-        env = {"OLLAMA_API_BASE": os.getenv("OLLAMA_API_BASE", "http://localhost:11434"), "PYTHONUNBUFFERED": "1"}
+        env = {"OLLAMA_API_BASE": os.getenv("OLLAMA_API_BASE", "http://localhost:11434"), "PYTHONUNBUFFERED": "1", **perf.AIDER_ENV}
         t0 = time.time()
 
         def run_aider(args: list[str]) -> tuple[int, str]:
@@ -70,6 +70,15 @@ class BuildMixin:
 
         before = self.work_fingerprint(edit)
         rc, out = run_aider(cmd)
+        if perf.token_limit_hit(out):
+            self.log(f"[coder/{tag}] the model ran out of context/output tokens: retrying once with a minimal context (no repo map, one read-only file)")
+            self.note("coder", f"{tag}: token limit hit, retried with a minimal context")
+            write_text(pf, prompt + "\n\nThe context is small: change ONLY what the task needs, keep the answer short and do not repeat unchanged code.")
+            rc, out2 = run_aider(perf.lean_cmd(cmd))
+            out += "\n" + out2
+            if perf.token_limit_hit(out2) and self.work_fingerprint(edit) == before:
+                self.log(f"[coder/{tag}] token limit again and no file changed: the task is too big for the context window, it should be split")
+                self.note("coder", f"{tag}: too big for the context window even with a minimal context")
         if edit and self.work_fingerprint(edit) == before:
             # the coder must always write to disk (reasoning models like to answer in the chat only). First take complete files from
             # its answer (free), then ask once more in whole-file mode, then take them from that answer.
