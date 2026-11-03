@@ -393,7 +393,7 @@ class BuildMixin:
             if getattr(self, "_spike_split", False):
                 self._spike_split = False
                 self.cur_task, self.cur_attempt = "", 0
-                self.phase("Task split after a failed spike", None, item["title"])
+                self.phase("Task split into slices (the plan was too big or a spike failed)", None, item["title"])
                 return False
             if outage:
                 # the model server failed, not the task: do not count the attempt, do not split or block, let the loop back off
@@ -487,6 +487,9 @@ class BuildMixin:
                       + "\n".join(previous[-3:]) + f"\n\n{self.RULES}")
         else:
             plan = self.impact_analysis(item, previous)
+            if not plan.get("light") and self.plan_split(item, plan):
+                self._spike_split = True
+                return False, "The plan was too big for one pass: the task was split into slices"
             if not plan.get("light"):
                 self.make_spec(item, plan)
             if self.spike_due(item, plan):

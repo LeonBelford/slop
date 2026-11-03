@@ -50,6 +50,24 @@ class SplitTests(unittest.TestCase):
         self.assertEqual((s1["layer"], s2["depends_on"], dep["depends_on"]), (0, [s1["id"]], [s2["id"]]))
         self.assertEqual(a.backlog.next()["id"], s1["id"])
 
+    def test_big_plan_grows_the_tree_without_a_model_call(self):
+        a = Stub(self.p, SUBS)
+        a.cfg, a.lim = {"features": {}}, {"max_files_per_task": 6}
+        a.feat = lambda n: True
+        t = a.backlog.add("Argument parsing", "d", layer=0, force=True)
+        dep = a.backlog.add("Use args", "d", layer=0, depends_on=[t["id"]], force=True)
+        plan = {"steps": [f"step {n} in app/main.py" for n in range(7)], "files_to_change": ["app/main.py"], "new_files": []}
+        self.assertTrue(a.plan_split(t, plan))
+        slices = [i for i in a.backlog.items if i.get("parent") == t["id"]]
+        self.assertEqual(len(slices), 2)
+        self.assertEqual((slices[0]["files"], slices[1]["depends_on"], dep["depends_on"]), (["app/main.py"], [slices[0]["id"]], [slices[1]["id"]]))
+        self.assertTrue(slices[0]["hot"] and "step 0" in slices[0]["description"] and "step 6" in slices[1]["description"])
+        self.assertEqual(t["split_into"], [i["id"] for i in slices])
+        small = a.backlog.add("Small", "d", force=True)
+        self.assertFalse(a.plan_split(small, {"steps": ["a", "b", "c"], "files_to_change": ["x.py"]}))
+        slices[0]["split_depth"] = 2
+        self.assertFalse(a.plan_split(slices[0], plan))
+
     def test_depth_limit_and_bad_answer_keep_the_task(self):
         a = Stub(self.p, SUBS)
         t = a.backlog.add("x task", "d", force=True)

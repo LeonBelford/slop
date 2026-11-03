@@ -2,9 +2,11 @@
 from __future__ import annotations
 
 from core.cfllm import scaled
+from core.cfa_flow import split_steps
 from core.cfutil import clip
 
 MAX_SPLIT_DEPTH = 2
+PLAN_MAX_STEPS = 4
 MAX_REVIVES = 2
 REVIVE_AFTER_MERGES = 2
 SLICE_SCHEMA = ('{"cause": "why the task keeps failing, one sentence", "subtasks": [{"title": "", "description": "exact files and behaviour", '
@@ -67,6 +69,35 @@ class SplitMixin:
             return False
         return self.apply_split(item, subs, str(d.get("cause", "")), previous)
 
+    def plan_split(self, item: dict, plan: dict) -> bool:
+        """The plan knows the real size, the pre-check only guessed it: a plan with more than PLAN_MAX_STEPS steps (or too many files) grows the
+        tree now. The steps are cut into 2-4 consecutive slices, no model call; each slice keeps its steps and the files they name."""
+        steps = [str(x) for x in plan.get("steps", []) if str(x).strip()]
+        files = list(dict.fromkeys(plan.get("files_to_change", []) + plan.get("new_files", [])))
+        f = self.cfg["features"]
+        if not self.feat("plan_split") or int(item.get("split_depth", 0)) >= MAX_SPLIT_DEPTH or item["type"] in ("docs", "test"):
+            return False
+        max_steps = int(f.get("plan_max_steps", PLAN_MAX_STEPS))
+        max_files = min(self.lim["max_files_per_task"], int(f.get("task_max_files", 5)))
+        if len(steps) <= max_steps and len(files) <= max_files:
+            return False
+        parts = max(2, min(4, -(-len(steps) // max_steps), len(steps)))
+        groups = split_steps(steps, parts)
+        if len(groups) < 2:
+            return False
+        subs = []
+        for n, g in enumerate(groups, 1):
+            named = [x for x in files if any(x in st or x.rsplit("/", 1)[-1] in st for st in g)] or files[:max_files]
+            last = n == len(groups)
+            subs.append({"title": f"{item['title']} (part {n}/{len(groups)})",
+                         "description": f"{item['description']}\nThis is part {n} of {len(groups)} of a larger task. Do exactly these steps:\n"
+                                        + "\n".join(f"- {x}" for x in g) + "\nKeep the build green; later parts continue from here.",
+                         "acceptance": item.get("acceptance") if last else [f"steps done and tests pass: {clip('; '.join(g), 150)}"],
+                         "type": item["type"], "files": named})
+        cause = f"the plan has {len(steps)} steps over {len(files)} files, too much for one pass (limit {max_steps} steps, {max_files} files)"
+        self.log(f"{item['id']}: {cause}: growing the tree with {len(subs)} slices")
+        return self.apply_split(item, subs, cause, ["Pre-check: " + cause])
+
     def apply_split(self, item: dict, subs: list[dict], cause: str, previous: list[str]) -> bool:
         """Replaces `item` by a chain of slices (they inherit its layer and dependencies; its dependents wait for the last slice). The first slice
         is marked hot so the loop continues with it at once, inside the same graph."""
@@ -79,6 +110,7 @@ class SplitMixin:
                                    f"Slice {n + 1}/{len(subs)} of {item['id']}: {cause}", item.get("source", "ideation"),
                                    force=True, layer=item.get("layer"), depends_on=prev_ids)
             new["split_depth"] = depth + 1
+            new["parent"] = item.get("parent") or item["id"]  # which task this slice grew out of, shown on the graph node
             new["size_checked"] = True
             if s.get("files"):
                 new["files"] = [str(f) for f in s["files"]][:12]
