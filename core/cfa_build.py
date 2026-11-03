@@ -486,11 +486,13 @@ class BuildMixin:
                       f"quality gate. Fix exactly the problems below with minimal edits; keep everything that works.\n"
                       + "\n".join(previous[-3:]) + f"\n\n{self.RULES}")
         else:
-            plan = self.impact_analysis(item, previous)
-            if not plan.get("light") and self.plan_split(item, plan):
+            plan = self.reuse_plan(item, previous)
+            reused = plan is not None
+            plan = plan or self.impact_analysis(item, previous)
+            if not reused and not plan.get("light") and self.plan_split(item, plan):
                 self._spike_split = True
                 return False, "The plan was too big for one pass: the task was split into slices"
-            if not plan.get("light"):
+            if not plan.get("light") and not reused:
                 self.make_spec(item, plan)
             if self.spike_due(item, plan):
                 worked, finding = self.spike(item, plan)
