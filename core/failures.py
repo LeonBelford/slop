@@ -14,6 +14,7 @@ RULES = [  # (class, pattern); the first match wins
     ("setup_fail", r"\[setup\] FAILED"),
     ("build_fail", r"\[build\] FAILED"),
     ("lint_fail", r"\[lint\] FAILED"),
+    ("missing_dep", r"ModuleNotFoundError|No module named|Cannot find module|unresolved import"),
     ("test_fail", r"\[test\] FAILED|Build/test red"),
     ("security", r"Security gate"),
     ("browser", r"(?:Browser|UI) test"),
@@ -29,6 +30,8 @@ ADVICE = {
     "timeout": "A command ran into the time limit. Avoid long-running work and make the change smaller.",
     "policy": "A project rule rejected the change (tests missing or deleted). Satisfy the rule instead of working around it.",
     "build_fail": "The build failed. Fix the compile/import error first, before any other change.",
+    "missing_dep": "A package is missing. Add it to the dependency file (requirements.txt / package.json / Cargo.toml): the pipeline installs "
+                   "changed dependencies itself before the next build. Do not write stub modules and do not vendor the package.",
     "test_fail": "Tests failed. Read the first failing assertion and fix the cause in the production code.",
     "lint_fail": "Lint failed. Fix exactly the reported lines.",
     "security": "The security gate found a problem. Remove the risky pattern instead of suppressing the finding.",
