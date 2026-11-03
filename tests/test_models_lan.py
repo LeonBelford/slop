@@ -46,6 +46,8 @@ class RoutingTests(unittest.TestCase):
             ag.task_class = "standard"
             self.assertEqual(ag.coder_for("implement"), ag.cfg["coder_model"])
             self.assertEqual(ag.coder_for("debug2"), "ollama_chat/qwen3-coder:30b")
+            ag.debug_stuck = False  # the failure moved on: no swap to the big model
+            self.assertEqual(ag.coder_for("debug2"), ag.cfg["coder_model"])
 
 
 class LanAuthTests(unittest.TestCase):

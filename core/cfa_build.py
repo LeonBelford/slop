@@ -29,7 +29,9 @@ class BuildMixin:
         r, default = self.routes(), self.cfg["coder_model"]
         light, heavy = r["light"], r["heavy"]
         cls = getattr(self, "task_class", "standard")
-        if tag == "review_fix" or tag.startswith("debug") and tag != "debug1" or getattr(self, "force_heavy", False):
+        # debug round 2+ switches to the big model only when the last round did not change the failure; a model swap plus slow generation
+        # on a failure that is moving (the fix works, the next error shows) costs more than it brings
+        if tag == "review_fix" or tag.startswith("debug") and tag != "debug1" and getattr(self, "debug_stuck", True) or getattr(self, "force_heavy", False):
             cls = "heavy"
         elif tag == "cleanup":
             cls = "light"
@@ -251,6 +253,7 @@ class BuildMixin:
         self.phase("Building and running tests", "build")
         ok, report = self.verify_stage(full)
         last_sig = failures.signature(report)
+        self.debug_stuck = False
         for n in range(1, self.lim["max_debug_rounds"] + 1):
             if ok and self.cfg["features"]["require_tests"] and item["type"] in ("feature", "bug") \
                     and not any("test" in f.lower() for f in self.git.changed_files()):
@@ -281,11 +284,12 @@ class BuildMixin:
             files = sorted(set(self.git.changed_files()) | set(mentioned))[:self.lim["max_files_per_task"] + 4]
             self.code(f"debug{n}", files, [str(self.run_dir / "context.md")],
                       f"The build/test failed. Find the cause (not the symptoms) and fix it.\n"
-                      f"The task was: {item['title']}\n\nError report:\n{report}\n\n{self.RULES}\n"
+                      f"The task was: {item['title']}\n\nError report:\n{report}\n\n{failures.snippets(report, self.repo)}\n{self.RULES}\n"
                       "Do not delete or weaken tests just to make them pass.")
             self.tried.append(f"round {n} on '{clip(report.splitlines()[0], 100)}' edited {files[:4]}")
             ok, report = self.verify_stage(full)
             sig = failures.signature(report)
+            self.debug_stuck = sig == last_sig
             if not ok and n >= 2 and sig == last_sig:
                 self.log(f"Debug loop stalled: round {n} failed exactly like round {n - 1}, stopping early")
                 self.metric(kind="stalled", item=item["id"], where="debug", sig=sig[:80])
