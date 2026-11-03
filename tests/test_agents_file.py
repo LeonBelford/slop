@@ -5,6 +5,7 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parent.parent
 
 
+@unittest.skipUnless((ROOT / "AGENTS.md").is_file(), "partial repo copy (self-improve test)")
 class AgentsFileTests(unittest.TestCase):
     def test_paths_named_in_agents_md_exist(self):
         text = (ROOT / "AGENTS.md").read_text("utf-8")

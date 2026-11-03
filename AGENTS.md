@@ -13,6 +13,11 @@ This repo is **CodeFactory**: a fully local autonomous coding agent (Python stan
 7. If you are unsure which of two designs is right, pick the simpler one that matches existing code, and say why in one sentence.
 8. Output complete edits. Do not leave `...` or "rest unchanged" placeholders inside files.
 
+## 0b. Using tools (VS Code agent mode; for analysis see section 9)
+- Answer the user's question. Never paste raw tool output (environment info, JSON like `resourcePath`) as your answer.
+- To analyse a bug or "why does X happen": find the code with search/grep first, read the relevant function, then explain the cause with `path:line` and propose or make the fix. Logs the user pastes are evidence: quote the repeating line and find what produces it.
+- Do not call environment-setup tools (configure Python, create workspace) unless asked; the venv is `.venv` and the commands are in section 2.
+
 ## 1. Where things live
 - Entry points: `codefactory.py` (Agent core + CLI + selftest), `webui.py` (web UI server), `selfimprove.py`.
 - `core/`: agent engine as mixins (`cfa_build.py` attempt/debug loop, `cfa_plan.py` planning, `cfa_split.py` task splitting, `cfa_flow.py` quality steps, `cfa_gates.py` gates, `cfgit.py` Git + Backlog, `cfllm.py` model client, `progress.py` step pipelines).
@@ -68,3 +73,15 @@ Dense but readable Python 3.12, type hints where cheap, docstrings only for non-
 When you learn something a future agent needs (a pitfall, a non-obvious rule, a command that works, a decision and its reason), add **one short line** to `docs/LEARNED.md` in the same change:
 `- YYYY-MM-DD <area>: <fact>. (why / where: path:line)`.
 Rules: only verified facts, no duplicates (search first), no secrets, one fact per line. If a fact becomes wrong, fix or delete the line. Move facts that apply to every change up into this file.
+
+## 9. Analysis playbook ("schau dir die Pipeline an", "warum passiert das", "wie kann man das besser machen")
+Use your own engineering knowledge (known failure patterns, better designs), but ground every statement in THIS codebase, which keeps growing: do not rely on this file alone, re-read the current code and `PROJECT_MAP.md` / `docs/LEARNED.md` each time. Do NOT call setup tools. Analyse the real code like a reviewer, in this order:
+1. **Scope the question** in one sentence (which stage, which symptom). Map the user's words with section 8.
+2. **Trace the real path.** Start at the entry (`_process` / `attempt` in `core/cfa_build.py`) and follow the calls stage by stage with grep and by reading each function. Write the order down as you verified it (stage, file:line). For a UI question trace `web/*.js` to the `webapi/` route.
+3. **Follow the data.** For every stage note: what it receives, what it returns, what it stores (`run_dir/*.json`, `Backlog`, handoff text, memory) and who reads that later. Hand-over bugs hide here: a value written but never read, read before it is written, overwritten by a re-plan, or passed as the wrong type (model JSON).
+4. **Use evidence.** Read pasted logs and `run_dir` files line by line. Quote the exact repeating or surprising line, then grep for the code that prints it. Count how often a stage runs per task and how long it takes (planning twice, retries that re-plan, loops).
+5. **Look for these defect classes:** stage order that makes work wasted (plan before split), repeated model calls with the same input, loops without a stop condition (idle never triggers while output keeps coming), state lost on retry or restart, fallbacks that hide errors, limits that do not match the real model window (4096), tasks that jump the queue, filler steps, unguarded model output.
+6. **Check your claim** before you report it: reproduce with a small test or a stub (`tests/` use stub LLMs and `coder_mock`) or read the exact lines again. Drop findings you cannot support.
+7. **Report** a short ranked list: `finding, evidence (path:line or log line), why it costs time or correctness, concrete fix`. Highest impact first, at most 7. Say what you did not check.
+8. **Then fix the top items** in small steps (section 0), with a test each, and update `docs/LEARNED.md`.
+Do not stop at "it looks fine": if nothing is wrong, show which stages and hand-overs you verified.
