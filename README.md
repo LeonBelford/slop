@@ -239,7 +239,7 @@ After each merge the strategist sees only open task titles, status and recent re
 - `dependency_plan`: the strategist picks libraries (name, version, reason) into the blueprint; the first task installs them.
 - `contracts_code`: a task turns the contracts into signatures, types, stubs and `tests/contracts/`; those tests can never be removed or loosened (policy check).
 - `spec_first`: per task the planner writes a design (files, signatures, edge cases), the reviewer checks it against the contracts, it is pinned as handoff.
-- `size_gate`: before the first attempt files/lines are estimated; too big means split at once.
+- `size_gate`: before the first attempt files/lines are estimated; too big means split at once. Limits: `task_max_files` (5), `task_max_lines` (180), `task_max_minutes` (25, from comparable finished tasks, only with 3+ files) under `features`.
 - `risk_spikes`: tasks marked `risk: high` always get a spike first (and a dynamic priority bonus).
 - `layer_gate`: before climbing, build+tests, the optional `commands.smoke` and a strategist check of the layer goal must pass; otherwise fix tasks are queued (gives up after 2 failures with a note).
 - `drift_check`: after every merge, file size (800 lines) and module imports (`uses` in the blueprint modules) are checked; violations become fix tasks.
