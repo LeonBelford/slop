@@ -66,6 +66,45 @@ def focus(out: str, n: int) -> str:
     return head + (f"\n...[{len(rest)} more characters]...\n" + tail(rest, n // 3) if rest.strip() else "")
 
 
+LOCATIONS = [re.compile(x, re.M) for x in (
+    r'File "([^"\n]+)", line (\d+)',  # python traceback
+    r"--> ([\w./\\-]+):(\d+):\d+",  # rustc
+    r"^([\w./\\-]+\.(?:go|c|cc|cpp|h|java|kt|cs|rb|php)):(\d+)(?::\d+)?:",  # go, gcc, javac, ruby
+    r"^\s*([\w./\\-]+\.(?:ts|tsx|js|jsx)):(\d+)(?::\d+)?",  # node, tsc, jest
+    r"([\w./\\-]+\.(?:ts|tsx))\((\d+),\d+\)",  # tsc
+    r"^([\w./\\-]+\.py):(\d+): ",  # pytest short form
+)]
+
+
+def snippets(report: str, repo, limit: int = 3, around: int = 6) -> str:
+    """The source lines a failure report points at (project files only, deepest frame first): the coder sees the failing code at once
+    instead of guessing which part of the file the traceback means. "" if the report names no project file."""
+    from pathlib import Path
+    root = Path(repo).resolve()
+    hits: list[tuple[str, int]] = []
+    for pat in LOCATIONS:
+        for m in pat.finditer(report or ""):
+            path = Path(m.group(1))
+            try:
+                rel = (path.resolve() if path.is_absolute() else (root / path).resolve()).relative_to(root)
+            except (ValueError, OSError):
+                continue
+            if (root / rel).is_file() and ".venv" not in rel.parts and "node_modules" not in rel.parts:
+                hits.append((rel.as_posix(), int(m.group(2))))
+    out, seen = [], set()
+    for rel, line in reversed(hits):
+        if (rel, line) in seen or len(out) >= limit:
+            continue
+        seen.add((rel, line))
+        try:
+            lines = (root / rel).read_text("utf-8", "replace").splitlines()
+        except OSError:
+            continue
+        a, b = max(1, line - around), min(len(lines), line + around)
+        out.append(f"--- {rel}, lines {a}-{b} (the failure points at line {line})\n" + "\n".join(f"{n:>4}| {lines[n - 1]}" for n in range(a, b + 1)))
+    return "Code the failure points at:\n" + "\n".join(out) + "\n" if out else ""
+
+
 def advice(cls: str) -> str:
     """One-line hint for a failure class (e.g. what usually fixes a timeout), or "" if there is none."""
     return ADVICE.get(cls, "")

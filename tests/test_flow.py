@@ -48,9 +48,11 @@ class FlowTests(unittest.TestCase):
         f = Fake()
         small = {"files_to_change": ["a.py"], "new_files": [], "steps": ["s"], "test_files": ["tests/test_a.py"]}
         big = {"files_to_change": list("abcd"), "new_files": [], "steps": ["s"] * 5}
-        self.assertTrue(f.wants("test_first", {"type": "feature"}, small))
+        self.assertFalse(f.wants("test_first", {"type": "feature"}, small))  # one call writes code and tests
+        self.assertTrue(f.wants("test_first", {"type": "bug"}, small))  # the regression test comes first
         self.assertFalse(f.wants("test_first", {"type": "docs"}, small))
         self.assertFalse(f.wants("test_first", {"type": "feature"}, big))  # no test file named by the plan
+        self.assertTrue(f.wants("test_first", {"type": "feature"}, dict(big, test_files=["tests/test_a.py"])))  # a big change gets its tests first
         self.assertFalse(f.wants("step_by_step", {"type": "feature"}, small))
         self.assertTrue(f.wants("step_by_step", {"type": "feature"}, big))
         self.assertFalse(Fake({"step_by_step": "off"}).wants("step_by_step", {"type": "feature"}, big))

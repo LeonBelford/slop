@@ -73,7 +73,9 @@ class FlowMixin:
         rt = self.cfg["routing"]
         big = len(plan.get("files_to_change", []) + plan.get("new_files", [])) >= int(rt["complex_files"]) or len(plan.get("steps", [])) >= 4
         if name == "test_first":
-            return item["type"] in ("feature", "bug") and bool(self.test_paths(plan))
+            # a separate coder call for the tests is worth it for a bug (the regression test proves the fix) or a big change; a small
+            # feature gets code and tests from one call (the task prompt already asks for tests)
+            return item["type"] in ("feature", "bug") and bool(self.test_paths(plan)) and (item["type"] == "bug" or big)
         return item["type"] in ("feature", "bug", "refactor") and big
 
     def test_paths(self, plan: dict) -> list[str]:
