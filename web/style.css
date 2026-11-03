@@ -459,3 +459,5 @@ table.tt .tt-g td{background:#ffffff08;padding:6px 8px;border-top:1px solid var(
 #fgSvg{display:block;width:100%;height:560px;cursor:grab}#fgCard .pg-ch{display:block;margin:2px 0}
 .pill{white-space:nowrap}#pgCard .pc-h,#fgCard .pc-h{flex-wrap:wrap}
 #fgSvg .pg-e{stroke:#ffffff66;stroke-width:1.4}#fgSvg .pg-e.lit{stroke:#7fb2ff;stroke-width:2.2}#fgSvg .pg-e.dim{opacity:.05}
+#fgSvg .pg-e{stroke-opacity:.65}#fgSvg .pg-e.lit{stroke-opacity:1;stroke-width:2.6!important}#fgSvg .pg-e.off{display:none}
+.pg-chip.off{opacity:.35;text-decoration:line-through}#fgKinds .pg-chip{cursor:pointer}

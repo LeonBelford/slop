@@ -4,7 +4,7 @@ from __future__ import annotations
 import posixpath
 import re
 
-from core import filegraph_lang
+from core import fileconn, filegraph_lang
 
 SRC = (".py", ".js", ".mjs", ".ts", ".tsx", ".jsx")
 WEB = (".html", ".htm", ".css", ".vue", ".svelte")
@@ -86,12 +86,14 @@ def keep(files: list[str], cap: int = 1500) -> list[str]:
     return ([f for f in ok if f.endswith(CODE)] + [f for f in ok if not f.endswith(CODE)])[:cap]
 
 
-def edges_of(files: list[str], read) -> list[list[str]]:
+def edges_of(files: list[str], read) -> list[list]:
+    """Every link that follows from the files alone (imports, tests, mentions, folder hubs); `build` adds the task links."""
     fset = set(files)
-    return [[f, t] for f in files if f.endswith(CODE) for t in sorted(imports_of(f, read(f), fset))]
+    imports = [[f, t, "import"] for f in files if f.endswith(CODE) for t in sorted(imports_of(f, read(f), fset))]
+    return fileconn.merge(imports, fileconn.tests_of(files), fileconn.mentions_of(files, read), fileconn.modules_of(files))
 
 
-def build(files: list[str], read, items: list[dict], edges: list[list[str]] | None = None, lines: dict[str, int] | None = None) -> dict:
+def build(files: list[str], read, items: list[dict], edges: list[list] | None = None, lines: dict[str, int] | None = None) -> dict:
     """`read(path)` returns the text of a file (or ''). Nodes carry size, number of importers and the tasks that touched the file:
     the newest RECENT in full, the rest only as a count. Pass `edges` (from `edges_of`) to reuse an earlier scan of unchanged files."""
     touched: dict[str, list[dict]] = {}
@@ -99,9 +101,11 @@ def build(files: list[str], read, items: list[dict], edges: list[list[str]] | No
         for f in it.get("files") or []:
             touched.setdefault(f, []).append({"id": it["id"], "title": it["title"], "status": it["status"]})
     edges = edges_of(files, read) if edges is None else edges
+    edges = fileconn.merge(edges, fileconn.together(items, set(files)))
     used: dict[str, int] = {}
-    for _, t in edges:
-        used[t] = used.get(t, 0) + 1
+    for e in edges:
+        if e[2] == "import":
+            used[e[1]] = used.get(e[1], 0) + 1
     nodes = []
     for f in files:
         ts = touched.get(f, [])

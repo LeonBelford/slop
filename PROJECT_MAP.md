@@ -226,4 +226,5 @@ selftest self-improve e2e-setup`.
 - Graph review (`core/cfa_graph.py`): all triggers (run start, milestone, stuck, stale layout, blocked chain) are collected and ONE re-evaluation runs; the start review is skipped when the graph is unchanged and flawless (`graph_review_always` forces it). Harmful results (mass cancel, torn graphs) are rolled back; `plan_confirm` / "Preview re-plan" saves a proposal to confirm. `next()` prefers the chain of the last finished task.
 - `web/taskgraph.js` + `web/tasktree.js`: the Overview is the task graph (bands per graph, chain highlight, zoom) plus the tree list below; finished graphs only via "Show finished graphs" (pref `showDone`). Editor Terminal panel: editor op `exec`.
 
+| `core/fileconn.py` | Smart file links by kind: tests, mentions, folder hubs, files changed by the same tasks (no model) |
 | `core/filegraph.py` | File graph: imports between project files plus the newest tasks per file (served at `/api/project/<n>/editor/filegraph`, drawn by `web/filegraph.js`) |

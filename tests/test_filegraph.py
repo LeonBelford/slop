@@ -9,8 +9,8 @@ class FileGraphTest(unittest.TestCase):
         src = {"app.py": "from core.util import x\nimport os\n", "web/a.js": "import {b} from './b.js'\n"}
         items = [{"id": f"T{n}", "title": "t", "status": "done", "files": ["core/util.py"]} for n in range(1, 7)]
         g = filegraph.build(files, lambda f: src.get(f, ""), items)
-        self.assertIn(["app.py", "core/util.py"], g["edges"])
-        self.assertIn(["web/a.js", "web/b.js"], g["edges"])
+        self.assertIn(["app.py", "core/util.py", "import"], g["edges"])
+        self.assertIn(["web/a.js", "web/b.js", "import"], g["edges"])
         u = next(n for n in g["nodes"] if n["path"] == "core/util.py")
         self.assertEqual([t["id"] for t in u["tasks"]], ["T6", "T5", "T4", "T3"])
         self.assertEqual((u["more"], u["total"], u["used_by"]), (2, 6, 1))
@@ -101,3 +101,32 @@ class PackHistoryTest(unittest.TestCase):
         self.assertEqual(g("src/core/file_system/mod.rs", "pub mod observer;\nuse std::fs;", f), {"src/core/file_system/observer.rs"})
         self.assertEqual(g("tests/observer_test.rs", "use rustexplorer::core::file_system::observer::Watch;", f), {"src/core/file_system/observer.rs"})
         self.assertEqual(g("src/main.rs", "use rustexplorer::core::{file_system, other};", f), {"src/core/mod.rs", "src/core/file_system/mod.rs"})
+
+    def test_smart_connection_kinds(self):
+        from core import fileconn
+        files = ["src/lib.rs", "src/core/mod.rs", "src/core/file_system/mod.rs", "src/core/file_system/observer.rs", "src/core/file_system/entry.rs",
+                 "tests/file_system_observer_test.rs", "ARCHITECTURE.md", "templates/search_results.html", "src/web.rs", "README.md"]
+        texts = {"ARCHITECTURE.md": "See `src/core/file_system/observer.rs` and entry.rs", "src/web.rs": 'include_str!("../templates/search_results.html")'}
+        by = {(a, b): k for a, b, k, *_ in filegraph.edges_of(files, lambda f: texts.get(f, ""))}
+        self.assertEqual(by[("tests/file_system_observer_test.rs", "src/core/file_system/observer.rs")], "test")
+        self.assertEqual(by[("ARCHITECTURE.md", "src/core/file_system/observer.rs")], "mention")
+        self.assertEqual(by[("ARCHITECTURE.md", "src/core/file_system/entry.rs")], "mention")
+        self.assertEqual(by[("src/web.rs", "templates/search_results.html")], "mention")
+        self.assertEqual(by[("src/core/file_system/mod.rs", "src/core/file_system/observer.rs")], "module")
+        self.assertEqual(by[("src/core/mod.rs", "src/core/file_system/mod.rs")], "module")
+        items = [{"id": "T1", "files": ["src/web.rs", "src/lib.rs"]}, {"id": "T2", "files": ["src/web.rs", "src/lib.rs", "README.md"]}]
+        t = {(a, b): w for a, b, k, w in fileconn.together(items, set(files))}
+        self.assertEqual(t[("src/lib.rs", "src/web.rs")], 2)
+        self.assertEqual(t[("README.md", "src/web.rs")], 1)
+
+    def test_import_beats_weaker_kinds_and_keeps_direction(self):
+        from core import fileconn
+        e = fileconn.merge([["a.py", "b.py", "import"]], [["b.py", "a.py", "mention"], ["a.py", "c.py", "module"]], [["c.py", "a.py", "task", 3]])
+        self.assertEqual(e, [["a.py", "b.py", "import"], ["a.py", "c.py", "module"]])
+
+    def test_long_minified_line_stays_fast(self):
+        import time
+        from core import fileconn
+        t = time.time()
+        fileconn.mentions_of(["a.js", "b.js"], lambda f: "x" * 60000 if f == "a.js" else "")
+        self.assertLess(time.time() - t, 2)
