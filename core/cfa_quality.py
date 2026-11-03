@@ -5,7 +5,7 @@ from core.cfllm import LLMError, scaled
 from core.cfutil import clip
 
 MAX_LINES_ESTIMATE = 250  # defaults; features.task_max_files / task_max_lines / task_max_minutes tighten them
-TASK_MAX_FILES, TASK_MAX_LINES, TASK_MAX_MINUTES = 5, 180, 25
+TASK_MAX_FILES, TASK_MAX_LINES, TASK_MAX_MINUTES = 5, 180, 15
 SIZE_SCHEMA = '{"files": 2, "lines": 120, "reason": "one sentence"}'
 SPEC_SCHEMA = '{"files": [{"path": "", "purpose": ""}], "signatures": ["function/type signatures"], "edge_cases": ["..."]}'
 REVIEW_SCHEMA = '{"ok": true, "problems": ["where the design breaks a contract or the task"]}'
@@ -50,7 +50,7 @@ class QualityMixin:
         max_files = min(self.lim["max_files_per_task"], int(f.get("task_max_files", TASK_MAX_FILES)))
         max_lines = int(f.get("task_max_lines", TASK_MAX_LINES))
         minutes = float(item.get("estimate_s") or 0) / 60  # from the finished tasks of this project; a task that usually takes long is cut before it starts
-        too_long = minutes > float(f.get("task_max_minutes", TASK_MAX_MINUTES)) and files >= 3
+        too_long = minutes > float(f.get("task_max_minutes", TASK_MAX_MINUTES)) and files >= 2
         if files <= max_files and lines <= max_lines and not too_long:
             return False
         why = f"about {round(minutes)} min by comparable tasks" if too_long and files <= max_files and lines <= max_lines else f"{files} files / {lines} lines"

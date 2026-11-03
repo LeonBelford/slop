@@ -77,3 +77,18 @@ class SpeedTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class SnippetTests(unittest.TestCase):
+    def test_failure_report_is_turned_into_code_snippets_of_project_files_only(self):
+        from core import failures
+        with tempfile.TemporaryDirectory() as t:
+            root = Path(t)
+            (root / "app").mkdir()
+            (root / "app" / "m.py").write_text("\n".join(f"line{i}" for i in range(1, 30)))
+            rep = f'File "/usr/lib/python3/x.py", line 3\n  File "{root}/app/m.py", line 10, in f\napp/m.py:12: AssertionError'
+            out = failures.snippets(rep, root)
+            self.assertIn("app/m.py", out)
+            self.assertIn("  10| line10", out)
+            self.assertNotIn("x.py", out)
+            self.assertEqual(failures.snippets("nothing useful", root), "")
