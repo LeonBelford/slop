@@ -216,6 +216,7 @@ selftest self-improve e2e-setup`.
 | A new setting | `DEFAULT_CONFIG`, `webui.py` `save_settings` validation, settings form in `index.html`, docs |
 | A new language preset | `infra/stacks.py` |
 | Docs | `README.md`, `docs/*.md`, and this file |
+| Instructions for coding agents | `AGENTS.md` (rules), `docs/LEARNED.md` (growing lessons), `.github/copilot-instructions.md` (pointer) |
 
 ## Recent additions
 - `webapi/editor.py` + `web/editor.js`: in-browser code editor (tree, tabs, highlighting, find/replace, search, git, tests).
