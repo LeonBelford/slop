@@ -134,3 +134,31 @@ class WipTests(unittest.TestCase):
             self.assertTrue((repo / "b.py").exists())
             a.drop_wip(item)
             self.assertNotEqual(a.git.run("rev-parse", "--verify", "-q", "agent/wip-T0001")[0], 0)
+
+
+class ReevaluationRobustnessTests(unittest.TestCase):
+    def test_plain_string_layers_and_odd_split_entries_do_not_crash(self):
+        from core import blueprint
+        data = {"layers": ["Core", {"name": "UI", "goal": "g"}], "split": ["T0001"], "merge": ["x"], "assign": [], "keep_plan": True}
+        self.assertEqual([ly["name"] for ly in blueprint.keep_closed(data["layers"], [{"name": "Core"}], {0})], ["Core", "UI"])
+        res = blueprint.normalize_reevaluation(data, [{"id": "T0001", "status": "pending"}])
+        self.assertEqual([ly["name"] for ly in res["layers"]], ["Core", "UI"])
+        self.assertEqual(res["split"], [])
+
+    def test_no_edit_retry_reuses_the_plan_and_skips_the_model(self):
+        from core.cfa_flow import FlowMixin
+        a = FlowMixin.__new__(FlowMixin)
+        tmp = Path(tempfile.mkdtemp())
+        a.run_dir, a.logs = tmp, []
+        a.cfg = {"features": {}}
+        a.log = a.logs.append
+        a.handoff = lambda *x, **k: None
+        a.llm = None
+        (tmp / "plan.json").write_text(json.dumps({"files_to_change": ["a.py"], "steps": ["s"]}))
+        item = {"id": "T1", "title": "t", "description": "d"}
+        prev = ["Attempt 1 [no_edit]: Exception: the coder made no usable edit"]
+        self.assertEqual(a.reuse_plan(item, prev)["steps"], ["s"])
+        a.retry_strategy(item, prev)
+        self.assertIn("wrote no file", prev[-1])
+        self.assertIsNone(a.reuse_plan(item, ["Attempt 1 [test_fail]: red"]))
+        self.assertIsNone(a.reuse_plan(item, []))

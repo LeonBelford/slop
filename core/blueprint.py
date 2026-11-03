@@ -111,13 +111,18 @@ def normalize(data: dict, mvp: list[dict] | None = None, chain: bool = True, ske
     return {"architecture": out_arch, "layers": layers, "dependencies": deps_list}
 
 
+def as_layers(raw) -> list[dict]:
+    """Layers as the model wrote them: a plain name ("Core") counts as a layer without a goal, anything else unusable is dropped."""
+    return [dict(ly) if isinstance(ly, dict) else {"name": ly.strip()} for ly in (raw if isinstance(raw, list) else []) if isinstance(ly, dict) or (isinstance(ly, str) and ly.strip())]
+
+
 def normalize_reevaluation(data: dict, items: list[dict]) -> dict:
     """Cleans a re-evaluation answer against the real backlog `items`: layers, per-task layer/priority, new tasks and cancellations.
 
     Layer numbers are clamped, unknown ids dropped; cancelling tasks that came from the user (or IDEAS.md) is ignored.
     """
     base = normalize({"architecture": data.get("architecture"), "layers": [
-        {"name": ly.get("name"), "goal": ly.get("goal"), "tasks": [{"title": "-"}]} for ly in data.get("layers", []) if isinstance(ly, dict)]})
+        {"name": ly.get("name"), "goal": ly.get("goal"), "tasks": [{"title": "-"}]} for ly in as_layers(data.get("layers"))]})
     layers = [{"name": ly["name"], "goal": ly["goal"]} for ly in base["layers"]]
     if not layers:
         return {"architecture": base["architecture"], "layers": [], "assign": {}, "new": [], "cancel": [], "merge": [], "split": [], "keep": False}
@@ -163,7 +168,7 @@ def normalize_reevaluation(data: dict, items: list[dict]) -> dict:
     split = []
     for sp in data.get("split", []):
         steps = [st for st in (sp.get("steps") or []) if isinstance(st, dict) and st.get("title")] if isinstance(sp, dict) else []
-        if sp.get("id") in pending and sp["id"] not in used and sp["id"] not in cancel and len(steps) >= 2:
+        if isinstance(sp, dict) and sp.get("id") in pending and sp["id"] not in used and sp["id"] not in cancel and len(steps) >= 2:
             used.add(sp["id"])
             split.append({"id": sp["id"], "steps": [{"title": _s(st["title"], 120), "description": _s(st.get("description"), 800),
                                                      "acceptance": [_s(a) for a in (st.get("acceptance") or []) if a][:6], "why": _s(st.get("why"), 200)} for st in steps[:4]]})
@@ -258,7 +263,7 @@ def open_floor(items: list[dict]) -> int:
 
 def keep_closed(layers: list[dict], old: list[dict], closed: set[int]) -> list[dict]:
     """The new layer list with every closed layer exactly as it was; the model may only change or add layers above them."""
-    out = [dict(ly) for ly in layers]
+    out = as_layers(layers)
     for n in sorted(closed):
         if n < len(old):
             while len(out) <= n:

@@ -4,7 +4,7 @@ from __future__ import annotations
 import json
 import re
 
-from core.cfutil import clip
+from core.cfutil import clip, read_json
 
 FEATURE_DEFAULTS = {"test_first": "auto", "step_by_step": "auto", "acceptance_check": True, "retry_replan": True, "protect_tests": True, "spike": True, "spike_split": True, "doc_sync": True, "coder_no_think": True, "triage": True, "essential_check": True, "triage_light": True, "skeleton": True, "dependency_plan": True, "contracts_code": True, "spec_first": True, "size_gate": True, "risk_spikes": True, "layer_gate": True, "drift_check": True, "regression_tests": True, "graph_plan": True, "graph_replan": True, "graph_review_always": False, "plan_confirm": False, "perf_guard": True, "scout": True, "tiers": True, "fast_verify": True, "light_plan": True, "dep_replan": True, "graph_split": True, "plan_split": True}
 TEST_DEF = re.compile(r"^\s*(?:async\s+def\s+test_|def\s+test_|func\s+Test|(?:pub\s+)?(?:async\s+)?fn\s+test_|#\[(?:\w+::)*test\b[^\]]*\]|@Test\b|(?:it|test|describe)\s*\(|public\s+void\s+test)", re.M)
@@ -135,9 +135,27 @@ class FlowMixin:
         ok, _ = self.debug_loop(item)
         return ok
 
+    def reuse_plan(self, item: dict, previous: list[str]) -> dict | None:
+        """After an attempt in which the coder wrote nothing the plan was not the problem: the same plan goes to the coder again (with the retry
+        strategy in its handoff) instead of five more planning calls. None = plan from scratch."""
+        if not previous or not re.match(r"Attempt \d+ \[no_edit\]", next((x for x in reversed(previous) if x.startswith("Attempt ")), "")):
+            return None
+        plan = read_json(self.run_dir / "plan.json", None)
+        if not isinstance(plan, dict) or not plan.get("files_to_change") or plan.get("light"):
+            return None
+        self.log(f"{item['id']}: the coder wrote nothing last time, the plan is reused (no new planning)")
+        self.handoff("implementation", "planning", goal=f"{item['id']} {item['title']}: {plan.get('understanding', '')}", do=plan.get("steps") or [],
+                     do_not=list(plan.get("do_not") or []) + ["answer only in the chat: write every change into the files"],
+                     done_when=list(plan.get("done_when") or []) + [str(item.get("acceptance") or "")])
+        return plan
+
     def retry_strategy(self, item: dict, previous: list[str]) -> None:
         """Before a retry: one short analysis of why the last attempt failed and what to do differently, added to the failure notes."""
         if not previous or not self.feat("retry_replan"):
+            return
+        if re.match(r"Attempt \d+ \[no_edit\]", next((x for x in reversed(previous) if x.startswith("Attempt ")), "")):
+            # nothing was written: the cause is known, a model call would only guess one
+            previous.append("Strategy for the next attempt: the coder wrote no file. Name the exact file and function to change and output the complete changed file.")
             return
         try:
             d = self.llm.json("retry_strategy", "reviewer", "You analyse a failed coding attempt and name a different approach.",
