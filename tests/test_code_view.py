@@ -52,6 +52,14 @@ class CodeViewTests(unittest.TestCase):
         (self.ws / "agent" / "thoughts.jsonl").write_text(json.dumps({"n": 1, "tag": "impact", "answer": "{}"}) + "\n")
         self.assertEqual(self.svc.thoughts("demo")["entries"][0]["tag"], "impact")
 
+    def test_thoughts_brief_limits_and_clips_for_the_always_visible_panel(self):
+        rows = [json.dumps({"n": n, "tag": "impact", "thinking": "x" * 9000, "answer": "{}", "prompt": "p" * 5000}) for n in range(1, 6)]
+        (self.ws / "agent" / "thoughts.jsonl").write_text("\n".join(rows) + "\n")
+        r = self.svc.thoughts("demo", 2, True)
+        self.assertEqual([e["n"] for e in r["entries"]], [5, 4])
+        self.assertLess(len(r["entries"][0]["thinking"]), 4100)
+        self.assertLess(len(r["entries"][0]["prompt"]), 1600)
+
 
 if __name__ == "__main__":
     unittest.main()
