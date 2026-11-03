@@ -143,6 +143,25 @@ class PlanMixin:
         lines += [f"  NEW {t['title']} (layer {t['layer']})" for t in res["new"]]
         self.llm.record("reevaluate_result", "strategist", "-", "Decisions applied to the backlog by the re-evaluation", "\n".join(lines))
 
+    def retire_blocked(self, by_id: dict, res: dict, scope: set, focus, requeue: bool, stats: dict) -> int:
+        """After a re-plan that replaced work (new, merged or split tasks), blocked tasks the new plan no longer carries leave the graph: they are
+        cancelled with a reason and only stay visible in the project dashboard. Followers drop the link (links to cancelled tasks are removed)."""
+        if requeue or not self.feat("retire_blocked") or not (stats["new"] or stats["merged"] or stats["split"]):
+            return 0
+        n = 0
+        for i in list(by_id.values()):
+            if i["status"] != "blocked" or i.get("source") == "user" or i["id"] in res["assign"] or (focus and i["id"] not in scope):
+                continue
+            self.backlog.set(i, status="cancelled", retired=True, reason="retired by the re-plan: it was blocked and the new plan replaced it",
+                             notes=i.get("notes", []) + ["retired from the graph by the re-evaluation (blocked, not part of the new plan)"])
+            for o in by_id.values():
+                if i["id"] in (o.get("depends_on") or []):
+                    o["depends_on"] = [d for d in o["depends_on"] if d != i["id"]]
+                    if not o["depends_on"]:
+                        o.pop("depends_on")
+            n += 1
+        return n
+
     def reevaluate(self, requeue: bool = True, state_note: str = "", focus: list[str] | None = None, preview: bool = False, reason: str = "manual") -> dict:
         """Thinks the plan through again for an existing project: new layers, every open task re-ordered into them, gaps in the
         foundation added as tasks, redundant tasks cancelled. `focus` (task ids) limits the review to the graphs those tasks belong to
@@ -200,7 +219,7 @@ class PlanMixin:
             data["layers"] = blueprint.keep_closed(data["layers"], old_bp["layers"], closed)  # what is built stays as planned
         res = blueprint.normalize_reevaluation(data, items)
         floor = min(floor, max(0, len(res["layers"]) - 1))
-        zero = {"assigned": 0, "new": 0, "cancelled": 0, "requeued": 0, "merged": 0, "split": 0}
+        zero = {"assigned": 0, "new": 0, "cancelled": 0, "retired": 0, "requeued": 0, "merged": 0, "split": 0}
         if res["keep"] and not (res["new"] or res["cancel"] or res["merge"] or res["split"]):
             self.state["graph_sig"] = taskgraph.signature(self.backlog.items)
             self.state["review_idle"] = self.state.get("review_idle", 0) + 1
@@ -293,6 +312,7 @@ class PlanMixin:
             self.metric(kind="reevaluate", rolled_back=True)
             self.phase("Idle (re-evaluation rolled back)", None)
             return {**zero, "rolled_back": bad}
+        stats["retired"] = self.retire_blocked(by_id, res, scope, focus, requeue, stats)
         self.state["graph_sig"] = taskgraph.signature(self.backlog.items)
         self.state["review_idle"] = 0 if any(stats[k] for k in ("new", "cancelled", "merged", "split", "assigned")) else self.state.get("review_idle", 0) + 1
         self.link_foundation()
@@ -308,6 +328,6 @@ class PlanMixin:
         self.record_graph(reason, stats)
         self.metric(kind="reevaluate", **stats)
         self.log(f"Re-evaluation ({reason}): {len(res['layers'])} layers, {stats['assigned']} tasks re-ordered, {stats['new']} new, "
-                 f"{stats['merged']} merged, {stats['split']} split, {stats['cancelled']} cancelled, {stats['requeued']} blocked tasks given a new chance. {res.get('assessment', '')}")
+                 f"{stats['merged']} merged, {stats['split']} split, {stats['cancelled']} cancelled, {stats['retired']} blocked tasks retired from the graph, {stats['requeued']} blocked tasks given a new chance. {res.get('assessment', '')}")
         self.phase("Idle (re-evaluation finished)", None)
         return stats

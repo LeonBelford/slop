@@ -43,6 +43,12 @@ def failed_log(agent: Path, limit: int = 60) -> list[dict]:
     return rows[-limit:][::-1]
 
 
+def removed(backlog: list[dict]) -> list[dict]:
+    """Tasks that left the graph (cancelled, retired, merged or split away) with the reason; they live only in the dashboard."""
+    return [{k: i.get(k) for k in ("id", "title", "status", "reason", "retired", "merged_into", "split_into", "source")}
+            for i in backlog if i.get("status") == "cancelled"][::-1]
+
+
 def _ts(v: str) -> float | None:
     try:
         return datetime.strptime(v[:19], "%Y-%m-%d %H:%M:%S").timestamp()
@@ -91,7 +97,7 @@ def extras(ws: Path, backlog: list[dict], state: dict) -> dict:
     gates = state.get("layer_gates", {})
     return {"timeline": timeline(backlog), "causes": causes(a), "step_time": step_time(a), "daily": history.daily(a, 14),
             "role_models": models(a), "gates": [{"layer": int(k), **v} for k, v in sorted(gates.items(), key=lambda kv: int(kv[0]))],
-            "drift": state.get("drift", [])[:10], "advice": advice(a), "regressions": regressions(a), "failed_log": failed_log(a)}
+            "drift": state.get("drift", [])[:10], "advice": advice(a), "regressions": regressions(a), "failed_log": failed_log(a), "removed": removed(backlog)}
 
 
 def task_detail(ws: Path, task_id: str) -> dict:
