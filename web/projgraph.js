@@ -127,7 +127,7 @@ function pgCard(id,e){
     const nm=x=>esc(m.by[x].id+" "+m.by[x].title.slice(0,34)),needs=m.deps[id],later=m.kids[id]||[],files=i.files||[];
     c.dataset.id=id;
     c.innerHTML=`<div class="pc-h"><i style="background:${pgFill(i)}"></i><b>${esc(i.id)}</b> <span class="pill ${i.status==="done"?"ok":i.status==="blocked"?"bad":""}">${esc(i.status.replace("_"," "))}</span>${i.layer!=null?` <span class="pill info">L${i.layer}</span>`:""}</div><div class="pc-t">${esc(i.title)}</div>
-    <div class="meta">${i.estimate_s?"Estimated: "+dur(i.estimate_s):"No estimate yet"}${i.runtime_s?" · Took: "+dur(i.runtime_s):""}</div>
+    ${i.q?`<div class="meta">Run order: #${i.q} of the open tasks</div>`:""}<div class="meta">${i.estimate_s?"Estimated: "+dur(i.estimate_s):"No estimate yet"}${i.runtime_s?" · Took: "+dur(i.runtime_s):""}</div>
     ${i.parent?`<div class="meta">Part of: ${esc(i.parent)} ${m.by[i.parent]?esc(m.by[i.parent].title.slice(0,40)):"(grew out of a bigger task)"}</div>`:""}${i.split_into&&i.split_into.length?`<div class="meta">Split into: ${esc(i.split_into.join(", "))}</div>`:""}${pgQuality(i)}${i.why?`<div class="meta">Why: ${esc(i.why.slice(0,160))}</div>`:""}${i.result?`<div class="meta">Result: ${esc(String(i.result).slice(0,140))}</div>`:""}
     <div class="meta">Builds on: ${needs.length?needs.slice(0,4).map(nm).join(", ")+(needs.length>4?" …":""):"foundation"}</div><div class="meta">Unlocks: ${later.length?later.slice(0,4).map(nm).join(", ")+(later.length>4?" …":""):"nothing yet"}</div>
     <div class="meta">Files: ${files.length?esc(files.slice(0,4).join(", "))+(files.length>4?" …":""):"not known yet"}</div>`;
@@ -183,10 +183,10 @@ function tgPanel(d){
   const edges=m.edges.map(([a,b])=>{const dn=m.by[a].status==="done"&&m.by[b].status==="done",cr=crit.edges.has(a+">"+b);
     return `<path class="pg-e${dn?" old":""}${cr?" crit":""}" data-a="${esc(a)}" data-b="${esc(b)}" marker-end="url(#pgA)"/><path class="pg-eh" data-a="${esc(a)}" data-b="${esc(b)}"/>`}).join("");
   const nodes=m.nodes.map(i=>{
-    const r=pgR(i),col=pgFill(i),sc=TG_COLORS[i.status]||"#888",t=i.title.length>30?i.title.slice(0,29)+"…":i.title,extra=(m.hid[i.id]?` ✓${m.hid[i.id]}`:"")+(blocks[i.id]?` ⛔${blocks[i.id]}`:"")+(crit.nodes.has(i.id)?" ★":"");
-    return `<g class="pg-n st-${esc(i.status)}${i.id===live&&i.status==="in_progress"?" pg-live":""}" data-id="${esc(i.id)}"><circle r="${r.toFixed(1)}" fill="${col}" fill-opacity="${i.status==="done"?.35:.8}" stroke="${pgCol(i.layer)}" stroke-width="2.5"/><circle class="pg-sd" r="3.5" cx="${(r*.72).toFixed(1)}" cy="${(-r*.72).toFixed(1)}" fill="${sc}"/><text class="pg-l" y="${(r+13).toFixed(1)}" text-anchor="middle">${esc(t)}${extra}</text></g>`;
+    const r=pgR(i),col=pgFill(i),sc=TG_COLORS[i.status]||"#888",t=i.title.length>30?i.title.slice(0,29)+"…":i.title,extra=(m.hid[i.id]?` ✓${m.hid[i.id]}`:"")+(blocks[i.id]?` ⛔${blocks[i.id]}`:"")+(crit.nodes.has(i.id)?" ★":""),qn=i.q&&i.q<=5&&i.status!=="done"?"#"+i.q+" ":"";
+    return `<g class="pg-n st-${esc(i.status)}${i.id===live&&i.status==="in_progress"?" pg-live":""}" data-id="${esc(i.id)}"><circle r="${r.toFixed(1)}" fill="${col}" fill-opacity="${i.status==="done"?.35:.8}" stroke="${pgCol(i.layer)}" stroke-width="2.5"/><circle class="pg-sd" r="3.5" cx="${(r*.72).toFixed(1)}" cy="${(-r*.72).toFixed(1)}" fill="${sc}"/><text class="pg-l" y="${(r+13).toFixed(1)}" text-anchor="middle">${qn}${esc(t)}${extra}</text></g>`;
   }).join("");
-  pg.sig=m.nodes.map(n=>n.id+n.status).join()+"|"+m.edges.map(e=>e.join(">")).join()+"|"+layers+"|"+m.mode;
+  pg.sig=m.nodes.map(n=>n.id+n.status+(n.q||"")).join()+"|"+m.edges.map(e=>e.join(">")).join()+"|"+layers+"|"+m.mode;
   setTimeout(pgStart,0);
   return `<div class="panel">${bar}${form}
   <div class="tg-bar"><button class="btn sm" onclick="pgZoomBy(1.25)">+</button><button class="btn sm" onclick="pgZoomBy(.8)">−</button><button class="btn sm" onclick="pgFit()">Fit</button><button class="btn sm" onclick="pgKick()" title="Shake the layout">Relax</button>

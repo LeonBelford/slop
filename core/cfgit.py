@@ -72,6 +72,14 @@ class Git:
 
 
 CHAIN_BONUS = 1.5  # a task that continues the chain of the last finished task goes first among equals
+URGENT_SOURCES = ("user", "health", "gate")
+
+
+def urgent(item: dict) -> bool:
+    """Only what the user asked for or what keeps the build green may jump the plan; other bugs (e.g. security, hygiene) wait for their layer."""
+    return item.get("source") in URGENT_SOURCES
+
+
 UNLAYERED = 50  # items without a layer are scheduled after every planned layer
 
 
@@ -216,7 +224,7 @@ class Backlog:
         # layer barrier: no higher layer (ui, features) starts while a lower one (foundation, base functions) still has open work
         low = min((i["layer"] for i in p if i.get("layer") is not None), default=None)
         if low is not None and ready:
-            held = [i for i in ready if i.get("source") == "user" or i["type"] == "bug" or (i.get("layer") is not None and i["layer"] <= low)]
+            held = [i for i in ready if urgent(i) or (i.get("layer") is not None and i["layer"] <= low)]
             ready = held or ready
         p = ready or p
 
@@ -225,8 +233,23 @@ class Backlog:
             bonus = 0.75 if prefer_light is not None and light == prefer_light else 0
             layer = i["layer"] if i.get("layer") is not None else UNLAYERED
             chain = CHAIN_BONUS if chain_from and chain_from in (i.get("depends_on") or []) else 0
-            return (i.get("source") == "user", i["type"] == "bug", -layer, bool(i.get("hot")), i["priority"] + bonus + chain + i.get("dyn", 0))
+            return (i.get("source") == "user", urgent(i), -layer, bool(i.get("hot")), i["priority"] + bonus + chain + i.get("dyn", 0))
         return max(p, key=key)
+
+    def run_order(self) -> dict[str, int]:
+        """Simulates `next` on the open tasks (a task counts as done once it was picked): id -> position in the queue.
+        The graph shows it, so what the agent does next is never a surprise."""
+        left = [i for i in self.items if i["status"] in ("pending", "in_progress")]
+        open_ids, order = {i["id"] for i in left}, {}
+        while left:
+            ready = [i for i in left if all(d not in open_ids and self.satisfied(d) or d in order for d in i.get("depends_on", []))] or left
+            low = min((i["layer"] for i in left if i.get("layer") is not None), default=None)
+            if low is not None:
+                ready = [i for i in ready if urgent(i) or (i.get("layer") is not None and i["layer"] <= low)] or ready
+            pick = max(ready, key=lambda i: (i.get("source") == "user", urgent(i), -(i["layer"] if i.get("layer") is not None else UNLAYERED), bool(i.get("hot")), i["priority"]))
+            order[pick["id"]] = len(order) + 1
+            left.remove(pick)
+        return order
 
     def set(self, item: dict, **kw) -> None:
         """Updates `item`'s fields in place and persists the backlog."""

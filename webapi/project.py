@@ -9,7 +9,7 @@ from pathlib import Path
 
 import codefactory as sa
 from core import blueprint, cfprofile, templates, uidetect
-from core.cfgit import UNLAYERED
+from core.cfgit import UNLAYERED, Backlog
 from dash import throughput
 from infra import models, notify
 
@@ -24,6 +24,8 @@ class ProjectMixin:
         a = ws / "agent"
         feats = sa.read_json(a / "memory" / "features.json", {})
         backlog = sorted(sa.read_json(a / "backlog.json", []), key=lambda i: (i.get("layer") if i.get("layer") is not None else UNLAYERED, -i["priority"]))
+        order = Backlog(a / "backlog.json").run_order()
+
         def read(p):
             return p.read_text("utf-8") if p.exists() else ""
         sm = self.summary(ws)
@@ -36,7 +38,7 @@ class ProjectMixin:
                 "activity": self.activity(ws), "log": tail(a / "agent.log"), "run_out": tail(a / "run.out", 15), "do_out": tail(a / "do.out", 15), "try_out": tail(a / "try.out", 15),
                 "features": [{"id": k, "title": v.get("title", k)} if isinstance(v, dict) else {"id": k, "title": str(v)}
                              for k, v in feats.items()],
-                "backlog_items": [{k: i.get(k) for k in ("id", "title", "type", "priority", "status", "source", "attempts", "layer", "reason", "runtime_s", "estimate_s", "depends_on", "why", "scout", "bench", "merged_into", "split_into", "files", "result", "process", "tier", "gates", "debug_rounds", "review_score", "cleaned", "parent", "split_into")}
+                "backlog_items": [{k: i.get(k) for k in ("id", "title", "type", "priority", "status", "source", "attempts", "layer", "reason", "runtime_s", "estimate_s", "depends_on", "why", "scout", "bench", "merged_into", "split_into", "files", "result", "process", "tier", "gates", "debug_rounds", "review_score", "cleaned", "parent", "split_into")} | {"q": order.get(i["id"])}
                                   for i in backlog],
                 **self.graph_extras(a, backlog),
                 "has_ui": self.project_has_ui(ws),
