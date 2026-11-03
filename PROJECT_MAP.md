@@ -56,7 +56,8 @@ Code lives in five places: the entry points in the root (`codefactory.py`, `webu
 | `core/blueprint.py` | Blueprint data: `normalize`, `context_for`, `progress`, `render_md` (per project: blueprint.json in the agent folder, BLUEPRINT.md in the product docs) |
 | `core/uidetect.py` | Whether a product has a UI (brief `interface`/`has_ui` plus UI files in the repo); CLI/API/library projects get no UI tests |
 | `core/runplan.py` | How to start/try the product by its real kind (CLI entry + README examples, web server + URL, library tests); used by TESTING.md and the "Try your app" panel |
-| `web/tryapp.js` | "Try your app" panel in the Testing tab |
+| `dash/usageguide.py` | AI-written "how to start and use it" guide with commands (agent/USAGE.md) |
+| `web/tryapp.js` | "Try your app" + AI usage guide panels in the Testing tab |
 | `core/cfa_ops.py` | `OpsMixin`: user tasks, stop, test version, feedback, status, `reload_models` (re-reads models/coder/routing from `config.json` before each task) |
 | `dash/estimate.py` | Duration estimates from comparable past tasks (`durations.jsonl` per project and for self-improve), queue forecast, write-access checks |
 | `dash/diagnostics.py` | Dashboard key figures (`/api/diagnostics`): first-try rate, attempts, failure causes, model time, reasoning share, stalls, repo size, system load, findings |

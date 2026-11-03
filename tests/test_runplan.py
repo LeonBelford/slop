@@ -7,7 +7,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 from core import runplan  # noqa: E402
-from dash import sandbox  # noqa: E402
+from dash import sandbox, usageguide  # noqa: E402
 
 WEB_STACK = {"label": "Python / FastAPI", "run": ".venv/bin/uvicorn app.main:app", "url": "http://127.0.0.1:8000", "commands": {"test": "pytest"}}
 
@@ -74,6 +74,36 @@ class RunPlanTests(unittest.TestCase):
         d, repo, info = make({"server.py": "import flask\n"})
         with d:
             self.assertEqual(runplan.plan(repo, info, WEB_STACK)["mode"], "web")
+
+
+class ServerAndGuideTests(unittest.TestCase):
+    def test_plain_server_script_is_found_when_the_stack_has_none(self):
+        d, repo, info = make({"server.py": 'import http.server\nhttp.server.HTTPServer(("127.0.0.1", 8765), None).serve_forever()\n'}, {"interface": "web"})
+        with d:
+            p = runplan.plan(repo, info, {"label": "m", "run": "unittest", "url": ""})
+        self.assertEqual((p["mode"], p["run"], p["url"]), ("web", "python3 server.py", "http://127.0.0.1:8765"))
+
+    def test_usage_guide_is_written_from_the_repo_material(self):
+        d, repo, info = make({"tool/__main__.py": "import argparse\n", "README.md": "# Tool\nUse it."}, {"interface": "cli"})
+        with d:
+            ws = repo.parent
+            (ws / "agent").mkdir()
+            seen = []
+
+            class Llm:
+                def chat(self, tag, role, system, user):
+                    seen.append(user)
+                    return "## Start\n```bash\npython3 -m tool\n```"
+
+            class Ag:
+                def __init__(self):
+                    self.llm, self.repo = Llm(), repo
+
+                def detect_run_plan(self):
+                    return runplan.plan(repo, info, WEB_STACK)
+            self.assertIn("python3 -m tool", usageguide.generate(ws, Ag()))
+            self.assertIn("Use it.", seen[0])
+            self.assertIn("python3 -m tool", usageguide.read(ws))
 
 
 class SandboxMainTests(unittest.TestCase):

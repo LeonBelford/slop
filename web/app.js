@@ -388,7 +388,7 @@ function projectBody(d){
     <div class="row" style="justify-content:flex-end;margin-top:4px"><button class="primary" onclick="saveNotify()">Save</button></div></div>`;
   }
   if(tab==="testing"){
-    return `${tryPanel()}<div class="panel" style="margin-top:16px"><h3>Unit tests <button class="small primary" onclick="runTestsTab()">Run tests</button></h3><div id="tests-out" class="${testsRes?"":"hint"}">${testsRes||"Runs the project's own test command on the current files."}</div></div>
+    return `${tryPanel()}${tryGuide()}<div class="panel" style="margin-top:16px"><h3>Unit tests <button class="small primary" onclick="runTestsTab()">Run tests</button></h3><div id="tests-out" class="${testsRes?"":"hint"}">${testsRes||"Runs the project's own test command on the current files."}</div></div>
     <div class="panel" style="margin-top:16px"><p class="hint">"Test now" lets the agent finish its current task, builds the last working state and shows here how to run it. Press Start afterwards to continue.</p>
     ${d.testing?`<pre>${esc(d.testing)}</pre>`:'<div class="hint">No test version built yet.</div>'}${d.try_running||d.try_out?`<h4>Output</h4><pre>${esc(d.try_out)}</pre>`:""}</div>`;
   }

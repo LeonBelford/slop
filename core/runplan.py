@@ -127,6 +127,17 @@ def examples(repo: Path, prefix: str, name: str) -> list[str]:
     return out[:MAX_EXAMPLES]
 
 
+def server_entry(repo: Path) -> tuple[str, str]:
+    """(command, url) of a Python or Node server script the stack preset does not know about (e.g. a plain http.server)."""
+    for p in _files(repo, (".py", ".js"), 2):
+        src = _read(p, 12000)
+        if any(w in src for w in WEB_LIBS) and ("__main__" in src or "listen(" in src or "serve_forever" in src or ".run(" in src):
+            port = re.search(r"port\W{0,6}(\d{4,5})|:(\d{4,5})\b|,\s*(\d{4,5})\s*\)", src, re.I)
+            n = next((g for g in (port.groups() if port else ()) if g), "")
+            return f"{'node' if p.suffix == '.js' else 'python3'} {p.relative_to(repo)}", f"http://127.0.0.1:{n}" if n else ""
+    return "", ""
+
+
 def plan(repo: Path, info_path: Path, stack: dict) -> dict:
     """{mode: cli|web|library|desktop, run, url, examples, entry, hint}: what the user should start to try the product now."""
     brief = read_json(info_path, {})
@@ -145,4 +156,9 @@ def plan(repo: Path, info_path: Path, stack: dict) -> dict:
                 "hint": "No entry point found yet. The agent has not written a runnable command line tool so far."}
     if mode == "desktop":
         return {"mode": "desktop", **base, "examples": [], "hint": "A desktop app: start it with the command, it opens its own window."}
+    if mode in ("web", "api") and not base["url"]:  # stack has no server (e.g. minimal): find the real one
+        run, url = server_entry(repo)
+        if run:
+            base = {"run": run, "url": url}
+            return {"mode": "web", **base, "examples": [], "hint": ""}
     return {"mode": "web" if base["url"] else "other", **base, "examples": [], "hint": ""}

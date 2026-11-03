@@ -13,7 +13,7 @@ import codefactory as sa
 from core import control
 from dash.chat import route_of
 from dash import checkpoints
-from dash import adrs, chatagent, codesearch, directedit, directtools, events, refactor, review, roles, sandbox, testgen
+from dash import adrs, chatagent, codesearch, directedit, directtools, events, refactor, review, roles, sandbox, testgen, usageguide
 from infra import ctxtune
 from webapi import common
 from webapi.common import UiError
@@ -21,7 +21,7 @@ from webapi.common import UiError
 JOBS: dict[tuple[str, str], dict] = {}
 JOB_LOCK = threading.Lock()
 ACTIONS = ("control", "spec-decide", "role-save", "role-reset", "task-prio", "review-comment", "testgen", "mutation", "sandbox-run",
-           "task-edit", "play-start", "play-stop", "refactor-rename", "refactor-dead", "refactor-split")
+           "task-edit", "usage-generate", "play-start", "play-stop", "refactor-rename", "refactor-dead", "refactor-split")
 
 
 def _job(name: str, kind: str, fn) -> None:
@@ -86,6 +86,8 @@ class ExtMixin:
                 return {"events": events.timeline(a)}
             if what == "play":
                 return sandbox.play_status(ws)
+            if what == "usage":
+                return {"text": usageguide.read(ws)}
             if what == "runplan":
                 return self.run_plan(ws)
             if what == "job":
@@ -155,6 +157,9 @@ class ExtMixin:
             if action == "sandbox-run":
                 cmd = str(body.get("cmd", ""))
                 _job(name, "terminal", lambda: sandbox.run(ws, cmd, int(body.get("timeout") or 60)))
+                return {"ok": True, "started": True}
+            if action == "usage-generate":
+                _job(name, "usage", lambda: {"text": usageguide.generate(ws, sa.Agent(ws))})
                 return {"ok": True, "started": True}
             if action == "play-start":
                 cmd = str(body.get("cmd") or "").strip() or self.run_plan(ws)["run"]

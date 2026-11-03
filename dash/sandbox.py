@@ -114,6 +114,7 @@ def play_stop(ws: Path) -> None:
         except OSError:
             pass
     _state(ws).unlink(missing_ok=True)
+    (ws / "agent" / "play.log").unlink(missing_ok=True)
 
 
 def play_status(ws: Path, tail_chars: int = 6000) -> dict:
