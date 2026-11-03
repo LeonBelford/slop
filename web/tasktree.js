@@ -1,7 +1,7 @@
 /* Overview = the project graph (the one place where the plan lives), the AI ideas and standard processes, the build layers and, on request, the history of finished and cancelled tasks. */
 function historyTasks(d){
   const gone=(d.backlog_items||[]).filter(i=>i.status==="cancelled");
-  return `<details class="panel" style="margin-top:16px"><summary><b>Finished and cancelled tasks</b> <span class="meta">history, the graph keeps them as links</span></summary><div style="margin-top:10px">${finishedTasks(d)}</div>${gone.length?`<h3 style="margin-top:14px">Cancelled <span class="meta">${gone.length}</span></h3><table>${gone.map(i=>`<tr><td>${esc(i.id)}</td><td>${esc(i.title)}${i.reason?`<div class="meta reason">${esc(i.reason)}</div>`:""}</td><td style="white-space:nowrap">${taskBtns(i,d.running)}</td></tr>`).join("")}</table>`:""}</details>`;
+  return `<details class="panel" style="margin-top:16px"><summary><b>Finished and cancelled tasks</b> <span class="meta">history, the graph keeps them as links</span></summary><div style="margin-top:10px">${finishedTasks(d)}</div><details class="panel" style="margin-top:12px" data-k="failed-log"><summary><b>Failed attempts</b> <span class="meta">${(d.failed_log||[]).length} · log, information only</span></summary><div style="margin-top:10px">${failedLog(d.failed_log)}</div></details>${gone.length?`<h3 style="margin-top:14px">Cancelled <span class="meta">${gone.length}</span></h3><table>${gone.map(i=>`<tr><td>${esc(i.id)}</td><td>${esc(i.title)}${i.reason?`<div class="meta reason">${esc(i.reason)}</div>`:""}</td><td style="white-space:nowrap">${taskBtns(i,d.running)}</td></tr>`).join("")}</table>`:""}</details>`;
 }
 function overviewBody(d){
   const P=pref();

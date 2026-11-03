@@ -27,7 +27,7 @@ function pdDrawer(){
     <div class="meta">${i.type} · layer ${i.layer??"–"} · prio ${Math.round((i.priority||0)*10)/10} · ${i.attempts||0} attempt(s)${i.runtime_s?" · "+dur(i.runtime_s)+" total":""}${i.risk==="high"?" · risk high":""}</div>
     ${i.reason?`<p><b>Why:</b> ${esc(i.reason)}</p>`:""}<p>${esc(i.description||"")}</p>
     ${i.depends_on&&i.depends_on.length?`<div class="meta">builds on ${i.depends_on.map(d=>pdTask(d)).join(", ")}</div>`:""}
-    ${t.failures.length?`<h4>Failed attempts</h4>${t.failures.map(f=>`<div class="cap"><div><span class="pill warn">${esc(f.cls||"")}</span> ${esc(f.why)}</div><div class="meta">attempt ${f.attempt??"?"}</div></div>`).join("")}`:""}
+    ${t.failures.length?`<h4>Failed attempts</h4>${t.failures.map(f=>`<div class="cap"><div><span class="pill warn">${esc(f.cls||"")}</span> ${esc(f.why)}</div><div class="meta">attempt ${f.attempt??"?"}${f.secs!=null?" · "+dur(f.secs):""}</div></div>`).join("")}`:""}
     ${t.plan.understanding?`<h4>Plan</h4><p>${esc(t.plan.understanding)}</p>${list(t.plan.steps)}`:""}
     ${t.journal.length?`<h4>Journal</h4><pre class="pd-j">${esc(t.journal.join("\n"))}</pre>`:""}
     ${t.notes.length?`<details data-k="pd-notes"><summary>Notes (${t.notes.length})</summary>${list(t.notes)}</details>`:""}
@@ -44,6 +44,14 @@ function pdBars(x){
   return `<div class="pd-bars">${d.map(r=>`<span title="${r.day}: ${r.tokens} tokens, ${r.gpu_hours} GPU h"><i style="height:${Math.round(100*r.tokens/max)}%"></i></span>`).join("")}</div>
     <div class="meta">last 14 days · tokens ${d.reduce((a,r)=>a+r.tokens,0).toLocaleString()} · GPU ${Math.round(d.reduce((a,r)=>a+r.gpu_hours,0)*10)/10} h</div>`;
 }
+function failedLog(list,q){
+  const rows=(list||[]).filter(r=>!q||`${r.id} ${r.title} ${r.cls}`.toLowerCase().includes(q.toLowerCase()));
+  if(!rows.length)return `<div class="hint">No failed attempts${q?" match":" recorded yet"}.</div>`;
+  const lost=rows.reduce((a,r)=>a+(r.secs||0),0);
+  return `<div class="meta" style="margin-bottom:6px">${rows.length} failed attempts${lost?` · ${dur(lost)} spent on them`:""} · information only</div>
+  <table><tr><th>When</th><th>Task</th><th>Try</th><th>Cause</th><th>Took</th></tr>${rows.map((r,i)=>`<tr class="clk" onclick="pdOpen('${esc(r.id)}')" title="Open ${esc(r.id)}"><td class="meta">${esc((r.time||"").slice(5,16))}</td><td>${esc(r.id)} ${esc(r.title.slice(0,60))}</td><td>${r.attempt??"?"}</td><td><span class="pill warn">${esc(r.cls)}</span></td><td>${r.secs!=null?dur(r.secs):"–"}</td></tr>
+    <tr class="why"><td></td><td colspan="4"><details data-k="fl-${i}-${esc(r.id)}"><summary class="meta">what went wrong</summary><pre class="pd-j">${esc(r.why)}</pre></details></td></tr>`).join("")}</table>`;
+}
 const PD_WIDGETS={
   attention:{title:"Needs attention",body:x=>(x.findings||[]).map(a=>`<div class="cap"><span class="pill ${PD_LEVEL[a.level]||""}">${a.level}</span> <div>${esc(a.text)}</div></div>`).join("")||`<div class="hint">Nothing needs attention.</div>`},
   now:{title:"Right now",body:x=>{const c=x.current,s=x.status;return (c.task?`<div><b>${esc(c.task)}</b> <span class="meta">attempt ${c.attempt||1}${c.since_s!=null?" · "+dur(c.since_s)+" in this step":""}</span></div>${pdStepRow(x)}${pctBar(c.pct)}<div class="hint">${esc(c.phase)}</div>`
@@ -57,6 +65,7 @@ const PD_WIDGETS={
   triage:{title:"Triage",body:x=>{const tr=x.triage;return `<div class="hint">${tr.merges_since_layout} merge(s) since the last re-layout${tr.last_replan_at_merge!=null?` · last re-plan at merge ${tr.last_replan_at_merge}`:""}</div>`+
     (tr.log&&tr.log.length?`<details open data-k="pd-tlog"><summary>Priority changes with reasons</summary>${tr.log.slice().reverse().map(l=>`<div class="cap"><div>${pdTask(l.id)} ${esc(l.title)}<small>${esc(l.reason)}</small></div><div class="meta">${l.from} → ${l.to}</div></div>`).join("")}</details>`:"")+
     (tr.adjusted.length?tr.adjusted.map(i=>`<div class="cap"><div>${esc(i.id)} ${esc(i.title)}</div><div class="meta">${i.dyn>0?"+":""}${i.dyn}</div></div>`).join(""):`<div class="hint">No priority adjustments at the moment.</div>`)}},
+  failed:{title:"Failed attempts (log)",size:2,body:x=>failedLog(x.failed_log,PD.q)},
   timeline:{title:"Task timeline (runtime)",size:2,body:pdGantt},
   causes:{title:"Failure causes",body:x=>(x.causes||[]).filter(c=>pdMatch({id:"",title:"",cls:c.cls})||c.tasks.some(pdMatch)).map(c=>`<div class="cap"><div><span class="pill warn">${esc(c.cls)}</span> ${c.n}×<small>${c.tasks.map(t=>pdTask(t.id,esc(t.id+" "+t.title))).join(" · ")}</small></div></div>`).join("")},
   steptime:{title:"Time per pipeline step",body:x=>{const e=Object.entries(x.step_time||{}),tot=e.reduce((a,[,v])=>a+v,0);return e.length?e.map(([k,v])=>`<div class="cap"><div>${esc(k)}</div><div class="meta">${dur(v)} · ${Math.round(100*v/tot)}%</div></div><div class="bar"><i style="width:${Math.round(100*v/tot)}%"></i></div>`).join(""):""}},
@@ -76,13 +85,13 @@ function pdBody(d){
   const s=x.status,h=x.health||{},b=x.backlog||{},key="pd-"+d.name;
   WBS[key]||wbInit(key,PD_WIDGETS,pdRepaint);
   const total=Object.values(b).reduce((a,n)=>a+n,0)-(b.cancelled||0),done=b.done||0;
-  const stats=[pdStat(s.running?"running":"stopped","agent"),pdStat(s.iteration,"iteration"),pdStat(s.merged,"merged"),pdStat(`${done}/${total}`,"tasks done"),
-    pdStat(s.recent_total?`${s.recent_ok}/${s.recent_total}`:"–","last tasks ok"),pdStat(s.failures,"consecutive failures"),pdStat(s.hours+" h","runtime"),
-    pdStat(s.tasks_per_hour!=null?s.tasks_per_hour:"–","merged / hour"),pdStat(h.idle_s!=null?dur(h.idle_s):"–","since last activity"),
-    pdStat(x.perf&&x.perf.tps?x.perf.tps:"–","tokens/s avg")].join("");
+  const main=[pdStat(s.running?"● running":"○ stopped","agent"),pdStat(`${done}/${total}`,"tasks done"),pdStat(s.recent_total?`${s.recent_ok}/${s.recent_total}`:"–","last tasks ok"),
+    pdStat(s.failures,"failures in a row"),pdStat(s.tasks_per_hour!=null?s.tasks_per_hour:"–","merged / hour"),pdStat(s.hours+" h","runtime")].join("");
+  const more=[pdStat(s.iteration,"iteration"),pdStat(s.merged,"merged"),pdStat(h.idle_s!=null?dur(h.idle_s):"–","since last activity"),pdStat(x.perf&&x.perf.tps?x.perf.tps:"–","tokens/s avg")].join("");
+  const stats=`${main}`;
   const tools=`<div class="dtools"><input id="pdq" placeholder="Filter tasks…" value="${esc(PD.q)}" oninput="pdFilter(this.value)"><span class="grow"></span>
     <button class="small" onclick="pdPause()">${PD.paused?"▶ Resume updates":"⏸ Pause updates"}</button>${wbMenu(key)}</div>`;
-  return `<div class="stats">${stats}</div>${tools}${pdDrawer()}${wbTiles(key,x)}`;
+  return `<div class="stats">${stats}</div><details class="pd-more" data-k="pd-more"><summary class="meta">More numbers</summary><div class="stats">${more}</div></details>${tools}${pdDrawer()}${wbTiles(key,x)}`;
 }
 
 async function pdRollback(n){if(!confirm(`Reset the project to the state after layer ${n}? Later work is removed from main (a backup tag keeps it). The agent must be stopped.`))return;try{const r=await api(`/api/project/${encodeURIComponent(sel)}/rollback`,{layer:n});toast("Rolled back to layer "+n+", backup tag "+r.backup)}catch(e){toast(e.message,true)}}

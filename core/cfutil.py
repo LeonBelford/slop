@@ -36,7 +36,7 @@ DEFAULT_CONFIG = {
         "max_iterations": 500,
         "max_hours": 24,
         "max_attempts_per_task": 3,
-        "max_task_minutes": 120,  # after this much time on one task no further attempts; it is split into smaller slices instead
+        "max_task_minutes": 40,  # after this much time on one task no further attempts; it is split into smaller slices instead
         "max_task_tokens": 0,  # 0 = unlimited; otherwise no further attempts once one task used this many generated tokens
         "max_debug_rounds": 3,
         "max_consecutive_failures": 5,
@@ -72,14 +72,14 @@ DEFAULT_CONFIG = {
     "chat": {"direct_edit": False},
     "web": {"mode": "sources", "refresh_hours": 24, "max_chars": 20000, "timeout": 20, "research_every": 4,
             "queries_per_research": 3, "results_per_query": 2, "max_new_pages_per_session": 40,
-            "search_url": "https://html.duckduckgo.com/html/?q={q}", "blocked_domains": []},
+            "search_url": "https://html.duckduckgo.com/html/?q={q}", "blocked_domains": [], "lookups_per_task": 3},
     # Knowledge index (knowledge.py): embeddings "auto" = use embed_model if Ollama has it, "off" = keyword search only.
     # Lessons fade out: weight halves every half_life_days without confirmation; archived below min_weight.
     "knowledge": {"embeddings": "auto", "embed_model": "nomic-embed-text", "half_life_days": 60, "min_weight": 0.15,
                   "hits_per_kind": {"code": 4, "decision": 4, "lesson": 5, "web": 3, "feature": 3}},
     "features": {"cleanup_pass": True, "require_tests": True, "plan_critique": True, "e2e": "auto", "security": "on",
                  "test_first": "auto", "step_by_step": "auto", "acceptance_check": True, "retry_replan": True, "protect_tests": True,
-                 "graph_plan": True, "graph_replan": True, "graph_review_always": False, "plan_confirm": False, "perf_guard": True, "scout": True, "tier": "auto", "tiers": True, "fast_verify": True, "light_plan": True, "dep_replan": True, "graph_split": True, "plan_split": True, "targeted_tests": True, "flaky_retry": True, "verify_cache": True, "coverage_gate": "off", "mutation_check": False, "spike": True, "spike_split": True, "doc_sync": True, "coder_no_think": True, "triage": True, "essential_check": True, "triage_light": True, "skeleton": True, "dependency_plan": True, "contracts_code": True, "spec_first": True, "size_gate": True, "risk_spikes": True, "layer_gate": True, "drift_check": True, "regression_tests": True},
+                 "graph_plan": True, "graph_replan": True, "graph_review_always": False, "plan_confirm": False, "perf_guard": True, "scout": True, "tier": "auto", "tiers": True, "fast_verify": True, "light_plan": True, "dep_replan": True, "graph_split": True, "plan_split": True, "targeted_tests": True, "flaky_retry": True, "verify_cache": True, "coverage_gate": "off", "mutation_check": False, "spike": True, "spike_split": True, "doc_sync": True, "coder_no_think": True, "triage": True, "essential_check": True, "triage_light": True, "skeleton": True, "dependency_plan": True, "contracts_code": True, "spec_first": True, "size_gate": True, "risk_spikes": True, "layer_gate": True, "drift_check": True, "regression_tests": True, "live_lookup": True},
     "commands": {},  # filled by the preset, overridable in config.json
     "source_exts": [".py", ".js", ".ts", ".tsx", ".jsx", ".html", ".css", ".sql", ".toml", ".yml", ".yaml"],
     "src_dirs": ["app"],

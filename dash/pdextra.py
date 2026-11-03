@@ -36,6 +36,13 @@ def causes(agent: Path) -> list[dict]:
             for c in sorted(by.values(), key=lambda c: -c["n"])[:8]]
 
 
+def failed_log(agent: Path, limit: int = 60) -> list[dict]:
+    """Every failed attempt, newest first, with how long it ran (information only)."""
+    rows = [{"time": e.get("time", ""), "id": e.get("item", "?"), "title": e.get("title", ""), "attempt": e.get("attempt"), "cls": e.get("cls", "other"),
+             "why": e.get("why", "")[:400], "secs": e.get("secs")} for e in history.events(agent) if e.get("kind") == "attempt_failed"]
+    return rows[-limit:][::-1]
+
+
 def _ts(v: str) -> float | None:
     try:
         return datetime.strptime(v[:19], "%Y-%m-%d %H:%M:%S").timestamp()
@@ -84,7 +91,7 @@ def extras(ws: Path, backlog: list[dict], state: dict) -> dict:
     gates = state.get("layer_gates", {})
     return {"timeline": timeline(backlog), "causes": causes(a), "step_time": step_time(a), "daily": history.daily(a, 14),
             "role_models": models(a), "gates": [{"layer": int(k), **v} for k, v in sorted(gates.items(), key=lambda kv: int(kv[0]))],
-            "drift": state.get("drift", [])[:10], "advice": advice(a), "regressions": regressions(a)}
+            "drift": state.get("drift", [])[:10], "advice": advice(a), "regressions": regressions(a), "failed_log": failed_log(a)}
 
 
 def task_detail(ws: Path, task_id: str) -> dict:
@@ -110,7 +117,7 @@ def task_detail(ws: Path, task_id: str) -> dict:
             plan = json.loads((runs[-1] / "plan.json").read_text("utf-8"))
         except (OSError, ValueError):
             pass
-    fails = [{"attempt": e.get("attempt"), "cls": e.get("cls"), "why": e.get("why", "")[:300]} for e in history.events(a)
+    fails = [{"attempt": e.get("attempt"), "cls": e.get("cls"), "why": e.get("why", "")[:300], "secs": e.get("secs")} for e in history.events(a)
              if e.get("kind") == "attempt_failed" and e.get("item") == task_id][-8:]
     keep = ("id", "title", "type", "status", "priority", "layer", "attempts", "reason", "runtime_s", "estimate_s", "description", "acceptance", "depends_on", "risk")
     return {"found": True, "item": {k: item.get(k) for k in keep}, "notes": [str(n)[:300] for n in item.get("notes", [])][-12:], "journal": journal,

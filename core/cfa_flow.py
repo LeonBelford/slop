@@ -4,6 +4,7 @@ from __future__ import annotations
 import json
 import re
 
+from core.cfa_lookup import LOOKUP_CLASSES, error_query
 from core.cfutil import clip, read_json
 
 FEATURE_DEFAULTS = {"test_first": "auto", "step_by_step": "auto", "acceptance_check": True, "retry_replan": True, "protect_tests": True, "spike": True, "spike_split": True, "doc_sync": True, "coder_no_think": True, "triage": True, "essential_check": True, "triage_light": True, "skeleton": True, "dependency_plan": True, "contracts_code": True, "spec_first": True, "size_gate": True, "risk_spikes": True, "layer_gate": True, "drift_check": True, "regression_tests": True, "graph_plan": True, "graph_replan": True, "graph_review_always": False, "plan_confirm": False, "perf_guard": True, "scout": True, "tiers": True, "fast_verify": True, "light_plan": True, "dep_replan": True, "graph_split": True, "plan_split": True}
@@ -169,9 +170,12 @@ class FlowMixin:
             # nothing was written: the cause is known, a model call would only guess one
             previous.append("Strategy for the next attempt: the coder wrote no file. Name the exact file and function to change and output the complete changed file.")
             return
+        last = next((x for x in reversed(previous) if x.startswith("Attempt ")), "")
+        m = re.match(r"Attempt \d+ \[(\w+)\]", last)
+        web = self.lookup(error_query(last.split(": ", 1)[-1], self.cfg["stack"]), "retry", item) if m and m.group(1) in LOOKUP_CLASSES else ""
         try:
             d = self.llm.json("retry_strategy", "reviewer", "You analyse a failed coding attempt and name a different approach.",
-                              f"Task: {item['title']}\n{item['description']}\nFailed attempts:\n" + "\n".join(previous) +
+                              f"Task: {item['title']}\n{item['description']}\nFailed attempts:\n" + "\n".join(previous) + (f"\n{web}\n" if web else "") +
                               '\nSchema: {"cause": "root cause in one sentence", "change": "what to do differently this time, concretely"}')
             previous.append(f"Strategy for the next attempt: cause: {d.get('cause', '')}; do differently: {d.get('change', '')}")
             self.handoff("planning of the next attempt", "failure analysis", goal=item["title"],

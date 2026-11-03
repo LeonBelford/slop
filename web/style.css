@@ -465,3 +465,8 @@ table.tt .tt-g td{background:#ffffff08;padding:6px 8px;border-top:1px solid var(
 .rp>.reason-list,.rp>#reasonlive{max-height:420px;overflow:auto;margin-top:8px}
 .rp-step{border:1px solid var(--line);border-radius:var(--r);margin:6px 0;padding:6px 10px}
 .rp-step>summary{cursor:pointer}
+
+.donestrip{margin:6px 0;padding:6px 10px;border-left:3px solid var(--ok,#3fb950);background:rgba(63,185,80,.07);border-radius:4px}
+.pd-more{margin:-8px 0 12px}.pd-more summary{cursor:pointer}
+.wt{box-shadow:0 1px 2px rgba(0,0,0,.08)}.wt h3{font-size:14px;margin:0 0 10px;padding-bottom:8px;border-bottom:1px solid var(--line)}
+tr.why td{padding-top:0;border-top:0}tr.why summary{cursor:pointer}

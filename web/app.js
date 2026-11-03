@@ -225,6 +225,17 @@ function microSteps(steps){
   const rows=steps.slice(-8).reverse().map(s=>`<div class="micro">${s.step?`<span class="pill">${esc(s.step)}</span> `:""}${esc(s.phase)}${s.detail?` — <span class="meta">${esc(s.detail)}</span>`:""}</div>`).join("");
   return `<details class="microsteps" open><summary>Sub-steps so far</summary>${rows}</details>`;
 }
+function doneStrip(d,n){
+  const items=(d&&d.backlog_items)||[],done=items.filter(i=>i.status==="done"),byId=Object.fromEntries(items.map(i=>[i.id,i]));
+  const slices=done.filter(i=>i.parent),real=done.filter(i=>!i.parent),open=items.filter(i=>i.status!=="done"&&i.status!=="merged"&&!i.split_into).length;
+  const steps=(n&&n.steps||[]).filter(s=>s.step),doneSteps=[...new Set(steps.map(s=>s.step).filter(x=>!n||x!==n.step))];
+  const recent=done.slice(-4).reverse().map(i=>{
+    const par=i.parent&&byId[i.parent];
+    const toward=par?`part of “${esc(par.title.slice(0,50))}”`:i.why?esc(String(i.why).slice(0,70)):"";
+    return `<div class="micro">✓ <b>${esc(i.id)}</b> ${esc(i.title.slice(0,70))} <span class="meta">${i.runtime_s?dur(i.runtime_s):""}${i.attempts>1?` · ${i.attempts} tries`:""}${toward?` · ${toward}`:""}</span></div>`}).join("");
+  if(!done.length&&!doneSteps.length)return "";
+  return `<div class="donestrip"><div class="sub"><b>Done:</b> ${real.length} tasks${slices.length?` + ${slices.length} slices`:""} · ${open} open${doneSteps.length?` · this task: ${doneSteps.map(esc).join(" ✓ ")} ✓`:""}</div>${recent}</div>`;
+}
 function stepTimes(list,idx,durations,liveStep,liveSince,t){
   const sum=durations?Object.values(durations).reduce((a,b)=>a+b,0)+(liveSince?Math.max(0,t-liveSince):0):0;
   return `${sum>0.5?`<div class="sub">Whole task so far: ${fmtDur(sum)}</div>`:""}<div class="steps">${list.map(([k,l],i)=>{
@@ -259,7 +270,7 @@ function renderNow(){
   const call=a.cmd?`<div class="call">Running <b>${esc(a.cmd.name)}</b> (<code>${esc(a.cmd.cmd)}</code>), ${fmtDur(t-a.cmd.since)}. Output: "Reasoning" tab.</div>`:a.coder?`<div class="call">Aider (code model <code>${esc(a.coder.model)}</code>) is editing ${a.coder.files.length?esc(a.coder.files.join(", ")):"files"} for <b>${esc(a.coder.tag)}</b>, ${fmtDur(t-a.coder.since)}</div>`
     :a.llm?`<div class="call">Waiting for the <b>${esc(a.llm.role)}</b> model (<code>${esc(a.llm.model)}</code>) on <b>${esc(a.llm.tag)}</b>, ${fmtDur(t-a.llm.since)}. Open "AI activity" to see the prompt once it answers.</div>`:"";
   reasoningLive();
-  box.innerHTML=`<div class="what">${n?esc(n.phase):"Starting…"}</div>${pctBar(n&&n.pct)}
+  box.innerHTML=`<div class="what">${n?esc(n.phase):"Starting…"}</div>${doneStrip(detail,n)}${pctBar(n&&n.pct)}
   <div class="sub">${n&&n.task?`Task: ${esc(n.task)} · attempt ${n.attempt}/3 · `:""}${n?`in this step for ${fmtDur(t-n.since)}`:""}${n&&n.detail?`<br>${esc(n.detail)}`:""}</div>
   ${stepper}${microSteps(n&&n.steps)}${schedLine(a.sched)}${call}${a.queued_user_tasks&&a.queued_user_tasks.length?`<div class="sub" style="margin-top:8px">Your queued tasks: ${a.queued_user_tasks.map(esc).join("; ")}</div>`:""}${timeline(a.events)}`;
 }
