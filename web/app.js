@@ -399,9 +399,12 @@ function projectBody(d){
     <label class="fld">Web access<select id="web-mode-q" onchange="setWebMode(this.value)">${[["off","Off: no web access"],["sources","Sources only: just the pages listed below"],["open","Open web search: the agent may also search the web"]].map(([m,t])=>`<option value="${m}" ${m===d.web_mode?"selected":""}>${t}</option>`).join("")}</select></label>
     <textarea id="sources" rows="14" oninput="dirty=true" placeholder="https://example.com/docs   use this for the payment flow">${esc(d.sources)}</textarea>
     <div class="row" style="justify-content:flex-end;margin-top:10px"><button class="primary" onclick="saveFile('sources','SOURCES.md')">Save</button></div>
-    <h3 style="margin-top:18px">Notifications</h3><p class="hint">Sends a small JSON message to a webhook (ntfy, Slack, Discord, Home Assistant, ...) when a task finishes, a task is blocked, the agent stalls on a repeated failure, or the run stops.</p>
+    <h3 style="margin-top:18px">Notifications</h3><p class="hint">Sends a small JSON message to a webhook (ntfy, Slack, Discord, Home Assistant, ...) as a status digest (key figures every N minutes instead of one push per task), and at once when a task is blocked, the agent stalls on a repeated failure, nothing progresses for a long time, or the run stops. ntfy.sh URLs are sent as a normal push (title, priority, tags).</p>
     <label class="fld">Webhook URL<input id="hook-url" value="${esc((d.notify||{}).webhook||"")}" placeholder="https://ntfy.sh/your-topic" oninput="dirty=true"></label>
-    <div class="row" style="flex-wrap:wrap;gap:10px;margin:6px 0">${["done","blocked","stalled","stopped"].map(e=>`<label><input type="checkbox" class="hook-ev" value="${e}" ${((d.notify||{}).events||["done","blocked","stalled","stopped"]).includes(e)?"checked":""} onchange="dirty=true"> ${e}</label>`).join("")}</div>
+    <div class="row" style="flex-wrap:wrap;gap:10px;margin:6px 0">${["digest","idle","done","blocked","stalled","stopped"].map(e=>`<label><input type="checkbox" class="hook-ev" value="${e}" ${((d.notify||{}).events||["digest","idle","done","blocked","stalled","stopped"]).includes(e)?"checked":""} onchange="dirty=true"> ${e}</label>`).join("")}</div>
+    <div class="row" style="flex-wrap:wrap;gap:10px"><label class="fld">Digest every (minutes, 0 = a push per task)<input id="hook-dig" type="number" min="0" max="1440" value="${(d.notify||{}).digest_minutes??60}" oninput="dirty=true"></label>
+    <label class="fld">Quiet hours (no digest)<input id="hook-quiet" value="${esc((d.notify||{}).quiet||"")}" placeholder="23:00-07:00" oninput="dirty=true"></label>
+    <label class="fld">Alert if nothing finished for (minutes, 0 = off)<input id="hook-idle" type="number" min="0" max="1440" value="${(d.notify||{}).idle_minutes??90}" oninput="dirty=true"></label></div>
     <div class="row" style="justify-content:flex-end;margin-top:4px"><button class="primary" onclick="saveNotify()">Save</button></div></div>`;
   }
   if(tab==="testing"){
@@ -594,7 +597,7 @@ async function doTry(){await act("try",{},"Building a test version once the curr
 async function say(){const v=$("#say").value.trim();if(!v)return;try{await api(`/api/project/${sel}/say`,{msg:v});toast("Feedback added");$("#say").value="";dirty=false;await refresh()}catch(e){toast(e.message,true)}}
 async function saveFile(kind,label){try{await api(`/api/project/${sel}/${kind}`,{text:$("#"+kind).value});dirty=false;toast(label+" saved");await refresh()}catch(e){toast(e.message,true)}}
 async function setWebMode(m){try{await api(`/api/project/${encodeURIComponent(sel)}/settings`,{web_mode:m});toast("Web access: "+m)}catch(e){toast(e.message||String(e),true)}await refresh()}
-async function saveNotify(){try{await api(`/api/project/${encodeURIComponent(sel)}/settings`,{notify:{webhook:$("#hook-url").value.trim(),events:[...document.querySelectorAll(".hook-ev:checked")].map(x=>x.value)}});dirty=false;toast("Saved")}catch(e){toast(e.message||String(e),true)}}
+async function saveNotify(){try{await api(`/api/project/${encodeURIComponent(sel)}/settings`,{notify:{webhook:$("#hook-url").value.trim(),digest_minutes:+$("#hook-dig").value,quiet:$("#hook-quiet").value.trim(),idle_minutes:+$("#hook-idle").value,events:[...document.querySelectorAll(".hook-ev:checked")].map(x=>x.value)}});dirty=false;toast("Saved")}catch(e){toast(e.message||String(e),true)}}
 async function runTask(){
   const v=$("#task").value.trim();if(v.length<5){toast("Describe the task first",true);return}
   const r=await act("do",{task:v});

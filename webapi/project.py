@@ -11,7 +11,7 @@ import codefactory as sa
 from core import blueprint, cfprofile, templates, uidetect
 from core.cfgit import UNLAYERED
 from dash import pdextra, throughput
-from infra import models, notify
+from infra import digest, models, notify
 
 from webapi.common import FEATURE_KEYS, NAME_RE, SETTING_LIMITS, UiError, alive, pid_alive, read_live, spawn, tail
 
@@ -32,7 +32,7 @@ class ProjectMixin:
             live = self.coder_rate(name, a) or live
         conf = sa.read_json(a / "config.json", {})
         return {**sm, "perf": throughput.perf(sa.read_json(a / "metrics.json", {})), "live": live, "gpu": self.gpu_stats(), "ideas": read(ws / "IDEAS.md"), "goal": read(a / "GOAL.md"), "testing": read(ws / "TESTING.md"), "sources": read(ws / "SOURCES.md"), "web_mode": conf.get("web", {}).get("mode", "sources"),
-                "notify": conf.get("notify", {"webhook": "", "events": list(notify.EVENTS)}),
+                "notify": {**digest.DEFAULTS, "webhook": "", "events": list(notify.EVENTS), **conf.get("notify", {})},
                 "activity": self.activity(ws), "log": tail(a / "agent.log"), "run_out": tail(a / "run.out", 15), "do_out": tail(a / "do.out", 15), "try_out": tail(a / "try.out", 15),
                 "features": [{"id": k, "title": v.get("title", k)} if isinstance(v, dict) else {"id": k, "title": str(v)}
                              for k, v in feats.items()],
@@ -247,7 +247,12 @@ class ProjectMixin:
             if url and not notify.valid_url(url):
                 raise UiError("Webhook must be a plain http(s) URL")
             events = [e for e in (nb.get("events") or []) if e in notify.EVENTS]
-            conf["notify"] = {"webhook": url, "events": events or list(notify.EVENTS)}
+            quiet = str(nb.get("quiet", "")).strip()
+            if quiet and not re.fullmatch(r"\d\d:\d\d-\d\d:\d\d", quiet):
+                raise UiError("Quiet hours look like 23:00-07:00")
+            conf["notify"] = {"webhook": url, "events": events or list(notify.EVENTS), "quiet": quiet,
+                              "digest_minutes": max(0, min(1440, int(nb.get("digest_minutes", 60) or 0))),
+                              "idle_minutes": max(0, min(1440, int(nb.get("idle_minutes", 90) or 0)))}
         sa.write_json(ws / "agent" / "config.json", conf)
 
     def rename(self, ws: Path, new: str) -> dict:

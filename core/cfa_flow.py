@@ -7,7 +7,7 @@ import re
 from core.cfa_lookup import LOOKUP_CLASSES, error_query
 from core.cfutil import clip, read_json
 
-FEATURE_DEFAULTS = {"test_first": "auto", "step_by_step": "auto", "acceptance_check": True, "retry_replan": True, "protect_tests": True, "spike": True, "spike_split": True, "doc_sync": True, "coder_no_think": True, "triage": True, "essential_check": True, "triage_light": True, "skeleton": True, "dependency_plan": True, "contracts_code": True, "spec_first": True, "size_gate": True, "risk_spikes": True, "layer_gate": True, "drift_check": True, "regression_tests": True, "graph_plan": True, "graph_replan": True, "graph_review_always": False, "plan_confirm": False, "perf_guard": True, "scout": True, "tiers": True, "fast_verify": True, "light_plan": True, "dep_replan": True, "graph_split": True, "plan_split": True}
+FEATURE_DEFAULTS = {"time_budget": True, "test_first": "auto", "step_by_step": "auto", "acceptance_check": True, "retry_replan": True, "protect_tests": True, "spike": True, "spike_split": True, "doc_sync": True, "coder_no_think": True, "triage": True, "essential_check": True, "triage_light": True, "skeleton": True, "dependency_plan": True, "contracts_code": True, "spec_first": True, "size_gate": True, "risk_spikes": True, "layer_gate": True, "drift_check": True, "regression_tests": True, "graph_plan": True, "graph_replan": True, "graph_review_always": False, "plan_confirm": False, "perf_guard": True, "scout": True, "tiers": True, "fast_verify": True, "light_plan": True, "dep_replan": True, "graph_split": True, "plan_split": True}
 TEST_DEF = re.compile(r"^\s*(?:async\s+def\s+test_|def\s+test_|func\s+Test|(?:pub\s+)?(?:async\s+)?fn\s+test_|#\[(?:\w+::)*test\b[^\]]*\]|@Test\b|(?:it|test|describe)\s*\(|public\s+void\s+test)", re.M)
 
 

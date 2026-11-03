@@ -29,6 +29,11 @@ class QualityMixin:
         if not self.feat("size_gate") or item.get("size_checked") or int(item.get("attempts", 0)) > 0 or item["type"] in ("docs", "test"):
             return False
         self.backlog.set(item, size_checked=True)
+        if self.predicted_too_long(item) and len(item.get("files") or []) != 1:
+            self.log(f"{item['id']}: {item.get('estimate_n')} comparable tasks took about {round(float(item['estimate_s']) / 60)} min: splitting before the start")
+            reason = f"comparable finished tasks took about {round(float(item['estimate_s']) / 60)} min, the target is {round(self.task_target())} min"
+            if self.graph_split(item, reason) or self.split_task(item, [f"Pre-check: {reason}. Cut it into slices of about {round(self.task_target())} min."]):
+                return True
         known = [] if item.get("files_guess") else [f for f in (item.get("files") or []) if isinstance(f, str)]
         if known and len(known) <= 2:
             self.backlog.set(item, size_files=len(known))  # the graph already knows the files: no model call to count them
