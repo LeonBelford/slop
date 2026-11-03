@@ -177,7 +177,7 @@ STACKS: dict[str, dict] = {
         "tools": ["cargo"],
         "commands": {
             "setup": "cargo fetch",
-            "build": "cargo build",
+            "build": "cargo check --all-targets --quiet",
             "test": "cargo test",
             "lint": "",
         },

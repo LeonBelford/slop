@@ -11,6 +11,7 @@ import re
 import shutil
 import time
 from core import failures, graphctx
+from core.cfa_verify import quick_build
 from core.cfa_flow import added_test_names, removed_test_names, removed_tests
 from core.cfllm import LLMError
 from core.cfa_write import extract_files, write_files
@@ -139,6 +140,7 @@ class BuildMixin:
             c = cmds.get(name)
             if not c:
                 continue
+            c = quick_build(c) if name == "build" else c
             self.log(f"▶ running {name}: {c}")
             rc, out = self.run_cmd(name, c, t)
             if rc:
