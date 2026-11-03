@@ -127,3 +127,18 @@ class DoneLedgerTests(unittest.TestCase):
             bl.forget(b["id"])
             bl.save()
             self.assertEqual(bl.items, [])
+
+
+class FailedLogTests(unittest.TestCase):
+    def test_failed_attempts_are_listed_newest_first_with_duration(self):
+        import json
+        import tempfile
+        from pathlib import Path
+        from dash import pdextra
+        with tempfile.TemporaryDirectory() as d:
+            rows = [{"time": "2026-01-01 10:00:00", "kind": "attempt_failed", "item": "T0001", "title": "a", "attempt": 1, "cls": "no_edit", "why": "x", "secs": 90},
+                    {"time": "2026-01-01 11:00:00", "kind": "attempt_failed", "item": "T0002", "title": "b", "attempt": 2, "cls": "test_fail", "why": "y"}]
+            (Path(d) / "metrics.jsonl").write_text("\n".join(json.dumps(r) for r in rows))
+            log = pdextra.failed_log(Path(d))
+        self.assertEqual([r["id"] for r in log], ["T0002", "T0001"])
+        self.assertEqual(log[1]["secs"], 90)

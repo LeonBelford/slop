@@ -10,7 +10,7 @@ from pathlib import Path
 import codefactory as sa
 from core import blueprint, cfprofile, templates, uidetect
 from core.cfgit import UNLAYERED
-from dash import throughput
+from dash import pdextra, throughput
 from infra import models, notify
 
 from webapi.common import FEATURE_KEYS, NAME_RE, SETTING_LIMITS, UiError, alive, pid_alive, read_live, spawn, tail
@@ -39,6 +39,7 @@ class ProjectMixin:
                 "backlog_items": [{k: i.get(k) for k in ("id", "title", "type", "priority", "status", "source", "attempts", "layer", "reason", "runtime_s", "estimate_s", "depends_on", "why", "scout", "bench", "merged_into", "split_into", "files", "result", "process", "tier", "gates", "debug_rounds", "review_score", "cleaned", "parent", "split_into")}
                                   for i in backlog],
                 **self.graph_extras(a, backlog),
+                "failed_log": pdextra.failed_log(a),
                 "has_ui": self.project_has_ui(ws),
                 "plan": blueprint.progress(blueprint.load(a / "blueprint.json"), backlog)}
 

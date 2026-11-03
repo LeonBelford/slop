@@ -11,6 +11,7 @@ import re
 import shutil
 import time
 from core import failures, graphctx, progress
+from core.cfa_lookup import LOOKUP_CLASSES, LookupMixin, error_query
 from core.cfa_verify import quick_build
 from core.cfa_flow import clean_steps, added_test_names, removed_test_names, removed_tests
 from core.cfllm import LLMError
@@ -18,7 +19,7 @@ from core.cfa_write import extract_files, write_files
 from core.cfutil import PRESETS, clip, read_json, sh, sh_live, sha, tail, write_json, write_text
 
 
-class BuildMixin:
+class BuildMixin(LookupMixin):
     """Agent mixin: model choice, coder call, build/test, debug loop, review and one full task attempt."""
 
     # ---- Model routing (optional, uses only installed models)
@@ -73,7 +74,11 @@ class BuildMixin:
                 self.log(f"⏸ [coder/{tag}] Aider stopped for the main agent, retrying when the GPU is idle")
 
         before = self.work_fingerprint(edit)
-        rc, out = run_aider(cmd)
+        wins = getattr(self, "state", {}).setdefault("edit_formats", {}).setdefault(model, {"diff": 0, "whole": 0})
+        whole_first = wins["whole"] >= 2 and wins["whole"] > wins["diff"]  # this model keeps failing with diffs: skip the call that is known to waste minutes
+        if whole_first:
+            self.log(f"[coder/{tag}] {model} writes files reliably only in whole-file mode here: starting with it")
+        rc, out = run_aider(cmd + (["--edit-format", "whole"] if whole_first else []))
         if rc == perf.LOOP_RC:
             self.log(f"[coder/{tag}] Aider repeated itself (loop): stopped it, retrying once with a minimal context and a plain edit request")
             self.note("coder", f"{tag}: output loop, stopped and retried with a minimal context")
@@ -90,11 +95,13 @@ class BuildMixin:
             if perf.token_limit_hit(out2) and self.work_fingerprint(edit) == before:
                 self.log(f"[coder/{tag}] token limit again and no file changed: the task is too big for the context window, it should be split")
                 self.note("coder", f"{tag}: too big for the context window even with a minimal context")
+        if edit and self.work_fingerprint(edit) != before and not whole_first:
+            wins["diff"] += 1
         if edit and self.work_fingerprint(edit) == before:
             # the coder must always write to disk (reasoning models like to answer in the chat only). First take complete files from
             # its answer (free), then ask once more in whole-file mode, then take them from that answer.
             written = write_files(self.repo, extract_files(out, edit))
-            if not written:
+            if not written and not whole_first:
                 self.log(f"[coder/{tag}] no file changed: retrying once in whole-file mode")
                 write_text(pf, prompt + "\n\nIMPORTANT: your last answer changed NO file. Do not explain and do not only show code in the chat. "
                                          "Output the complete updated content of every file you must change so that it is written to disk.")
@@ -102,6 +109,9 @@ class BuildMixin:
                 out += "\n" + out2
                 if self.work_fingerprint(edit) == before:
                     written = write_files(self.repo, extract_files(out2, edit))
+            if (written or self.work_fingerprint(edit) != before) and not whole_first:
+                wins["whole"] += 1
+                getattr(self, "save_state", lambda: None)()
             if written:
                 self.log(f"[coder/{tag}] wrote {written} from the chat answer")
                 self.note("coder", f"{tag}: files written from the chat answer: {written}")
@@ -176,7 +186,8 @@ class BuildMixin:
         schema = ('{"understanding": "", "files_to_change": ["existing paths"], "new_files": ["new paths"], '
                   '"read_only_context": ["paths"], "affected_dependents": ["paths that might break"], '
                   '"invariants": ["..."], "risks": ["..."], "steps": ["..."], "tests_to_add": ["..."], '
-                  '"docs_to_update": ["..."], "decisions": [{"decision": "", "because": ""}], "do_not": ["pitfalls the coder must avoid"], "done_when": ["observable checks that prove it works"], "test_files": ["paths of the test files to create or extend"], "security_impact": "new inputs, endpoints, files, commands, secrets or dependencies this change exposes, and how each is protected"}')
+                  '"docs_to_update": ["..."], "decisions": [{"decision": "", "because": ""}], "do_not": ["pitfalls the coder must avoid"], "done_when": ["observable checks that prove it works"], "test_files": ["paths of the test files to create or extend"], "security_impact": "new inputs, endpoints, files, commands, secrets or dependencies this change exposes, and how each is protected"'
+                  + (', "research": ["at most 2 web search queries for external library/API facts you are NOT sure about; empty list if you know it"]' if self.lookup_enabled() else "") + "}")
         plan = self.llm.json("impact", "planner", sys_p,
                              f"Task {item['id']} ({item['type']}): {item['title']}\n{item['description']}\n"
                              f"Acceptance: {item.get('acceptance')}\nStack: {self.cfg['stack']}\n"
@@ -203,6 +214,8 @@ class BuildMixin:
         plan["files_to_change"] = [f for f in plan.get("files_to_change", []) if (self.repo / f).exists()][:self.lim["max_files_per_task"]]
         plan["new_files"] = plan.get("new_files", [])
         plan["steps"] = clean_steps(plan.get("steps") or [])
+        notes = [self.lookup(clip(str(q), 120), "planning", item) for q in (plan.get("research") or [])[:2] if isinstance(q, str)]
+        plan["web_notes"] = "\n\n".join(n for n in notes if n)
         write_json(self.run_dir / "plan.json", plan)
         write_text(self.run_dir / "context.md", ctx + ("\n" + pack["text"] if pack["text"] else ""))
         self.handoff("implementation", "planning", goal=f"{item['id']} {item['title']}: {plan.get('understanding', '')}",
@@ -248,6 +261,7 @@ class BuildMixin:
                       f"Affected callers: {plan.get('affected_dependents')}\n"
                       f"Tests to write: {plan.get('tests_to_add')}\nNew files: {plan.get('new_files')}\n"
                       + (f"Design (follow it): {plan['spec']}\n" if plan.get("spec") else "")
+                      + (f"{plan['web_notes']}\n" if plan.get("web_notes") else "")
                       + (f"Tests already written for this task (make them pass, change them only if they are wrong): {tests}\n" if tests else "")
                       + f"{part}\n{self.RULES}")
             self.code("implement" if len(groups) == 1 else f"implement{n}", edit, read + tests, prompt)
@@ -293,11 +307,14 @@ class BuildMixin:
                          do_not=["repeat an approach listed as already tried", "delete or weaken tests"], done_when=["build and tests are green"])
             mentioned = [f for f in re.findall(r"[\w./-]+\.(?:py|js|ts|tsx|jsx|html|css|rs|go|toml|json|java|kt|c|cc|cpp|h|hpp|cs|rb|php|swift|yml|yaml|sql)\b", report) if (self.repo / f).exists()]
             files = sorted(set(self.git.changed_files()) | set(mentioned))[:self.lim["max_files_per_task"] + 4]
+            web = self.lookup(error_query(report, self.cfg["stack"]), f"debug round {n}", item) if (n >= 2 or self.debug_stuck) \
+                and failures.classify(report) in LOOKUP_CLASSES else ""
             self.code(f"debug{n}", files, [str(self.run_dir / "context.md")],
                       f"The build/test failed. Find the cause (not the symptoms) and fix it.\n"
                       f"The task was: {item['title']}\n\nError report:\n{report}\n\n{failures.snippets(report, self.repo)}\n{self.RULES}\n"
                       "Do not delete or weaken tests just to make them pass. Exception: if the traceback shows the test itself is broken (it cannot be "
-                      "collected or imported, uses an API that does not exist, or contradicts the task), fix the test and keep its cases.")
+                      "collected or imported, uses an API that does not exist, or contradicts the task), fix the test and keep its cases."
+                      + (f"\n\n{web}" if web else ""))
             self.tried.append(f"round {n} on '{clip(report.splitlines()[0], 100)}' edited {files[:4]}")
             ok, report = self.verify_stage(full)
             sig = failures.signature(report)
@@ -364,6 +381,7 @@ class BuildMixin:
         tokens0 = read_json(self.dir / "metrics.json", {}).get("tokens", 0)
         for attempt in range(1, self.lim["max_attempts_per_task"] + 1):
             self.cur_attempt = attempt
+            t_attempt = time.time()
             self.backlog.set(item, attempts=item["attempts"] + 1)
             self.route = progress.route_for()  # the quality gates join it once the tier is known
             self.log(f"== {item['id']} {item['title']} (attempt {attempt})")
@@ -416,7 +434,7 @@ class BuildMixin:
             if failures.advice(cls):
                 previous.append(f"Hint for the next attempt: {failures.advice(cls)}")
             self.metric(kind="attempt_failed", item=item["id"], title=item["title"], type=item["type"], attempt=attempt,
-                        why=clip(why, 300), cls=cls)
+                        why=clip(why, 300), cls=cls, secs=round(time.time() - t_attempt))
             same = sum(1 for x in sigs if x == sig)
             sigs.append(sig)
             # a retry analyses the same failure with the model anyway and files the lesson from that: no second call for it here
