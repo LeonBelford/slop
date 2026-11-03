@@ -242,3 +242,33 @@ def context_for(bp: dict | None, item: dict, limit: int = 2500) -> str:
         if a.get(key):
             parts.append(f"{title}: " + " | ".join(a[key]))
     return clip("\n".join(parts), limit)
+
+
+def closed_layers(items: list[dict]) -> set[int]:
+    """Layers whose tasks are all finished: that part of the plan is built and must not be rewritten by a re-evaluation."""
+    live = [i for i in items if i["status"] != "cancelled" and i.get("layer") is not None]
+    return {n for n in {i["layer"] for i in live} if all(i["status"] == "done" for i in live if i["layer"] == n)}
+
+
+def open_floor(items: list[dict]) -> int:
+    """The lowest layer that still has unfinished work: new work starts there, not in a layer that is already built."""
+    layers = [i["layer"] for i in items if i["status"] in ("pending", "blocked", "in_progress") and i.get("layer") is not None]
+    return min(layers) if layers else 0
+
+
+def keep_closed(layers: list[dict], old: list[dict], closed: set[int]) -> list[dict]:
+    """The new layer list with every closed layer exactly as it was; the model may only change or add layers above them."""
+    out = [dict(ly) for ly in layers]
+    for n in sorted(closed):
+        if n < len(old):
+            while len(out) <= n:
+                out.append({"name": old[len(out)]["name"], "goal": old[len(out)].get("goal", "")})
+            out[n] = {"name": old[n]["name"], "goal": old[n].get("goal", "")}
+    return out
+
+
+def finished_rows(items: list[dict], limit: int = 40) -> list[dict]:
+    """What is already implemented, for the re-evaluation prompt: finished tasks with their layer, files and result."""
+    done = [i for i in items if i["status"] == "done"]
+    return [{k: v for k, v in {"id": i["id"], "layer": i.get("layer"), "title": _s(i["title"], 70), "files": [f for f in (i.get("files") or [])][:3],
+                               "result": _s(i.get("result"), 90)}.items() if v not in (None, [], "")} for i in done[-limit:]]
