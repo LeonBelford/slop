@@ -35,6 +35,36 @@ def aider_args(model: str, directory: Path) -> list[str]:
     return args
 
 
+AIDER_ENV = {"BROWSER": "true"}  # Aider offers its help pages with --yes-always and opens them: an unattended run must never open a browser
+LIMIT_MARKS = ("hit a token limit", "token-limits.html", "exceeds the", "ContextWindowExceeded", "context window exceeded", "maximum context length")
+
+
+def token_limit_hit(out: str) -> bool:
+    """Whether Aider's output says the model ran out of context window or output tokens (the answer is then cut off or missing)."""
+    low = out.lower()
+    return any(m.lower() in low for m in LIMIT_MARKS)
+
+
+def lean_cmd(cmd: list[str]) -> list[str]:
+    """The same Aider call with a minimal context: no repo map and only the first read-only file (the run context)."""
+    out, skip, kept_read = [], False, False
+    for a in cmd:
+        if skip:
+            skip = False
+            continue
+        if a == "--map-tokens":
+            skip = True
+            continue
+        if a == "--read":
+            if kept_read:
+                skip = True
+                continue
+            kept_read = True
+        out.append(a)
+    idx = out.index("--message-file") if "--message-file" in out else len(out)
+    return out[:idx] + ["--map-tokens", "0"] + out[idx:]
+
+
 def tokens_of(path: Path | str) -> int:
     try:
         return int(Path(path).stat().st_size / CHARS_PER_TOKEN)

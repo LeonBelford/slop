@@ -104,3 +104,44 @@ class NoThinkTests(unittest.TestCase):
                     mock.patch.object(cfa_build, "write_text", lambda p, t: seen.append(t)):
                 ag.code("implement", ["a.py"], [], "do it")
             self.assertTrue(seen[0].startswith("/no_think"))
+
+
+class TokenLimitTests(unittest.TestCase):
+    def test_detects_aider_limit_messages(self):
+        from infra import perf
+        self.assertTrue(perf.token_limit_hit("Model ollama_chat/x has hit a token limit!\nFor more info: https://aider.chat/docs/troubleshooting/token-limits.html"))
+        self.assertTrue(perf.token_limit_hit("Your estimated chat context of 20,000 tokens exceeds the 16,384 token limit"))
+        self.assertFalse(perf.token_limit_hit("Applied edit to a.py"))
+
+    def test_lean_cmd_keeps_one_read_file_and_drops_the_map(self):
+        from infra import perf
+        cmd = ["aider", "--model", "m", "--message-file", "p.md", "--read", "ctx.md", "--read", "a.py", "--read", "b.py", "--map-tokens", "1024", "src/x.rs"]
+        lean = perf.lean_cmd(cmd)
+        self.assertEqual(lean.count("--read"), 1)
+        self.assertIn("ctx.md", lean)
+        self.assertNotIn("a.py", lean)
+        self.assertEqual(lean[lean.index("--map-tokens") + 1], "0")
+        self.assertEqual(lean[-1], "src/x.rs")
+        self.assertEqual(perf.AIDER_ENV["BROWSER"], "true")
+
+
+class TokenLimitRetryTests(unittest.TestCase):
+    def test_limit_triggers_one_lean_retry_and_never_opens_a_browser(self):
+        with tempfile.TemporaryDirectory() as d:
+            (Path(d) / "a.py").write_text("x=1")
+            calls = []
+
+            def fake(cmd, *a, **k):
+                calls.append((cmd, k.get("env")))
+                if len(calls) == 1:
+                    return 0, "Model x has hit a token limit!\nhttps://aider.chat/docs/troubleshooting/token-limits.html"
+                (Path(d) / "a.py").write_text("x=2")
+                return 0, "ok"
+            ag = Agent(d)
+            with mock.patch.object(cfa_build, "sh_live", fake), mock.patch.object(cfa_build.perf, "fit_context", lambda e, r, p, repo: (e, ["ctx.md", "big.py"], [])):
+                ag.code("t1", ["a.py"], [], "fix")
+            self.assertEqual(len(calls), 2)
+            self.assertNotIn("big.py", calls[1][0])
+            self.assertEqual(calls[1][0][calls[1][0].index("--map-tokens") + 1], "0")
+            self.assertTrue(all(env["BROWSER"] == "true" for _, env in calls))
+            self.assertTrue(any("token" in n for n in ag.notes))
