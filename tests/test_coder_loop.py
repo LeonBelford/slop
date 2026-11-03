@@ -26,3 +26,10 @@ class CoderLoopTests(unittest.TestCase):
         self.assertLess(time.time() - t0, 30)
         self.assertEqual(failures.classify(out), "coder_loop")
         self.assertIn("coder_loop", failures.ADVICE)
+
+
+class MissingDepTests(unittest.TestCase):
+    def test_missing_module_gets_dependency_advice(self):
+        rep = "[test] FAILED rc=2\nE   ModuleNotFoundError: No module named 'httpx'"
+        self.assertEqual(failures.classify(rep), "missing_dep")
+        self.assertIn("requirements.txt", failures.ADVICE["missing_dep"])
