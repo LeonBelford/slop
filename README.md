@@ -358,6 +358,7 @@ A project's "Control" tab gives you a live cockpit instead of just a log:
 - **Diff review with inline comments** (`dash/review.py`): a comment on a changed line becomes a new fix task that references that file and line.
 - **Code search and map** (`dash/codesearch.py`): symbol search, "who uses this", a small Python call graph.
 - **Test generator and mutation check** (`dash/testgen.py`): lists source files no test mentions, queues "write tests" tasks, and can mutate a line to check the tests actually fail (reuses the build-time mutation operators from `core/cfa_verify.py`).
+- **Try your app** (Testing tab, `core/runplan.py`): the start command comes from what the product really is (`interface.json`, manifests, sources). A CLI tool gets its entry command, an argument box and examples from the README; a web app gets Start/Stop and its URL; a library points to its tests. It always runs on the last merged `main`, not on half-written task files.
 - **Terminal and playground** (`dash/sandbox.py`): run commands or start the app live in a throwaway copy of the repo (`agent/sandbox`), with a log stream; the real repo is never touched.
 - **Refactor runs** (`dash/refactor.py`): guarded rename, dead-code candidates and an oversized-module split task; tests must stay green or everything is reset.
 - **Doc sync** (`dash/docsync.py`): a "Layer N done" heading is added to the existing CHANGELOG.md after each layer (no separate changelog).

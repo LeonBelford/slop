@@ -3,7 +3,7 @@ const esc=s=>String(s??"").replace(/[&<>"]/g,c=>({"&":"&amp;","<":"&lt;",">":"&g
 let sel=localStorage.getItem("sel")||null, view="project", tab="overview", list={projects:[],init_jobs:[]}, detail=null, extra=null, dirty=false, langs=[];
 let taskModel="",toolMcfg=null,toolTab_="tool",toolBranch="",planId="",taskPrefill="",codeBase="head",codeOpen=new Set(),codeView=null,codeInit=false;
 let diffView=null, lastBody="", lastHead="", lastTabs="", openKeys=new Set();
-const EDITABLE=["speed","ideas","sources","task","tool","settings","goal","profile","knowledge"];
+const EDITABLE=["testing","speed","ideas","sources","task","tool","settings","goal","profile","knowledge"];
 const GROUPS=[["overview","Overview",["overview"]],["pdash","Dashboard",["pdash"]],["task","Do a task",["task"]],["agent","Agent",["profile","knowledge","goal","ideas","sources","settings"]],["speed","Speed",["speed"]],["files","Files",["files"]],["activity","Activity",["log","reasoning","llm"]],["code","Code & test",["editor","changes","testing"]],["customize","Customize",["customize"]]];
 const LEAF={files:"File graph",speed:"Speed: task tiers",overview:"Task graph",pdash:"Dashboard",profile:"Instructions & capabilities",knowledge:"Knowledge files",goal:"Goal",ideas:"Ideas",sources:"Web sources",settings:"Models & limits",log:"Live log",reasoning:"Reasoning",llm:"AI activity",editor:"Editor",changes:"Review changes",testing:"Test version"};
 const ACCENTS=["","#5fb36b","#6fa3d8","#d6a23c","#c678dd","#e06c75","#56b6c2"];
@@ -388,7 +388,7 @@ function projectBody(d){
     <div class="row" style="justify-content:flex-end;margin-top:4px"><button class="primary" onclick="saveNotify()">Save</button></div></div>`;
   }
   if(tab==="testing"){
-    return `<div class="panel"><h3>Unit tests <button class="small primary" onclick="runTestsTab()">Run tests</button></h3><div id="tests-out" class="${testsRes?"":"hint"}">${testsRes||"Runs the project's own test command on the current files."}</div></div>
+    return `${tryPanel()}<div class="panel" style="margin-top:16px"><h3>Unit tests <button class="small primary" onclick="runTestsTab()">Run tests</button></h3><div id="tests-out" class="${testsRes?"":"hint"}">${testsRes||"Runs the project's own test command on the current files."}</div></div>
     <div class="panel" style="margin-top:16px"><p class="hint">"Test now" lets the agent finish its current task, builds the last working state and shows here how to run it. Press Start afterwards to continue.</p>
     ${d.testing?`<pre>${esc(d.testing)}</pre>`:'<div class="hint">No test version built yet.</div>'}${d.try_running||d.try_out?`<h4>Output</h4><pre>${esc(d.try_out)}</pre>`:""}</div>`;
   }

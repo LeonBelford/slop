@@ -86,11 +86,18 @@ class ExtMixin:
                 return {"events": events.timeline(a)}
             if what == "play":
                 return sandbox.play_status(ws)
+            if what == "runplan":
+                return self.run_plan(ws)
             if what == "job":
                 return JOBS.get((name, q.get("kind", "")), {"state": "none"})
         except ValueError as e:
             raise UiError(str(e)) from None
         raise UiError("Not found", 404)
+
+    @staticmethod
+    def run_plan(ws: Path) -> dict:
+        p = sa.Agent(ws).detect_run_plan()
+        return {k: p.get(k, "") for k in ("mode", "kind", "run", "url", "entry", "hint")} | {"examples": p.get("examples", [])}
 
     def ext_act(self, ws: Path, name: str, action: str, body: dict) -> dict:
         a, repo = ws / "agent", ws / "repo"
@@ -150,7 +157,9 @@ class ExtMixin:
                 _job(name, "terminal", lambda: sandbox.run(ws, cmd, int(body.get("timeout") or 60)))
                 return {"ok": True, "started": True}
             if action == "play-start":
-                cmd = str(body.get("cmd") or "").strip() or sa.Agent(ws).detect_run_plan().get("run", "")
+                cmd = str(body.get("cmd") or "").strip() or self.run_plan(ws)["run"]
+                if not cmd or self.run_plan(ws)["mode"] == "cli" and not body.get("cmd"):
+                    raise ValueError("This is a command line tool: enter arguments and press Run under 'Try your app'")
                 return sandbox.play_start(ws, cmd)
             if action == "play-stop":
                 sandbox.play_stop(ws)
