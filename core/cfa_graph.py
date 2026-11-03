@@ -161,7 +161,8 @@ class GraphMixin:
             reasons.append("the project is stuck (blocked or failing tasks)")
         since = merged - self.state.get("triage_at", 0)
         unlayered = [i for i in self.backlog.pending() if i.get("layer") is None and i.get("source") != "user"]
-        if (since >= RELAYOUT_EVERY_MERGES and len(open_) >= MIN_OPEN) or (len(unlayered) >= 2 and since >= 1):
+        every = RELAYOUT_EVERY_MERGES * min(4, 1 + self.state.get("review_idle", 0))  # reviews that changed nothing: look less often, no reasoning loop
+        if (since >= every and len(open_) >= MIN_OPEN) or (len(unlayered) >= 2 and since >= 1):
             reasons.append(f"{since} merge(s) since the last layout")
         by = {i["id"]: i for i in items}
         for b, who in taskgraph.blocked_impact(items).items():

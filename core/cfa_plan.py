@@ -158,6 +158,10 @@ class PlanMixin:
         sctx = getattr(self.llm, "server_ctx", 0)
         # a small server window: the task list and schema matter most, so notes and the code map shrink first
         share = scaled(self.llm, 1000, 0.0) / 1000
+        everything = [i for i in self.backlog.items if i["status"] != "cancelled"]  # also with a focus: what is built does not depend on the scope
+        closed = blueprint.closed_layers(everything)
+        built = blueprint.finished_rows(everything, 40 if sctx else 60)
+        progress = [f"{n}: {ly['name']} ({'built, keep unchanged' if n in closed else 'open'})" for n, ly in enumerate(old["layers"])] if old else []
         visible = taskgraph.visible_ids(items)  # finished graphs are only history: they stay out of the prompt
         rows = [{k: v for k, v in {"id": i["id"], "title": clip(i["title"], 80 if sctx else 200), "type": i["type"], "status": i["status"],
                                    "layer": i.get("layer"), "source": i.get("source"), "why": clip(i.get("why", ""), 100), "files": graphctx.files_of(i)[:3]}.items() if v not in (None, [], "")}
@@ -168,9 +172,13 @@ class PlanMixin:
         data = self.llm.json(
             "reevaluate", "strategist", SYSTEM + GRAPH_RULES + " You are re-planning a project that already has code and tasks: keep what works, think briefly (a few sentences), then answer the JSON only, "
             "fix the order. Finished tasks are foundation: put them in the layer they belong to. Add tasks for missing foundation, "
-            "cancel tasks that are redundant or contradict the architecture. Never cancel tasks the user wrote.",
+            "cancel tasks that are redundant or contradict the architecture. Never cancel tasks the user wrote. "
+            "FIRST look at what is already implemented (finished tasks, code map, features built) and only then decide what is missing. Layers marked built stay exactly as they are, "
+            "in the same positions: never write a new first layer, never move finished tasks, never put new tasks into a built layer; new work goes into the first open layer or into a new layer on top. "
+            "A new task must name what is missing in the existing code; if a finished task already covers it, add nothing. When in doubt keep_plan is true.",
             f"Goal:\n{clip(self.goal, int(2500 * max(share, 0.4)))}{self.directive}\nUser directives (IDEAS.md):\n{clip(ideas, int(3000 * share)) or '-'}\n"
-            f"Previous layers: {[ly['name'] for ly in old['layers']] if old else 'none (the project was planned feature by feature)'}\n"
+            f"Previous layers: {progress if old else 'none (the project was planned feature by feature)'}\n"
+            f"ALREADY IMPLEMENTED (finished tasks, study them first): {json.dumps(built)}\n"
             f"Features built: {[f['title'] for f in self.mem.features.values()]}\nArchitecture notes:\n"
             f"{clip(arch.read_text('utf-8') if arch.exists() else '', int(2500 * share))}\nCode map:\n{clip(self.mem.render_codemap(), int(5000 * share))}\n"
             f"Current state of the project:\n{state_note or '-'}\n{self.custom_note()}{self.rebuild_note()}\nDependency graphs now:\n{graph}\nTasks: {json.dumps(rows)}\n3 to 5 layers. Schema: " + REEVAL_SCHEMA)
@@ -186,10 +194,16 @@ class PlanMixin:
 
     def apply_reevaluation(self, data: dict, items: list[dict], requeue: bool, focus: list[str] | None, reason: str) -> dict:
         """Applies a (normalized) re-evaluation to the backlog. A result that looks harmful (mass cancellation, graphs torn apart) is rolled back."""
+        old_bp, live = self.blueprint(), [i for i in self.backlog.items if i["status"] != "cancelled"]
+        closed, floor = blueprint.closed_layers(live), blueprint.open_floor(live)
+        if old_bp and data.get("layers"):
+            data["layers"] = blueprint.keep_closed(data["layers"], old_bp["layers"], closed)  # what is built stays as planned
         res = blueprint.normalize_reevaluation(data, items)
+        floor = min(floor, max(0, len(res["layers"]) - 1))
         zero = {"assigned": 0, "new": 0, "cancelled": 0, "requeued": 0, "merged": 0, "split": 0}
         if res["keep"] and not (res["new"] or res["cancel"] or res["merge"] or res["split"]):
             self.state["graph_sig"] = taskgraph.signature(self.backlog.items)
+            self.state["review_idle"] = self.state.get("review_idle", 0) + 1
             if not focus:
                 self.rebuilt()
             if self.link_foundation():
@@ -213,7 +227,7 @@ class PlanMixin:
         key_to_id, redirect = {}, {}
         for t in res["new"]:
             item = self.backlog.add(t["title"], t["description"], t["type"], t["priority"], t["acceptance"], "Re-evaluation", "blueprint",
-                                    layer=t["layer"], why=t.get("why"))
+                                    layer=max(t["layer"], floor), why=t.get("why"))  # never a new "first layer" below built work
             if item:
                 if t.get("files"):
                     item["files"] = t["files"]
@@ -234,7 +248,11 @@ class PlanMixin:
             if i["status"] == "cancelled" or i.get("source") == "user" or i["id"] in key_to_id.values() or (focus and i["id"] not in scope):
                 continue
             a = res["assign"].get(i["id"])
-            if a:
+            if a and i["status"] == "done":
+                if a["why"] and not i.get("why"):
+                    i["why"] = a["why"]
+            elif a:
+                a["layer"] = max(a["layer"], floor)
                 if a["why"]:
                     i["why"] = a["why"]
                 if i["status"] != "done" and abs(a["priority"] * 2 - i["priority"]) >= 3:
@@ -271,10 +289,12 @@ class PlanMixin:
             self.backlog.save()
             self.record_graph(f"rolled back: {bad}", {})
             self.log(f"Re-evaluation rolled back, the result looked harmful ({bad}). The plan stays as it was.")
+            self.state["review_idle"] = self.state.get("review_idle", 0) + 1
             self.metric(kind="reevaluate", rolled_back=True)
             self.phase("Idle (re-evaluation rolled back)", None)
             return {**zero, "rolled_back": bad}
         self.state["graph_sig"] = taskgraph.signature(self.backlog.items)
+        self.state["review_idle"] = 0 if any(stats[k] for k in ("new", "cancelled", "merged", "split", "assigned")) else self.state.get("review_idle", 0) + 1
         self.link_foundation()
         self.backlog.save()
         if not focus:

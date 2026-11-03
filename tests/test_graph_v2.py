@@ -3,7 +3,7 @@ import unittest
 from pathlib import Path
 
 import codefactory as cf
-from core import taskgraph
+from core import blueprint, taskgraph
 from core.cfa_scout import scout_task
 from core.cfgit import Backlog
 
@@ -150,3 +150,33 @@ class ReviewTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+    def test_reevaluation_keeps_built_layers_and_sees_finished_work(self):
+        ag, prompts = self.ag, []
+        done = ag.backlog.add("Core explorer", "d", priority=5, force=True, layer=0, source="blueprint")
+        ag.backlog.set(done, status="done", result="lists directories")
+        ag.backlog.add("Search", "d", priority=5, force=True, layer=1, source="blueprint")
+        blueprint.save(ag.blueprint_path, {"layers": [{"name": "Foundation", "goal": "g", "tasks": []}, {"name": "Features", "goal": "g", "tasks": []}]})
+        ag.llm.json = lambda *a, **k: prompts.append(a[2]) or {
+            "layers": [{"name": "Brand new first layer", "goal": "x"}, {"name": "Features", "goal": "g"}],
+            "assign": [{"id": done["id"], "layer": 1, "depends_on": []}],
+            "new_tasks": [{"key": "n", "title": "Gap", "layer": 0, "why": "missing", "depends_on": []}]}
+        ag.reevaluate(requeue=False)
+        self.assertIn("ALREADY IMPLEMENTED", prompts[0])
+        self.assertIn("lists directories", prompts[0])
+        by = {i["title"]: i for i in ag.backlog.items}
+        self.assertEqual(by["Core explorer"]["layer"], 0)  # a finished task is never moved
+        self.assertEqual(by["Gap"]["layer"], 1)  # new work starts in the first open layer
+        self.assertEqual(blueprint.load(ag.blueprint_path)["layers"][0]["name"], "Foundation")
+
+    def test_reviews_that_change_nothing_get_rarer(self):
+        ag = self.ag
+        ag._graph_started = True
+        for n in range(4):
+            ag.backlog.add(f"Task {n}", "d", priority=5, force=True, layer=0)
+        ag.state["directives_hash"] = ag.directives_hash()
+        ag.state.update(merged=3, triage_at=0)
+        self.assertTrue(ag.review_reasons()[0])
+        ag.state["review_idle"] = 2
+        self.assertEqual(ag.review_reasons()[0], [])
