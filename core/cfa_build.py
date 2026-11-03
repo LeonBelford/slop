@@ -4,13 +4,15 @@ from __future__ import annotations
 from dash import estimate
 from infra import gpusched
 import json
-from infra import models, notify
+from infra import digest, models, notify
 import os
 from infra import perf
 import re
 import shutil
 import time
 from core import failures, graphctx, progress
+from core.cfa_budget import BudgetMixin, real_paths, should_cut
+from core.cfa_split import MAX_SPLIT_DEPTH
 from core.cfa_lookup import LOOKUP_CLASSES, LookupMixin, error_query
 from core.cfa_verify import quick_build
 from core.cfa_flow import clean_steps, added_test_names, removed_test_names, removed_tests
@@ -19,7 +21,7 @@ from core.cfa_write import extract_files, write_files
 from core.cfutil import PRESETS, clip, read_json, sh, sh_live, sha, tail, write_json, write_text
 
 
-class BuildMixin(LookupMixin):
+class BuildMixin(LookupMixin, BudgetMixin):
     """Agent mixin: model choice, coder call, build/test, debug loop, review and one full task attempt."""
 
     # ---- Model routing (optional, uses only installed models)
@@ -212,7 +214,7 @@ class BuildMixin(LookupMixin):
             except Exception as e:
                 self.log(f"Plan critique failed: {e}")
         plan["files_to_change"] = [f for f in plan.get("files_to_change", []) if (self.repo / f).exists()][:self.lim["max_files_per_task"]]
-        plan["new_files"] = plan.get("new_files", [])
+        plan["new_files"] = real_paths(plan.get("new_files", []))
         plan["steps"] = clean_steps(plan.get("steps") or [])
         notes = [self.lookup(clip(str(q), 120), "planning", item) for q in (plan.get("research") or [])[:2] if isinstance(q, str)]
         plan["web_notes"] = "\n\n".join(n for n in notes if n)
@@ -297,6 +299,9 @@ class BuildMixin(LookupMixin):
                 ok, report = False, bad
             if ok:
                 return True, report
+            if self.out_of_time(self.debug_stuck):
+                self.log(f"[budget] this attempt used its time ({round(self.task_target())} min target): stopping the debug loop, the task will be cut")
+                return False, f"[budget] The attempt ran out of its time budget while this was still failing:\n{report}"
             self.backlog.set(item, debug_rounds=int(item.get("debug_rounds", 0)) + 1)
             self.log(f"Debug round {n}: {report.splitlines()[0]}")
             self.note("debug", f"round {n} failed: {clip(report.splitlines()[0], 200)}")
@@ -364,7 +369,7 @@ class BuildMixin(LookupMixin):
         est = estimate.estimate(estimate.load(self.dir / "durations.jsonl"), item["title"], item["type"], item.get("description", ""))
         if est["seconds"]:
             self.log(f"estimate: ~{round(est['seconds'] / 60)} min ({est['basis']}, {est['n']} comparable tasks)")
-            self.backlog.set(item, estimate_s=est["seconds"])
+            self.backlog.set(item, estimate_s=est["seconds"], estimate_n=est["n"])
         try:
             if self.replan_after_cancel(item):
                 self.cur_task, self.cur_attempt = "", 0
@@ -435,14 +440,22 @@ class BuildMixin(LookupMixin):
                 previous.append(f"Hint for the next attempt: {failures.advice(cls)}")
             self.metric(kind="attempt_failed", item=item["id"], title=item["title"], type=item["type"], attempt=attempt,
                         why=clip(why, 300), cls=cls, secs=round(time.time() - t_attempt))
+            digest.tick(self)
             same = sum(1 for x in sigs if x == sig)
             sigs.append(sig)
             # a retry analyses the same failure with the model anyway and files the lesson from that: no second call for it here
             used = read_json(self.dir / "metrics.json", {}).get("tokens", 0) - tokens0
-            retry_follows = (attempt < self.lim["max_attempts_per_task"] and same < 2 and self.feat("retry_replan")
+            can_split = int(item.get("split_depth", 0)) < MAX_SPLIT_DEPTH  # a slice that cannot be cut further keeps its retries until max_task_minutes
+            cut = self.feat("time_budget") and can_split and (cls == "too_slow" or should_cut(time.time() - t0, time.time() - t_attempt, self.task_target()))
+            retry_follows = (attempt < self.lim["max_attempts_per_task"] and same < 2 and self.feat("retry_replan") and not cut
                              and time.time() - t0 <= self.lim.get("max_task_minutes", 120) * 60
                              and not (self.lim.get("max_task_tokens", 0) and used > self.lim["max_task_tokens"]))
             self.record_failure(item, why, use_llm=not retry_follows)
+            if cut and attempt < self.lim["max_attempts_per_task"]:
+                self.log(f"{item['id']}: attempt {attempt} took {round((time.time() - t_attempt) / 60)} min, another one would not fit into the {round(self.task_target())} min target: cutting the task instead of retrying")
+                previous.append(f"Time budget: one attempt must take about {round(self.task_target())} min. Each slice must be small enough for that.")
+                self.metric(kind="time_cut", item=item["id"], attempt=attempt, secs=round(time.time() - t0))
+                break
             if same >= 1:
                 self.force_heavy = True
                 self.log(f"The same failure ({cls}) happened again: escalating to the stronger model and a different approach")
@@ -505,6 +518,7 @@ class BuildMixin(LookupMixin):
         self.git.run("branch", "-D", f"agent/wip-{item['id']}")
 
     def attempt(self, item: dict, previous: list[str], branch: str, base_sha: str) -> tuple[bool, str]:
+        self.attempt_started()
         plan = self.resume_wip(item) if previous else None
         if plan:
             self.phase("Fixing the failed quality gate on the saved work", "implement", clip(previous[-1] if previous else "", 160))

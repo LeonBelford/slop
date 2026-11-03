@@ -30,11 +30,9 @@ from __future__ import annotations
 from pathlib import Path
 from infra.webaccess import Web
 import argparse
-from infra import gpusched
 import json
 import os
 import re
-from infra import stacks
 import sys
 import tempfile
 import time
@@ -86,7 +84,7 @@ from core.cfmemory import (  # noqa: F401
 from core.cfa_build import BuildMixin
 from core.cfa_flow import FlowMixin
 from core.cfa_verify import VerifyMixin
-from infra import notify
+from infra import digest, gpusched, notify, stacks
 from core.cfa_security import SecurityMixin
 from core.cfa_research import ResearchMixin
 from core.cfa_ops import OpsMixin
@@ -364,6 +362,7 @@ class Agent(BuildMixin, FlowMixin, VerifyMixin, SecurityMixin, ResearchMixin, Op
             if reason:
                 break
             self.control_wait()
+            digest.tick(self)
             self.state["iteration"] += 1
             if self.state["iteration"] % self.lim["health_every"] == 0:
                 self.health_check()
