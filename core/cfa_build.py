@@ -12,7 +12,7 @@ import shutil
 import time
 from core import failures, graphctx, progress
 from core.cfa_verify import quick_build
-from core.cfa_flow import added_test_names, removed_test_names, removed_tests
+from core.cfa_flow import clean_steps, added_test_names, removed_test_names, removed_tests
 from core.cfllm import LLMError
 from core.cfa_write import extract_files, write_files
 from core.cfutil import PRESETS, clip, read_json, sh, sh_live, sha, tail, write_json, write_text
@@ -194,6 +194,7 @@ class BuildMixin:
                 self.log(f"Plan critique failed: {e}")
         plan["files_to_change"] = [f for f in plan.get("files_to_change", []) if (self.repo / f).exists()][:self.lim["max_files_per_task"]]
         plan["new_files"] = plan.get("new_files", [])
+        plan["steps"] = clean_steps(plan.get("steps") or [])
         write_json(self.run_dir / "plan.json", plan)
         write_text(self.run_dir / "context.md", ctx + ("\n" + pack["text"] if pack["text"] else ""))
         self.handoff("implementation", "planning", goal=f"{item['id']} {item['title']}: {plan.get('understanding', '')}",
@@ -287,7 +288,8 @@ class BuildMixin:
             self.code(f"debug{n}", files, [str(self.run_dir / "context.md")],
                       f"The build/test failed. Find the cause (not the symptoms) and fix it.\n"
                       f"The task was: {item['title']}\n\nError report:\n{report}\n\n{failures.snippets(report, self.repo)}\n{self.RULES}\n"
-                      "Do not delete or weaken tests just to make them pass.")
+                      "Do not delete or weaken tests just to make them pass. Exception: if the traceback shows the test itself is broken (it cannot be "
+                      "collected or imported, uses an API that does not exist, or contradicts the task), fix the test and keep its cases.")
             self.tried.append(f"round {n} on '{clip(report.splitlines()[0], 100)}' edited {files[:4]}")
             ok, report = self.verify_stage(full)
             sig = failures.signature(report)
