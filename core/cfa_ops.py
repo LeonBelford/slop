@@ -66,6 +66,8 @@ class OpsMixin:
         finally:
             (self.dir / "agent.pid").unlink(missing_ok=True)
             self.cur_task = ""
+            if done:
+                self.flush_docs_idle()
             self.phase("Idle (directed tasks finished)", None)
         return done
 

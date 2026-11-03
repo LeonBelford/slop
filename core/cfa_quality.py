@@ -71,9 +71,10 @@ class QualityMixin:
             spec = self.llm.json("spec", "planner", "Write a short design for the task: files, signatures, edge cases. No code bodies.",
                                  f"Task: {item['title']}\n{item['description']}\nAcceptance: {item.get('acceptance')}\n"
                                  f"Plan steps: {plan.get('steps')}\nContracts: {contracts}\nSchema: {SPEC_SCHEMA}")
+            # without contracts the review has nothing to check the design against: the model call is skipped
             review = self.llm.json("spec_review", "reviewer", "Check the design against the contracts and the task. Report only real conflicts.",
                                    f"Design: {spec}\nContracts: {contracts}\nTask: {item['title']}\nAcceptance: {item.get('acceptance')}\n"
-                                   f"Schema: {REVIEW_SCHEMA}")
+                                   f"Schema: {REVIEW_SCHEMA}") if contracts else {"ok": True}
         except LLMError:
             raise
         except Exception as e:  # noqa: BLE001

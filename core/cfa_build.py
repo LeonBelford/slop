@@ -154,7 +154,9 @@ class BuildMixin:
             return light
         self.phase("Planning: analysing the codebase and the impact of the change", "plan")
         pack = graphctx.context_pack(self.backlog.items, item, codemap=self.mem.codemap)
-        cands = graphctx.prefer_files(pack["files"], self.mem.select_candidates(item), lambda f: (self.repo / f).exists())
+        known = [f for f in graphctx.files_of(item) if (self.repo / f).exists()] if not item.get("files_guess") else []
+        # the graph already names the files of this task: a model call to pick files from the index would only repeat that
+        cands = graphctx.prefer_files(pack["files"], self.mem.select_candidates(item, use_llm=not known), lambda f: (self.repo / f).exists())
         ctx = self.mem.context_pack(item, cands)
         src = "\n\n".join(f"### {f}\n```\n{clip((self.repo / f).read_text('utf-8', 'replace'), self.cfg['context']['file_clip'])}\n```"
                           for f in (cands + self.mem.neighbors(cands))[:10] if (self.repo / f).exists())
@@ -172,7 +174,7 @@ class BuildMixin:
         plan["known_consequences"] = known
         if known:
             self.log(f"Knowledge base: {len(known)} known consequence(s) for this change.")
-        if self.cfg["features"]["plan_critique"]:
+        if self.cfg["features"]["plan_critique"] and self.critique_pays(item, plan, known):
             try:
                 crit = self.llm.json("plan_critique", "reviewer", "You strictly critique plans for overlooked dependencies "
                                      "and for conflicts with earlier decisions and lessons.",
@@ -199,6 +201,18 @@ class BuildMixin:
         self.note("plan", f"understanding: {plan.get('understanding', '')} | change: {plan.get('files_to_change')} new: {plan.get('new_files')} | "
                           f"steps: {plan.get('steps')} | invariants: {plan.get('invariants')}")
         return plan
+
+    def critique_pays(self, item: dict, plan: dict, known: list[str]) -> bool:
+        """The plan critique looks for overlooked dependents and conflicts with earlier decisions: nothing to find for a plan that touches
+        one or two files that nothing else imports, with no known consequence and no risk flag."""
+        if self.cfg["features"].get("critique_always") or item.get("risk") == "high" or known or int(item.get("attempts", 0)) > 1:
+            return True
+        files = plan.get("files_to_change", []) + plan.get("new_files", [])
+        dependents = {d for f in plan.get("files_to_change", []) for d in self.mem.codemap.get(f, {}).get("imported_by", [])} - set(files)
+        if len(files) <= 2 and not dependents and not plan.get("affected_dependents"):
+            self.log("Plan critique skipped: small plan, no dependents, no known consequences")
+            return False
+        return True
 
     def set_class(self, item: dict, plan: dict) -> None:
         rt = self.cfg["routing"]
@@ -384,11 +398,16 @@ class BuildMixin:
             self.note("failed", f"attempt {attempt} [{cls}]: {clip(why, 250)}")
             if failures.advice(cls):
                 previous.append(f"Hint for the next attempt: {failures.advice(cls)}")
-            self.record_failure(item, why)
             self.metric(kind="attempt_failed", item=item["id"], title=item["title"], type=item["type"], attempt=attempt,
                         why=clip(why, 300), cls=cls)
             same = sum(1 for x in sigs if x == sig)
             sigs.append(sig)
+            # a retry analyses the same failure with the model anyway and files the lesson from that: no second call for it here
+            used = read_json(self.dir / "metrics.json", {}).get("tokens", 0) - tokens0
+            retry_follows = (attempt < self.lim["max_attempts_per_task"] and same < 2 and self.feat("retry_replan")
+                             and time.time() - t0 <= self.lim.get("max_task_minutes", 120) * 60
+                             and not (self.lim.get("max_task_tokens", 0) and used > self.lim["max_task_tokens"]))
+            self.record_failure(item, why, use_llm=not retry_follows)
             if same >= 1:
                 self.force_heavy = True
                 self.log(f"The same failure ({cls}) happened again: escalating to the stronger model and a different approach")
@@ -420,7 +439,9 @@ class BuildMixin:
         notify.send(self.cfg, "blocked", self.ws.name, f"{item['id']} {item['title']} is blocked after repeated failures")
         return False
 
-    def record_failure(self, item: dict, why: str) -> None:
+    def record_failure(self, item: dict, why: str, use_llm: bool = True) -> None:
+        if not use_llm:
+            return
         try:
             d = self.llm.json("lesson", "summarizer", "You formulate lessons learned.",
                               f"Task: {item['title']}\nError:\n{clip(why, 3000)}\n"
@@ -502,8 +523,8 @@ class BuildMixin:
         self.phase("Updating memory, documentation and decision records", "docs")
         try:
             changed_all = [f for f in self.git.changed_files(base_sha) if (self.repo / f).exists()]
-            self.mem.sync(force_docs_for=[f for f in changed_all if f in self.mem.codemap])
-            self.mem.add_decision(item, plan, review, self.git.diff(base_sha))
+            self.mem.sync(force_docs_for=[f for f in changed_all if f in self.mem.codemap], defer_docs=self.cfg["features"].get("module_docs", "layer") != "task")
+            self.mem.add_decision(item, plan, review, self.git.diff(base_sha), use_llm=getattr(self, "cur_tier", "full") == "full")
             self.mem.record_feature(item, changed_all, review)
             self.mem.changelog(item, review)
             self.mem.refresh_kb()

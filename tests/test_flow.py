@@ -9,12 +9,19 @@ from core.cfa_flow import FEATURE_DEFAULTS, FlowMixin, removed_tests, split_step
 class Fake(FlowMixin):
     def __init__(self, feats=None):
         self.cfg = {"features": dict(feats or {}), "routing": {"complex_files": 4}}
-        self.logs, self.calls = [], []
+        self.logs, self.calls, self.lessons = [], [], []
+        self.mem = self
 
     def log(self, m):
         self.logs.append(m)
 
     def metric(self, **kw):
+        pass
+
+    def add_lesson(self, text, files, item_id):
+        self.lessons.append(text)
+
+    def handoff(self, *a, **k):
         pass
 
     class llm:  # noqa: N801
@@ -55,8 +62,10 @@ class FlowTests(unittest.TestCase):
 
     def test_retry_strategy(self):
         prev = ["Attempt 1: failed"]
-        Fake().retry_strategy({"title": "t", "description": "d"}, prev)
+        f = Fake()
+        f.retry_strategy({"title": "t", "description": "d", "id": "T1"}, prev)
         self.assertIn("use the helper", prev[-1])
+        self.assertIn("use the helper", f.lessons[0])  # the lesson comes from this analysis: no separate lesson call
         none: list[str] = []
         Fake().retry_strategy({"title": "t", "description": "d"}, none)
         self.assertEqual(none, [])

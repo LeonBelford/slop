@@ -148,5 +148,8 @@ class FlowMixin:
                          do_not=["repeat the approach of the failed attempt", "reduce the task to repairing the earlier error"],
                          done_when=["all acceptance criteria of the task are met"])
             self.log(f"Retry strategy: {clip(str(d.get('change', '')), 160)}")
+            if d.get("cause"):
+                self.mem.add_lesson(clip(f"{d['cause']} Do instead: {d.get('change', '')}", 400), [], item["id"])
         except Exception as e:  # noqa: BLE001
             self.log(f"Retry strategy failed: {e}")
+            self.mem.add_lesson(clip(previous[0], 300), [], item["id"])

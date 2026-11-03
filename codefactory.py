@@ -307,6 +307,7 @@ class Agent(BuildMixin, FlowMixin, VerifyMixin, SecurityMixin, ResearchMixin, Op
     def refill(self) -> bool:
         added = 0
         self.state["rounds_run"] = self.state.get("rounds_run", 0) + 1
+        self.flush_docs_idle()
         self.research()
         if self.state["merged"] - self.state["last_review_at"] >= self.lim["product_review_every"] or not self.mem.features:
             added += self.product_review()
