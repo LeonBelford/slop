@@ -52,6 +52,11 @@ function failedLog(list,q){
   <table><tr><th>When</th><th>Task</th><th>Try</th><th>Cause</th><th>Took</th></tr>${rows.map((r,i)=>`<tr class="clk" onclick="pdOpen('${esc(r.id)}')" title="Open ${esc(r.id)}"><td class="meta">${esc((r.time||"").slice(5,16))}</td><td>${esc(r.id)} ${esc(r.title.slice(0,60))}</td><td>${r.attempt??"?"}</td><td><span class="pill warn">${esc(r.cls)}</span></td><td>${r.secs!=null?dur(r.secs):"–"}</td></tr>
     <tr class="why"><td></td><td colspan="4"><details data-k="fl-${i}-${esc(r.id)}"><summary class="meta">what went wrong</summary><pre class="pd-j">${esc(r.why)}</pre></details></td></tr>`).join("")}</table>`;
 }
+function removedLog(list,q){
+  const rows=(list||[]).filter(r=>!q||`${r.id} ${r.title}`.toLowerCase().includes(q.toLowerCase()));
+  if(!rows.length)return `<div class="hint">No removed tasks.</div>`;
+  return `<div class="meta" style="margin-bottom:6px">${rows.length} tasks left the graph · they stay here only</div><table>${rows.map(r=>`<tr class="clk" onclick="pdOpen('${esc(r.id)}')"><td>${esc(r.id)}</td><td>${esc((r.title||"").slice(0,70))}${r.retired?' <span class="pill warn">retired</span>':r.merged_into?' <span class="pill">merged</span>':r.split_into?' <span class="pill">split</span>':""}${r.reason?`<div class="meta reason">${esc(r.reason)}</div>`:""}</td></tr>`).join("")}</table>`;
+}
 const PD_WIDGETS={
   attention:{title:"Needs attention",body:x=>(x.findings||[]).map(a=>`<div class="cap"><span class="pill ${PD_LEVEL[a.level]||""}">${a.level}</span> <div>${esc(a.text)}</div></div>`).join("")||`<div class="hint">Nothing needs attention.</div>`},
   now:{title:"Right now",body:x=>{const c=x.current,s=x.status;return (c.task?`<div><b>${esc(c.task)}</b> <span class="meta">attempt ${c.attempt||1}${c.since_s!=null?" · "+dur(c.since_s)+" in this step":""}</span></div>${pdStepRow(x)}${pctBar(c.pct)}<div class="hint">${esc(c.phase)}</div>`
@@ -65,6 +70,7 @@ const PD_WIDGETS={
   triage:{title:"Triage",body:x=>{const tr=x.triage;return `<div class="hint">${tr.merges_since_layout} merge(s) since the last re-layout${tr.last_replan_at_merge!=null?` · last re-plan at merge ${tr.last_replan_at_merge}`:""}</div>`+
     (tr.log&&tr.log.length?`<details open data-k="pd-tlog"><summary>Priority changes with reasons</summary>${tr.log.slice().reverse().map(l=>`<div class="cap"><div>${pdTask(l.id)} ${esc(l.title)}<small>${esc(l.reason)}</small></div><div class="meta">${l.from} → ${l.to}</div></div>`).join("")}</details>`:"")+
     (tr.adjusted.length?tr.adjusted.map(i=>`<div class="cap"><div>${esc(i.id)} ${esc(i.title)}</div><div class="meta">${i.dyn>0?"+":""}${i.dyn}</div></div>`).join(""):`<div class="hint">No priority adjustments at the moment.</div>`)}},
+  removed:{title:"Removed tasks (old plan)",size:2,body:x=>removedLog(x.removed,PD.q)},
   failed:{title:"Failed attempts (log)",size:2,body:x=>failedLog(x.failed_log,PD.q)},
   timeline:{title:"Task timeline (runtime)",size:2,body:pdGantt},
   causes:{title:"Failure causes",body:x=>(x.causes||[]).filter(c=>pdMatch({id:"",title:"",cls:c.cls})||c.tasks.some(pdMatch)).map(c=>`<div class="cap"><div><span class="pill warn">${esc(c.cls)}</span> ${c.n}×<small>${c.tasks.map(t=>pdTask(t.id,esc(t.id+" "+t.title))).join(" · ")}</small></div></div>`).join("")},
