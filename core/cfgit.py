@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 from pathlib import Path
+import copy
 import difflib
 from core.cfutil import now, read_json, sh, write_json
 
@@ -81,7 +82,36 @@ class Backlog:
         self.path = path
         self.items: list[dict] = read_json(path, [])
 
+    @property
+    def ledger_path(self) -> Path:
+        return self.path.with_name("done_ledger.json")
+
+    def protect_done(self) -> None:
+        """Finished tasks are never lost: every save records them in a ledger, and a task that vanished or fell back from done
+        (a stale write, a re-plan, a rollback) is restored from it. Only `forget` removes one on purpose."""
+        ledger = read_json(self.ledger_path, {})
+        if not isinstance(ledger, dict):
+            ledger = {}
+        have = {i.get("id"): i for i in self.items}
+        for id_, snap in ledger.items():
+            cur = have.get(id_)
+            if cur is None:
+                self.items.append(copy.deepcopy(snap))
+            elif cur.get("status") != "done":
+                cur.clear()
+                cur.update(copy.deepcopy(snap))
+        fresh = {i["id"]: copy.deepcopy(i) for i in self.items if i.get("status") == "done" and i.get("id")}
+        if fresh != {k: v for k, v in ledger.items() if k in fresh}:
+            write_json(self.ledger_path, {**ledger, **fresh})
+
+    def forget(self, id_: str) -> None:
+        """Removes a task from the done ledger (the user deleted it on purpose)."""
+        ledger = read_json(self.ledger_path, {})
+        if isinstance(ledger, dict) and ledger.pop(id_, None) is not None:
+            write_json(self.ledger_path, ledger)
+
     def save(self) -> None:
+        self.protect_done()
         write_json(self.path, self.items)
 
     def titles(self) -> list[str]:
@@ -123,6 +153,8 @@ class Backlog:
         mine = {i["id"]: i for i in self.items}
         merged = []
         for d in disk:
+            if not isinstance(d, dict) or "id" not in d:
+                continue
             cur = mine.get(d.get("id"))
             if cur is None:
                 merged.append(d)
@@ -131,6 +163,7 @@ class Backlog:
                 cur.update(d)
                 merged.append(cur)
         self.items[:] = merged
+        self.protect_done()
 
     def pending(self) -> list[dict]:
         """Backlog items still waiting to be picked up."""
@@ -197,6 +230,8 @@ class Backlog:
 
     def set(self, item: dict, **kw) -> None:
         """Updates `item`'s fields in place and persists the backlog."""
+        if item.get("status") == "done" and kw.get("status") not in (None, "done"):
+            self.forget(item["id"])  # a deliberate reopen (e.g. a failed merge), not a stale write
         item.update(kw)
         if kw.get("status") in ("blocked", "cancelled") and not item.get("reason"):
             item["reason"] = (item.get("notes") or ["no reason recorded"])[-1]  # every block/cancel says why

@@ -109,6 +109,17 @@ function pgMark(){
   svg.querySelectorAll(".pg-n").forEach(g=>{const id=g.dataset.id;g.classList.toggle("dim",!on(id));g.classList.toggle("sel",id===tgState.sel);g.classList.toggle("hot",!!(hit&&hit.has(id)))});
   svg.querySelectorAll(".pg-e").forEach(e=>{const lit=on(e.dataset.a)&&on(e.dataset.b);e.classList.toggle("dim",!lit);e.classList.toggle("lit",!!chain&&lit)});
 }
+// debugging and clean-up live on the node: what the task needed to get green and which checks it passed
+function pgQuality(i){
+  const p=[];
+  if(i.tier)p.push(`tier ${esc(i.tier)}`);
+  if(i.gates&&i.gates.length)p.push(`checks: ${esc(i.gates.join(", "))}`);
+  if(i.debug_rounds)p.push(`${i.debug_rounds} debug round${i.debug_rounds>1?"s":""}`);else if(i.status==="done")p.push("green first time");
+  if(i.attempts>1)p.push(`${i.attempts} attempts`);
+  if(i.review_score!=null)p.push(`review ${esc(i.review_score)}/10`);
+  if(i.cleaned)p.push("cleaned up");
+  return p.length?`<div class="meta">Quality: ${p.join(" · ")}</div>`:"";
+}
 function pgCard(id,e){
   const m=pg.m,i=m&&m.by[id],wrap=document.querySelector(".pg-wrap");if(!i||!wrap)return;
   let c=document.getElementById("pgCard");if(!c){c=document.createElement("div");c.id="pgCard";wrap.appendChild(c)}
@@ -117,7 +128,7 @@ function pgCard(id,e){
     c.dataset.id=id;
     c.innerHTML=`<div class="pc-h"><i style="background:${pgFill(i)}"></i><b>${esc(i.id)}</b> <span class="pill ${i.status==="done"?"ok":i.status==="blocked"?"bad":""}">${esc(i.status.replace("_"," "))}</span>${i.layer!=null?` <span class="pill info">L${i.layer}</span>`:""}</div><div class="pc-t">${esc(i.title)}</div>
     <div class="meta">${i.estimate_s?"Estimated: "+dur(i.estimate_s):"No estimate yet"}${i.runtime_s?" · Took: "+dur(i.runtime_s):""}</div>
-    ${i.why?`<div class="meta">Why: ${esc(i.why.slice(0,160))}</div>`:""}${i.result?`<div class="meta">Result: ${esc(String(i.result).slice(0,140))}</div>`:""}
+    ${pgQuality(i)}${i.why?`<div class="meta">Why: ${esc(i.why.slice(0,160))}</div>`:""}${i.result?`<div class="meta">Result: ${esc(String(i.result).slice(0,140))}</div>`:""}
     <div class="meta">Builds on: ${needs.length?needs.slice(0,4).map(nm).join(", ")+(needs.length>4?" …":""):"foundation"}</div><div class="meta">Unlocks: ${later.length?later.slice(0,4).map(nm).join(", ")+(later.length>4?" …":""):"nothing yet"}</div>
     <div class="meta">Files: ${files.length?esc(files.slice(0,4).join(", "))+(files.length>4?" …":""):"not known yet"}</div>`;
   }

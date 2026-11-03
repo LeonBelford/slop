@@ -9,7 +9,7 @@ from __future__ import annotations
 
 import json
 
-from core import graphctx
+from core import graphctx, progress
 from core.cfa_verify import is_test_file
 from core.cfllm import LLMError
 from core.cfutil import clip, write_json, write_text
@@ -51,8 +51,9 @@ class TierMixin:
         """Runs the gates of the task's tier. Returns (ok, why it failed, review). Skipped gates cost nothing; the review dict then is a stub."""
         tier = self.cur_tier = self.tier_of(item, base_sha)
         gates = self.tier_gates(tier)
-        self.backlog.set(item, tier=tier)
+        self.backlog.set(item, tier=tier, gates=gates)
         self.log(f"Task tier: {tier} (gates: {', '.join(gates) or 'none'})")
+        self.route = progress.route_for(gates, bool(self.cfg["features"].get("cleanup_pass")) and item.get("type") != "docs" and tier == "full")
         review = dict(NO_REVIEW, summary=item["title"])
         for name in gates:
             if name == "coverage":

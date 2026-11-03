@@ -92,3 +92,38 @@ class SnippetTests(unittest.TestCase):
             self.assertIn("  10| line10", out)
             self.assertNotIn("x.py", out)
             self.assertEqual(failures.snippets("nothing useful", root), "")
+
+
+class RouteTests(unittest.TestCase):
+    def test_route_lists_only_the_steps_a_task_goes_through(self):
+        from core import progress
+        self.assertEqual(progress.route_for(), ["plan", "implement", "build", "docs", "merge"])
+        self.assertEqual(progress.route_for(["e2e", "security"]), ["plan", "implement", "build", "e2e", "security", "docs", "merge"])
+        full = progress.route_for(["coverage", "mutation", "e2e", "security", "review", "acceptance"], True)
+        self.assertEqual(full, [n for n, _ in progress.AGENT_PIPELINE])
+        self.assertEqual(progress.step_pct([("a", 50), ("b", 50)], "b", 0.0), 50)
+
+
+class DoneLedgerTests(unittest.TestCase):
+    def test_finished_tasks_survive_stale_writes_and_replans(self):
+        import tempfile
+        from pathlib import Path
+        from core.cfgit import Backlog
+        with tempfile.TemporaryDirectory() as d:
+            bl = Backlog(Path(d) / "backlog.json")
+            a, b = bl.add("one", "d"), bl.add("two", "d", force=True)
+            bl.set(a, status="done")
+            bl.items[:] = [b]  # a re-plan or stale writer that dropped the finished task
+            bl.save()
+            self.assertEqual([i["status"] for i in Backlog(Path(d) / "backlog.json").items if i["id"] == a["id"]], ["done"])
+            bl.by_id(a["id"])["status"] = "pending"  # a rollback that downgraded it
+            bl.save()
+            self.assertEqual(bl.by_id(a["id"])["status"], "done")
+            bl.set(bl.by_id(a["id"]), status="pending")  # deliberate reopen still works
+            bl.save()
+            self.assertEqual(bl.by_id(a["id"])["status"], "pending")
+            bl.set(b, status="done")
+            bl.items[:] = []
+            bl.forget(b["id"])
+            bl.save()
+            self.assertEqual(bl.items, [])
